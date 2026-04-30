@@ -647,6 +647,36 @@
                 } catch (e) {}
             }
             schoolKey = ""; schoolName = "";
+
+            // Limpiar todos los campos del gateway
+            const fieldsToClear = [
+                'input-school-key',
+                'input-school-access-key',
+                'input-login-id',
+                'input-new-school-name',
+                'input-new-school-password',
+                'input-director-name',
+                'input-admin-name',
+                'access-display-name',
+                'access-display-cct',
+                'display-school-name',
+                'display-school-key',
+            ];
+            fieldsToClear.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (el.tagName === 'INPUT') el.value = '';
+                else el.innerText = '--';
+            });
+
+            // Restaurar tipos password
+            ['input-school-access-key', 'input-login-id'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.type = 'password';
+                const icon = document.getElementById('eye-' + id);
+                if (icon) icon.className = 'fas fa-eye';
+            });
+
             document.querySelectorAll('.setup-step').forEach(s => s.classList.remove('active'));
             document.getElementById('step-school-key')?.classList.add('active');
         };
