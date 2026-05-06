@@ -84,13 +84,14 @@
             <div id="step-school-key" class="setup-step active space-y-6">
                 <div class="space-y-1">
                     <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control Escolar QR</h1>
-                    <p class="text-[10px] font-black text-slate-400 tracking-widest uppercase">Versión 1.9.9</p>
+                    <p class="text-[10px] font-black text-slate-400 tracking-widest uppercase">Versión 2.0.0</p>
                 </div>
                 <div class="space-y-1 text-left">
                     <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Clave del Plantel (CCT)</label>
-                    <input id="input-school-key" type="text" placeholder="EJ: 17DPR0000X" class="w-full px-4 py-5 border-2 border-slate-100 rounded-3xl outline-none focus:border-orange-500 text-center text-xl font-black uppercase shadow-inner">
+                    <input id="input-school-key" type="text" placeholder="17DPR0000X" class="w-full px-4 py-5 border-2 border-slate-100 rounded-3xl outline-none focus:border-orange-500 text-center text-xl font-black uppercase shadow-inner">
                 </div>
                 <button id="btn-validate-cct" onclick="window.validateSchoolCCT()" class="w-full theme-accent text-white font-black py-5 rounded-3xl shadow-xl transition-all uppercase tracking-widest active:scale-95 btn-disabled">Conectando al Servidor...</button>
+                <p id="txt-connection-status" class="text-[9px] text-slate-400 font-bold uppercase animate-pulse">Iniciando protocolo de seguridad...</p>
             </div>
 
             <!-- PASO 1.5: CLAVE INSTITUCIONAL -->
@@ -158,13 +159,13 @@
     <header id="main-header" class="bg-white shadow-sm no-print hidden border-b border-slate-200 sticky top-0 z-[100]">
         <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
             <div class="flex items-center gap-4 text-left">
-                <div class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5 text-center">
+                <div id="header-logo-ui" class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5 text-center">
                     <svg class="w-full h-full" viewBox="0 0 100 100"><rect x="25" y="45" width="50" height="40" fill="white" rx="2" /><path d="M20 45 L50 20 L80 45 Z" fill="#ef4444" /><line x1="75" y1="15" x2="75" y2="45" stroke="white" stroke-width="3" /></svg>
                 </div>
                 <div class="flex flex-col text-left">
                     <div class="flex items-baseline gap-2">
                         <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
-                        <span class="text-[8px] font-bold text-slate-300 uppercase">v1.9.9</span>
+                        <span class="text-[8px] font-bold text-slate-300 uppercase">v2.0.0</span>
                     </div>
                     <div class="user-id-badge shadow-sm mt-1">
                         <i class="fas fa-user-circle theme-accent-text text-lg"></i>
@@ -180,7 +181,7 @@
                 <button onclick="window.switchTab('admin')" id="tab-admin" class="px-5 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase hidden">Gestión</button>
                 <div class="h-6 w-px bg-slate-300 mx-2"></div>
                 <button onclick="window.switchTab('admin'); window.switchSubTab('mantenimiento'); window.switchMaintCategory('institucion');" class="p-2.5 text-slate-400 hover:theme-text transition-colors" title="Datos Escuela"><i class="fas fa-school"></i></button>
-                <button onclick="window.logout()" class="p-2.5 text-red-400 hover:text-red-600 transition-colors ml-1"><i class="fas fa-power-off"></i></button>
+                <button onclick="window.logout()" class="p-2.5 text-red-400 hover:text-red-600 transition-colors"><i class="fas fa-power-off"></i></button>
             </nav>
         </div>
     </header>
@@ -203,7 +204,7 @@
             </div>
             <div class="bg-white rounded-[3rem] border border-slate-200 overflow-hidden max-w-2xl mx-auto shadow-xl text-left">
                 <div class="px-10 py-6 bg-slate-50 border-b flex justify-between items-center text-center">
-                    <h3 class="font-black text-[10px] theme-text uppercase tracking-widest">Actividad de Hoy</h3>
+                    <h3 class="font-black text-[10px] theme-text uppercase tracking-widest text-center">Actividad de Hoy</h3>
                     <span id="scan-count" class="bg-orange-100 text-orange-700 text-[10px] font-black px-6 py-2 rounded-full uppercase italic text-center">0 HOY</span>
                 </div>
                 <ul id="recent-logs" class="divide-y divide-slate-100 max-h-96 overflow-y-auto scroll-custom text-center"><li class="p-14 text-center text-slate-300 italic font-bold">Sin actividad hoy</li></ul>
@@ -225,13 +226,13 @@
 
                 <div id="div-mantenimiento-alumnos" class="grid grid-cols-1 md:grid-cols-2 gap-8 text-center">
                     <div class="bg-white p-10 rounded-[3rem] border border-slate-200 space-y-5 shadow-xl text-center">
-                        <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3">Registro Manual</h3>
+                        <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3">Registro de Alumno</h3>
                         <div class="space-y-4 text-left">
                             <label class="text-[8px] font-black text-slate-400 uppercase ml-3">Matrícula</label>
                             <input id="input-a-id" type="text" class="w-full px-5 py-3 border rounded-3xl uppercase font-black outline-none theme-border text-center shadow-inner">
                             <label class="text-[8px] font-black text-slate-400 uppercase ml-3">Nombre Completo</label>
                             <input id="input-a-name" type="text" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold outline-none theme-border text-center shadow-inner">
-                            <button onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase text-[11px] shadow-xl active:scale-95">Guardar Registro</button>
+                            <button onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase text-[11px] shadow-xl">Guardar Registro</button>
                         </div>
                     </div>
                     <div class="bg-white p-10 rounded-[3rem] border border-slate-200 text-center shadow-xl flex flex-col justify-center">
@@ -249,8 +250,8 @@
                             <div class="space-y-1 text-left text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">CCT (ID Permanente)</label><input id="display-school-cct-readonly" type="text" readonly class="w-full px-4 py-3 border border-slate-100 rounded-3xl uppercase font-black bg-slate-50 text-slate-400 text-center"></div>
                             <div class="space-y-1 text-left text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">Password Acceso</label><input id="edit-school-access-key" type="password" class="w-full px-4 py-3 border-2 border-slate-50 rounded-3xl uppercase font-black outline-none shadow-sm text-center"></div>
                             <div class="space-y-1 text-left text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">Director(a)</label><input id="edit-director-name" type="text" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl uppercase font-bold outline-none shadow-sm text-center"></div>
-                            <div class="space-y-1 text-left text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center text-center">Hora de Entrada</label><input id="edit-entry-time" type="time" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold outline-none shadow-sm text-center text-center"></div>
-                            <div class="space-y-1 text-left text-center text-center text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center text-center">Minutos Clase</label><input id="edit-class-duration" type="number" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold outline-none shadow-sm text-center text-center"></div>
+                            <div class="space-y-1 text-left text-center text-center text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center text-center">Hora de Entrada</label><input id="edit-entry-time" type="time" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold outline-none shadow-sm text-center text-center"></div>
+                            <div class="space-y-1 text-left text-center text-center text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center text-center text-center">Minutos Clase</label><input id="edit-class-duration" type="number" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold outline-none shadow-sm text-center text-center"></div>
                         </div>
                         <div class="mt-8 pt-6 border-t text-center"><button onclick="window.updateSchoolGlobalData()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-lg active:scale-95 transition-all text-xs">Guardar Datos</button></div>
                     </div>
@@ -266,7 +267,7 @@
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, addDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
-        // 1. INICIALIZACIÓN DINÁMICA DE FIREBASE (OBLIGATORIA)
+        // CONFIGURACIÓN DINÁMICA
         const firebaseConfig = JSON.parse(__firebase_config);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'listadeasistencia';
         const fbApp = initializeApp(firebaseConfig);
@@ -275,7 +276,6 @@
 
         let schoolKey = "", schoolName = "", currentUser = null, loggedTeacher = null, currentMaintCat = 'alumnos', students = [], html5QrScanner = null, isScannerRunning = false;
 
-        // 2. RUTAS ESTRICTAS DE BASE DE DATOS (REGLA 1)
         const getColl = (name) => collection(db, 'artifacts', appId, 'public', 'data', `${schoolKey}_${name}`);
         const getDocRef = (coll, id) => doc(db, 'artifacts', appId, 'public', 'data', `${schoolKey}_${coll}`, id);
 
@@ -300,16 +300,15 @@
         window.logout = () => { loggedTeacher = null; document.querySelectorAll('header, main').forEach(el => el.classList.add('hidden')); document.getElementById('section-gateway').classList.remove('hidden'); window.resetGateway(); };
 
         window.validateSchoolCCT = async () => {
-            if(!currentUser) return; // BLOQUEO HASTA QUE HAYA AUTH
-            const btn = document.getElementById('btn-validate-cct');
+            const btn = document.getElementById('btn-validate-cct'); if(!btn || !currentUser) return;
             const cct = document.getElementById('input-school-key').value.trim().toUpperCase();
             if(!cct) return;
+            
             if(cct === 'TLAHUISCALPANTECUTLI') { loggedTeacher = { id: 'MASTER', nombre: 'SOPORTE GLOBAL', role: 'super' }; schoolKey = "SISTEMA"; schoolName = "MODO MAESTRO"; return enterApp(); }
             
             btn.innerText = "Consultando..."; btn.classList.add('btn-disabled');
             schoolKey = cct;
             try {
-                // RUTA PÚBLICA PARA EL DIRECTORIO DE ESCUELAS
                 const sDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'colegios', schoolKey));
                 if (sDoc.exists()) {
                     schoolName = sDoc.data().name; document.getElementById('access-display-name').innerText = schoolName; 
@@ -318,7 +317,7 @@
                 } else {
                     document.querySelectorAll('.setup-step').forEach(s => s.classList.remove('active')); document.getElementById('step-school-register').classList.add('active');
                 }
-            } catch (e) { window.showModalMsg("Error", "Fallo al validar CCT."); } finally { btn.innerText = "Validar CCT"; btn.classList.remove('btn-disabled'); }
+            } catch (e) { window.showModalMsg("Error", "Fallo al validar CCT. Reintente."); btn.innerText = "Validar CCT"; btn.classList.remove('btn-disabled'); }
         };
 
         window.verifySchoolAccess = async () => {
@@ -329,7 +328,6 @@
                     document.getElementById('display-school-name').innerText = schoolName; 
                     document.getElementById('display-school-key').innerText = `CCT: ${schoolKey}`;
                     document.querySelectorAll('.setup-step').forEach(s => s.classList.remove('active')); document.getElementById('step-login').classList.add('active');
-                    // GUARDAR SESIÓN EN RUTA PRIVADA (REGLA 1)
                     await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'session', 'current'), { schoolCCT: schoolKey });
                 } else { window.showModalMsg("Error", "Clave Incorrecta"); }
             } catch (e) {}
@@ -339,7 +337,7 @@
             const n = document.getElementById('input-new-school-name').value.trim().toUpperCase(), p = document.getElementById('input-new-school-password').value.trim().toUpperCase(), d = document.getElementById('input-director-name').value.trim().toUpperCase(), a = document.getElementById('input-admin-name').value.trim().toUpperCase();
             if (!n || !p || !d || !a) return;
             try {
-                // FIXED: Sincronización asíncrona robusta para evitar errores de red prematuros
+                // Sincronización asíncrona robusta
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'colegios', schoolKey), { name: n, accessKey: p, director: d, adminMaster: a, entryTime: "08:00", createdAt: serverTimestamp() });
                 await setDoc(getDocRef('maestros', '123'), { nombre: a, role: 'admin_maestro', idCambiado: false });
                 schoolName = n;
@@ -404,7 +402,17 @@
         window.manualAttendance = () => { const vInput = document.getElementById('input-manual-id'); if(vInput && vInput.value) { window.processAttendance(vInput.value.trim().toUpperCase()); vInput.value = ''; } };
         function listenToAttendanceToday() { if (!schoolKey || schoolKey=="SISTEMA") return; onSnapshot(getColl('asistencias'), (snap) => { const today = window.getMexicoDate(); const logs = snap.docs.map(d => d.data()).filter(d => d.fecha === today); document.getElementById('scan-count').innerText = `${logs.length} HOY`; }); }
 
-        // 3. ARRANQUE SEGURO (REGLA 3)
+        // WATCHDOG TIMER PARA EL BOTÓN (4 segundos)
+        const watchdog = setTimeout(() => {
+            const btn = document.getElementById('btn-validate-cct');
+            const status = document.getElementById('txt-connection-status');
+            if(btn && btn.classList.contains('btn-disabled')) {
+                btn.innerText = "Validar CCT (Reintento)";
+                btn.classList.remove('btn-disabled');
+                if(status) status.innerText = "Conexión lenta detectada. Botón habilitado.";
+            }
+        }, 4000);
+
         const initAuth = async () => {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -413,18 +421,23 @@
                     await signInAnonymously(auth);
                 }
             } catch (e) {
-                console.error("Auth error:", e);
-                window.showModalMsg("Error de Conexión", "No se pudo conectar al servidor central.");
+                window.showModalMsg("Error", "No se pudo conectar al servidor.");
             }
         };
 
         onAuthStateChanged(auth, async u => { 
             currentUser = u; 
             if(u) {
+                clearTimeout(watchdog);
                 const btn = document.getElementById('btn-validate-cct'); 
-                if(btn) { btn.innerText = "Validar CCT"; btn.classList.remove('btn-disabled'); }
+                const status = document.getElementById('txt-connection-status');
+                if(btn) { 
+                    btn.innerText = "Validar CCT"; 
+                    btn.classList.remove('btn-disabled'); 
+                }
+                if(status) status.innerText = "Conexión segura establecida.";
                 
-                // INTENTO CARGAR SESIÓN PREVIA
+                // CARGAR SESIÓN PREVIA
                 try {
                     const sess = await getDoc(doc(db, 'artifacts', appId, 'users', u.uid, 'session', 'current'));
                     if (sess.exists() && sess.data().schoolCCT) {
