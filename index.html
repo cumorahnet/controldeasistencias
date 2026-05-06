@@ -10,56 +10,94 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        :root { --primary-color: #1e293b; --accent-color: #3b82f6; }
+        :root {
+            --primary-color: #1e293b;
+            --accent-color: #3b82f6;
+        }
         .theme-primary { background-color: var(--primary-color); }
         .theme-text { color: var(--primary-color); }
         .theme-border { border-color: var(--primary-color); }
         .theme-accent { background-color: var(--accent-color); }
+        .theme-accent-text { color: var(--accent-color); }
+
         .setup-step { display: none; }
         .setup-step.active { display: block; animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
         input[type="time"], input[type="number"] { text-align: center; font-weight: 700; }
         .scroll-custom::-webkit-scrollbar { width: 6px; }
+        .scroll-custom::-webkit-scrollbar-track { background: #f1f1f1; }
         .scroll-custom::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
-        .user-id-badge { background: #ffffff; border: 2px solid var(--accent-color); border-radius: 1.5rem; padding: 0.5rem 1.25rem; display: flex; align-items: center; gap: 0.75rem; box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.08); }
+
+        .user-id-badge {
+            background: #ffffff;
+            border: 2px solid var(--accent-color);
+            border-radius: 1.5rem;
+            padding: 0.5rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
         .btn-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
-        .cat-active { border-bottom: 3px solid var(--accent-color) !important; color: var(--accent-color) !important; font-weight: 900; }
+        
         @media print { .no-print { display: none !important; } }
+        .logo-svg { width: 100px; height: 100px; }
+        
+        .subtab-active { background-color: var(--accent-color) !important; color: white !important; }
+        .cat-active { border-bottom: 3px solid var(--accent-color) !important; color: var(--accent-color) !important; font-weight: 900; }
     </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 font-sans text-xs">
 
     <!-- MODAL DE MENSAJES -->
-    <div id="custom-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[900] hidden flex items-center justify-center p-4 text-center">
-        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-10 space-y-4 border-t-8 theme-border">
-            <h3 id="modal-msg-title" class="text-lg font-black theme-text uppercase">Aviso</h3>
+    <div id="custom-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[900] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-10 space-y-4 border-t-8 theme-border text-center">
+            <h3 id="modal-msg-title" class="text-lg font-black theme-text uppercase tracking-tight">Aviso</h3>
             <p id="modal-msg-body" class="text-sm text-slate-600 font-medium"></p>
-            <button id="btn-modal-confirm" class="w-full theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg active:scale-95">Aceptar</button>
+            <div id="modal-msg-footer" class="flex flex-col gap-2 pt-4">
+                <button id="btn-modal-confirm" class="w-full theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg active:scale-95">Aceptar</button>
+            </div>
         </div>
     </div>
 
-    <!-- GATEWAY DE ACCESO -->
+    <!-- PASARELA DE ACCESO -->
     <section id="section-gateway" class="fixed inset-0 bg-slate-900 z-[400] overflow-y-auto p-4 flex flex-col justify-center items-center text-center">
         <div class="bg-white p-8 md:p-12 rounded-[3.5rem] shadow-2xl max-w-lg w-full space-y-8 border-t-[14px] border-orange-500 relative">
+            
             <div class="flex justify-center mb-2">
-                <svg style="width:100px; height:100px" viewBox="0 0 100 100">
-                    <rect x="25" y="45" width="50" height="40" fill="#fde68a" rx="2" /><path d="M20 45 L50 20 L80 45 Z" fill="#ef4444" /><rect x="44" y="65" width="12" height="20" fill="#78350f" rx="1" /><rect x="32" y="55" width="8" height="8" fill="#bae6fd" rx="1" /><rect x="60" y="55" width="8" height="8" fill="#bae6fd" rx="1" /><line x1="75" y1="15" x2="75" y2="45" stroke="#475569" stroke-width="2" /><rect x="75" y="15" width="7" height="15" fill="#006847" /><rect x="82" y="15" width="7" height="15" fill="#ffffff" /><rect x="89" y="15" width="7" height="15" fill="#ce1126" />
+                <svg class="logo-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="25" y="45" width="50" height="40" fill="#fde68a" rx="2" />
+                    <path d="M20 45 L50 20 L80 45 Z" fill="#ef4444" />
+                    <rect x="44" y="65" width="12" height="20" fill="#78350f" rx="1" />
+                    <rect x="32" y="55" width="8" height="8" fill="#bae6fd" rx="1" />
+                    <rect x="60" y="55" width="8" height="8" fill="#bae6fd" rx="1" />
+                    <line x1="75" y1="15" x2="75" y2="45" stroke="#475569" stroke-width="2" />
+                    <rect x="75" y="15" width="7" height="15" fill="#006847" />
+                    <rect x="82" y="15" width="7" height="15" fill="#ffffff" />
+                    <rect x="89" y="15" width="7" height="15" fill="#ce1126" />
                 </svg>
             </div>
 
+            <!-- PASO 1: CCT -->
             <div id="step-school-key" class="setup-step active space-y-6">
-                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencias</h1>
+                <div class="space-y-1">
+                    <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control Escolar QR</h1>
+                    <p class="text-[10px] font-black text-slate-400 tracking-widest uppercase">Versión 1.9.9</p>
+                </div>
                 <div class="space-y-1 text-left">
                     <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Clave del Plantel (CCT)</label>
-                    <input id="input-school-key" type="text" placeholder="17DPRXXXXX" class="w-full px-4 py-5 border-2 border-slate-100 rounded-3xl outline-none focus:border-orange-500 text-center text-xl font-black uppercase shadow-inner">
+                    <input id="input-school-key" type="text" placeholder="EJ: 17DPR0000X" class="w-full px-4 py-5 border-2 border-slate-100 rounded-3xl outline-none focus:border-orange-500 text-center text-xl font-black uppercase shadow-inner">
                 </div>
-                <button id="btn-validate-cct" onclick="window.validateSchoolCCT()" class="w-full theme-accent text-white font-black py-5 rounded-3xl shadow-xl uppercase active:scale-95 btn-disabled">Sincronizando...</button>
+                <button id="btn-validate-cct" onclick="window.validateSchoolCCT()" class="w-full theme-accent text-white font-black py-5 rounded-3xl shadow-xl transition-all uppercase tracking-widest active:scale-95 btn-disabled">Conectando al Servidor...</button>
             </div>
 
+            <!-- PASO 1.5: CLAVE INSTITUCIONAL -->
             <div id="step-school-access" class="setup-step space-y-6">
                 <div class="p-6 bg-slate-50 rounded-[2.5rem] border border-slate-100">
-                    <p id="access-display-name" class="text-lg font-black theme-text uppercase italic">--</p>
-                    <p id="access-display-cct" class="text-[10px] text-slate-400 font-mono italic">--</p>
+                    <p id="access-display-name" class="text-lg font-black theme-text uppercase italic text-center">--</p>
+                    <p id="access-display-cct" class="text-[10px] text-slate-400 font-mono italic uppercase tracking-tighter text-center">--</p>
                 </div>
                 <div class="space-y-4">
                     <div class="relative text-left">
@@ -71,51 +109,69 @@
                 <button onclick="window.resetGateway()" class="text-[9px] text-slate-400 font-bold uppercase underline">Cambiar CCT</button>
             </div>
 
+            <!-- PASO 2: REGISTRO -->
             <div id="step-school-register" class="setup-step space-y-6">
-                <h2 class="text-xl font-black theme-text uppercase tracking-tighter">Registrar Escuela</h2>
+                <h2 class="text-xl font-black theme-text uppercase tracking-tighter">Nueva Institución</h2>
                 <div class="space-y-4 text-left">
-                    <div class="space-y-1"><label class="text-[8px] font-black text-slate-400 uppercase ml-3">Nombre Público</label>
-                    <input id="input-new-school-name" type="text" placeholder="NOMBRE" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-500 text-center font-bold uppercase shadow-sm"></div>
-                    <div class="space-y-1"><label class="text-[8px] font-black text-slate-400 uppercase ml-3">Password Institucional</label>
-                    <input id="input-new-school-password" type="text" placeholder="PASSWORD" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-500 text-center font-black uppercase shadow-sm"></div>
+                    <div class="space-y-1">
+                        <label class="text-[8px] font-black text-slate-400 uppercase ml-3">Nombre Público de la Escuela</label>
+                        <input id="input-new-school-name" type="text" placeholder="COLEGIO EJEMPLO" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-500 text-center font-bold uppercase shadow-sm">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[8px] font-black text-slate-400 uppercase ml-3">Clave de Acceso Institucional (Password)</label>
+                        <input id="input-new-school-password" type="text" placeholder="MÍNIMO 4 CARACTERES" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl outline-none focus:border-orange-500 text-center font-black uppercase shadow-sm">
+                    </div>
                     <div class="grid grid-cols-2 gap-4">
-                        <input id="input-director-name" type="text" placeholder="DIRECTOR(A)" class="w-full px-4 py-3 border border-slate-200 rounded-2xl uppercase font-bold text-center">
-                        <input id="input-admin-name" type="text" placeholder="ADMINISTRADOR" class="w-full px-4 py-3 border border-slate-200 rounded-2xl uppercase font-bold text-center">
+                        <div class="space-y-1">
+                            <label class="text-[8px] font-black text-slate-400 uppercase ml-3 text-center">Director(a)</label>
+                            <input id="input-director-name" type="text" placeholder="NOMBRE" class="w-full px-4 py-3 border border-slate-200 rounded-2xl uppercase font-bold text-center">
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-[8px] font-black text-slate-400 uppercase ml-3 text-center">Administrador Maestro</label>
+                            <input id="input-admin-name" type="text" placeholder="NOMBRE" class="w-full px-4 py-3 border border-slate-200 rounded-2xl uppercase font-bold text-center">
+                        </div>
                     </div>
                 </div>
-                <button id="btn-register-school" onclick="window.registerSchoolAndAdmin()" class="w-full bg-slate-800 text-white font-black py-5 rounded-3xl shadow-xl active:scale-95 text-xs uppercase">Crear e Iniciar</button>
-                <button onclick="window.resetGateway()" class="text-[9px] text-slate-400 font-bold uppercase underline block w-full mt-2">Cancelar</button>
+                <button id="btn-register-school" onclick="window.registerSchoolAndAdmin()" class="w-full bg-slate-800 text-white font-black py-5 rounded-3xl shadow-xl active:scale-95 text-xs uppercase">Registrar e Iniciar</button>
+                <button onclick="window.resetGateway()" class="text-[9px] text-slate-400 font-bold uppercase underline block w-full mt-2 text-center">Cancelar</button>
             </div>
 
+            <!-- PASO 3: LOGIN PERSONAL -->
             <div id="step-login" class="setup-step space-y-6">
                 <div class="p-6 bg-blue-50 rounded-[2.5rem] border border-blue-100 text-center">
-                    <p id="display-school-name" class="text-lg font-black theme-text uppercase italic">--</p>
-                    <p id="display-school-key" class="text-[9px] text-slate-400 font-mono italic">--</p>
+                    <p id="display-school-name" class="text-lg font-black theme-text uppercase italic text-center">--</p>
+                    <p id="display-school-key" class="text-[9px] text-slate-400 font-mono italic text-center">--</p>
                 </div>
                 <div class="space-y-4">
                     <div class="relative text-left">
-                        <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 ml-4 block text-center">ID Personal de Acceso</label>
+                        <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 ml-4 block text-center">Su ID Personal de Acceso</label>
                         <input id="input-login-id" type="password" placeholder="••••••••" class="w-full px-4 py-5 border-2 border-slate-100 rounded-3xl outline-none focus:border-orange-500 text-center text-3xl font-black uppercase shadow-inner">
                     </div>
-                    <button id="btn-personal-login" onclick="window.attemptLogin()" class="w-full theme-accent text-white font-black py-5 rounded-3xl shadow-xl active:scale-95 text-sm uppercase">Entrar</button>
+                    <button id="btn-personal-login" onclick="window.attemptLogin()" class="w-full theme-accent text-white font-black py-5 rounded-3xl shadow-xl active:scale-95 text-sm uppercase">Entrar al Sistema</button>
                 </div>
-                <button onclick="window.resetGateway()" class="text-[9px] text-slate-400 font-bold uppercase underline block w-full mt-2">Cambiar Escuela</button>
+                <button onclick="window.resetGateway()" class="text-[9px] text-slate-400 font-bold uppercase underline block w-full mt-2 text-center">Cambiar Escuela</button>
             </div>
         </div>
     </section>
 
     <!-- UI PRINCIPAL -->
     <header id="main-header" class="bg-white shadow-sm no-print hidden border-b border-slate-200 sticky top-0 z-[100]">
-        <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
             <div class="flex items-center gap-4 text-left">
-                <div id="header-logo-ui" class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5 text-center">
+                <div class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5 text-center">
                     <svg class="w-full h-full" viewBox="0 0 100 100"><rect x="25" y="45" width="50" height="40" fill="white" rx="2" /><path d="M20 45 L50 20 L80 45 Z" fill="#ef4444" /><line x1="75" y1="15" x2="75" y2="45" stroke="white" stroke-width="3" /></svg>
                 </div>
                 <div class="flex flex-col text-left">
-                    <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
+                    <div class="flex items-baseline gap-2">
+                        <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
+                        <span class="text-[8px] font-bold text-slate-300 uppercase">v1.9.9</span>
+                    </div>
                     <div class="user-id-badge shadow-sm mt-1">
                         <i class="fas fa-user-circle theme-accent-text text-lg"></i>
-                        <div class="flex flex-col leading-none text-center"><span id="user-display-name" class="text-[11px] font-black text-slate-900 uppercase">--</span><span id="user-display-role" class="text-[8px] font-bold theme-accent-text uppercase italic">Docente</span></div>
+                        <div class="flex flex-col leading-none">
+                            <span id="user-display-name" class="text-[11px] font-black text-slate-900 uppercase">Cargando...</span>
+                            <span id="user-display-role" class="text-[8px] font-bold theme-accent-text uppercase italic">Docente</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -124,7 +180,7 @@
                 <button onclick="window.switchTab('admin')" id="tab-admin" class="px-5 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase hidden">Gestión</button>
                 <div class="h-6 w-px bg-slate-300 mx-2"></div>
                 <button onclick="window.switchTab('admin'); window.switchSubTab('mantenimiento'); window.switchMaintCategory('institucion');" class="p-2.5 text-slate-400 hover:theme-text transition-colors" title="Datos Escuela"><i class="fas fa-school"></i></button>
-                <button onclick="window.logout()" class="p-2.5 text-red-400 hover:text-red-600 transition-colors"><i class="fas fa-power-off"></i></button>
+                <button onclick="window.logout()" class="p-2.5 text-red-400 hover:text-red-600 transition-colors ml-1"><i class="fas fa-power-off"></i></button>
             </nav>
         </div>
     </header>
@@ -133,22 +189,28 @@
         <section id="section-scanner" class="space-y-8 animate-fadeIn text-center">
             <div class="max-w-md mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200">
                 <div class="theme-primary p-6 text-white text-center">
-                    <h2 class="text-lg font-black uppercase">Pase de Lista</h2>
-                    <p id="current-schedule-label" class="text-[9px] opacity-80 uppercase font-black italic mt-1">Conectado</p>
+                    <h2 class="text-lg font-black uppercase tracking-wide">Pase de Lista</h2>
+                    <p id="current-schedule-label" class="text-[9px] opacity-80 uppercase font-black italic mt-1 text-center">Sincronizado</p>
                 </div>
                 <div class="p-8 space-y-6">
                     <div id="qr-reader" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[350px]"></div>
                     <button onclick="window.toggleCamera()" id="btn-camera" class="w-full bg-slate-800 hover:bg-black text-white font-black py-5 rounded-[2.5rem] shadow-xl uppercase text-[10px] flex items-center justify-center gap-3"><i class="fas fa-video"></i> <span id="btn-camera-text">Apagar Cámara</span></button>
-                    <div class="flex gap-3"><input id="input-manual-id" type="text" placeholder="ID ALUMNO" class="flex-1 px-5 py-3 border-2 border-slate-100 rounded-3xl uppercase font-black outline-none focus:ring-2 focus:ring-orange-500 text-center shadow-sm"><button onclick="window.manualAttendance()" class="theme-accent text-white px-8 py-3 rounded-3xl text-xs font-black uppercase shadow-lg">OK</button></div>
+                    <div class="flex gap-3">
+                        <input id="input-manual-id" type="text" placeholder="ID ALUMNO" class="flex-1 px-5 py-3 border-2 border-slate-100 rounded-3xl uppercase text-sm font-black outline-none focus:ring-2 focus:ring-orange-500 text-center shadow-sm">
+                        <button onclick="window.manualAttendance()" class="theme-accent text-white px-8 py-3 rounded-3xl text-xs font-black uppercase shadow-lg">OK</button>
+                    </div>
                 </div>
             </div>
             <div class="bg-white rounded-[3rem] border border-slate-200 overflow-hidden max-w-2xl mx-auto shadow-xl text-left">
-                <div class="px-10 py-6 bg-slate-50 border-b flex justify-between items-center text-center"><h3 class="font-black text-[10px] theme-text uppercase tracking-widest text-center">Actividad de Hoy</h3><span id="scan-count" class="bg-orange-100 text-orange-700 text-[10px] font-black px-6 py-2 rounded-full uppercase italic tracking-tighter">0 HOY</span></div>
+                <div class="px-10 py-6 bg-slate-50 border-b flex justify-between items-center text-center">
+                    <h3 class="font-black text-[10px] theme-text uppercase tracking-widest">Actividad de Hoy</h3>
+                    <span id="scan-count" class="bg-orange-100 text-orange-700 text-[10px] font-black px-6 py-2 rounded-full uppercase italic text-center">0 HOY</span>
+                </div>
                 <ul id="recent-logs" class="divide-y divide-slate-100 max-h-96 overflow-y-auto scroll-custom text-center"><li class="p-14 text-center text-slate-300 italic font-bold">Sin actividad hoy</li></ul>
             </div>
         </section>
 
-        <!-- PANEL GESTIÓN -->
+        <!-- GESTIÓN -->
         <section id="section-admin" class="hidden space-y-8 animate-fadeIn text-left text-center">
             <div id="admin-tabs" class="flex flex-wrap gap-2 border-b border-slate-200 pb-5 justify-center md:justify-start">
                 <button onclick="window.switchSubTab('asistencia')" id="subtab-asistencia" class="px-6 py-3 rounded-2xl bg-white border text-[11px] font-black uppercase text-slate-600 transition-all subtab-active">Reportes</button>
@@ -156,29 +218,45 @@
             </div>
 
             <div id="subcontent-mantenimiento" class="hidden space-y-6">
-                <div class="flex flex-wrap gap-4 border-b border-slate-200 pb-3 justify-center md:justify-start">
+                <div class="flex flex-wrap gap-4 border-b border-slate-200 pb-3 justify-center md:justify-start text-center">
                     <button onclick="window.switchMaintCategory('alumnos')" id="maint-cat-alumnos" class="maint-cat-btn pb-2 px-5 text-[10px] font-black uppercase border-b-2 border-transparent cat-active">Alumnos</button>
                     <button onclick="window.switchMaintCategory('institucion')" id="maint-cat-institucion" class="maint-cat-btn pb-2 px-5 text-[10px] font-black uppercase border-b-2 border-transparent text-orange-600">Escuela</button>
                 </div>
+
                 <div id="div-mantenimiento-alumnos" class="grid grid-cols-1 md:grid-cols-2 gap-8 text-center">
                     <div class="bg-white p-10 rounded-[3rem] border border-slate-200 space-y-5 shadow-xl text-center">
-                        <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3">Registro de Alumno</h3>
-                        <div class="space-y-4 text-left"><label class="text-[8px] font-black text-slate-400 uppercase ml-3">Matrícula</label><input id="input-a-id" type="text" class="w-full px-5 py-3 border rounded-3xl uppercase font-black outline-none theme-border text-center shadow-inner"><label class="text-[8px] font-black text-slate-400 uppercase ml-3">Nombre Completo</label><input id="input-a-name" type="text" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold outline-none theme-border text-center shadow-inner"><button onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase text-[11px] shadow-xl">Guardar</button></div>
+                        <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3">Registro Manual</h3>
+                        <div class="space-y-4 text-left">
+                            <label class="text-[8px] font-black text-slate-400 uppercase ml-3">Matrícula</label>
+                            <input id="input-a-id" type="text" class="w-full px-5 py-3 border rounded-3xl uppercase font-black outline-none theme-border text-center shadow-inner">
+                            <label class="text-[8px] font-black text-slate-400 uppercase ml-3">Nombre Completo</label>
+                            <input id="input-a-name" type="text" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold outline-none theme-border text-center shadow-inner">
+                            <button onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase text-[11px] shadow-xl active:scale-95">Guardar Registro</button>
+                        </div>
                     </div>
-                    <div class="bg-white p-10 rounded-[3rem] border border-slate-200 text-center shadow-xl flex flex-col justify-center"><i class="fas fa-file-csv text-5xl text-slate-200 mb-4"></i><h3 class="font-black theme-text uppercase text-[11px] border-b pb-3 mb-4 tracking-tighter">Importación CSV</h3><p class="text-[9px] text-slate-400 mb-4 font-bold">Columnas: Matrícula, Nombre</p><input type="file" id="csv-file-input" accept=".csv" class="hidden" onchange="window.handleCSVImport(event)"><button onclick="document.getElementById('csv-file-input').click()" class="w-full bg-slate-50 text-slate-600 py-5 rounded-3xl border border-slate-200 font-black uppercase text-[10px] hover:bg-slate-100">Subir CSV</button></div>
+                    <div class="bg-white p-10 rounded-[3rem] border border-slate-200 text-center shadow-xl flex flex-col justify-center">
+                        <i class="fas fa-file-csv text-5xl text-slate-200 mb-4"></i>
+                        <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3 mb-4 tracking-tighter">Importación Masiva (CSV)</h3>
+                        <input type="file" id="csv-file-input" accept=".csv" class="hidden" onchange="window.handleCSVImport(event)">
+                        <button onclick="document.getElementById('csv-file-input').click()" class="w-full bg-slate-50 text-slate-600 py-5 rounded-3xl border border-slate-200 font-black uppercase text-[10px] hover:bg-slate-100">Subir CSV</button>
+                    </div>
                 </div>
+
                 <div id="div-mantenimiento-institucion" class="hidden animate-fadeIn space-y-6">
                     <div class="bg-white p-10 rounded-[3rem] border border-slate-200 max-w-4xl mx-auto shadow-2xl text-left text-center">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div class="space-y-1 text-left"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">Nombre Público</label><input id="edit-school-name" type="text" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl uppercase font-bold outline-none shadow-sm text-center"></div>
-                            <div class="space-y-1 text-left"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">CCT</label><input id="display-school-cct-readonly" type="text" readonly class="w-full px-4 py-3 border border-slate-100 rounded-3xl uppercase font-black bg-slate-50 text-slate-400 text-center"></div>
-                            <div class="space-y-1 text-left"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">Director(a)</label><input id="edit-director-name" type="text" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl uppercase font-bold outline-none shadow-sm text-center"></div>
-                            <div class="space-y-1 text-left"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">Hora Entrada</label><input id="edit-entry-time" type="time" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold outline-none shadow-sm text-center"></div>
+                            <div class="space-y-1 text-left"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">Nombre Institución</label><input id="edit-school-name" type="text" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl uppercase font-bold outline-none shadow-sm text-center"></div>
+                            <div class="space-y-1 text-left text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">CCT (ID Permanente)</label><input id="display-school-cct-readonly" type="text" readonly class="w-full px-4 py-3 border border-slate-100 rounded-3xl uppercase font-black bg-slate-50 text-slate-400 text-center"></div>
+                            <div class="space-y-1 text-left text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">Password Acceso</label><input id="edit-school-access-key" type="password" class="w-full px-4 py-3 border-2 border-slate-50 rounded-3xl uppercase font-black outline-none shadow-sm text-center"></div>
+                            <div class="space-y-1 text-left text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center">Director(a)</label><input id="edit-director-name" type="text" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl uppercase font-bold outline-none shadow-sm text-center"></div>
+                            <div class="space-y-1 text-left text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center text-center">Hora de Entrada</label><input id="edit-entry-time" type="time" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold outline-none shadow-sm text-center text-center"></div>
+                            <div class="space-y-1 text-left text-center text-center text-center"><label class="text-[9px] font-black text-slate-400 uppercase block ml-3 text-center text-center">Minutos Clase</label><input id="edit-class-duration" type="number" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold outline-none shadow-sm text-center text-center"></div>
                         </div>
-                        <div class="mt-8 pt-6 border-t text-center"><button onclick="window.updateSchoolGlobalData()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-lg text-xs">Guardar Datos</button></div>
+                        <div class="mt-8 pt-6 border-t text-center"><button onclick="window.updateSchoolGlobalData()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-lg active:scale-95 transition-all text-xs">Guardar Datos</button></div>
                     </div>
                 </div>
-                <div id="general-table-container" class="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-2xl hidden animate-fadeIn text-center"><div class="overflow-x-auto text-center"><table class="w-full text-left border-collapse text-center"><thead id="table-headers" class="bg-slate-50 text-slate-400 text-[9px] font-black uppercase border-b text-center"></thead><tbody id="data-table-body" class="divide-y divide-slate-100 text-[11px] font-bold uppercase tracking-tight text-center"></tbody></table></div></div>
+
+                <div id="general-table-container" class="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-2xl hidden animate-fadeIn text-center"><div class="overflow-x-auto text-center"><table class="w-full text-left border-collapse text-center text-center"><thead id="table-headers" class="bg-slate-50 text-slate-400 text-[9px] font-black uppercase border-b text-center"></thead><tbody id="data-table-body" class="divide-y divide-slate-100 text-[11px] font-bold uppercase tracking-tight text-center"></tbody></table></div></div>
             </div>
         </section>
     </main>
@@ -188,15 +266,16 @@
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, addDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
-        // CONFIGURACIÓN DINÁMICA DEL ENTORNO (SISTEMA)
+        // 1. INICIALIZACIÓN DINÁMICA DE FIREBASE (OBLIGATORIA)
         const firebaseConfig = JSON.parse(__firebase_config);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'listadeasistencia';
         const fbApp = initializeApp(firebaseConfig);
         const db = getFirestore(fbApp);
         const auth = getAuth(fbApp);
 
-        let schoolKey = "", schoolName = "", currentUser = null, loggedTeacher = null, students = [], html5QrScanner = null, isScannerRunning = false;
+        let schoolKey = "", schoolName = "", currentUser = null, loggedTeacher = null, currentMaintCat = 'alumnos', students = [], html5QrScanner = null, isScannerRunning = false;
 
+        // 2. RUTAS ESTRICTAS DE BASE DE DATOS (REGLA 1)
         const getColl = (name) => collection(db, 'artifacts', appId, 'public', 'data', `${schoolKey}_${name}`);
         const getDocRef = (coll, id) => doc(db, 'artifacts', appId, 'public', 'data', `${schoolKey}_${coll}`, id);
 
@@ -219,10 +298,9 @@
         };
 
         window.logout = () => { loggedTeacher = null; document.querySelectorAll('header, main').forEach(el => el.classList.add('hidden')); document.getElementById('section-gateway').classList.remove('hidden'); window.resetGateway(); };
-        window.toggleInputVisibility = (id) => { const el = document.getElementById(id); if(el) el.type = (el.type === "password") ? "text" : "password"; };
 
         window.validateSchoolCCT = async () => {
-            if(!currentUser) return;
+            if(!currentUser) return; // BLOQUEO HASTA QUE HAYA AUTH
             const btn = document.getElementById('btn-validate-cct');
             const cct = document.getElementById('input-school-key').value.trim().toUpperCase();
             if(!cct) return;
@@ -231,6 +309,7 @@
             btn.innerText = "Consultando..."; btn.classList.add('btn-disabled');
             schoolKey = cct;
             try {
+                // RUTA PÚBLICA PARA EL DIRECTORIO DE ESCUELAS
                 const sDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'colegios', schoolKey));
                 if (sDoc.exists()) {
                     schoolName = sDoc.data().name; document.getElementById('access-display-name').innerText = schoolName; 
@@ -250,6 +329,8 @@
                     document.getElementById('display-school-name').innerText = schoolName; 
                     document.getElementById('display-school-key').innerText = `CCT: ${schoolKey}`;
                     document.querySelectorAll('.setup-step').forEach(s => s.classList.remove('active')); document.getElementById('step-login').classList.add('active');
+                    // GUARDAR SESIÓN EN RUTA PRIVADA (REGLA 1)
+                    await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'session', 'current'), { schoolCCT: schoolKey });
                 } else { window.showModalMsg("Error", "Clave Incorrecta"); }
             } catch (e) {}
         };
@@ -258,10 +339,12 @@
             const n = document.getElementById('input-new-school-name').value.trim().toUpperCase(), p = document.getElementById('input-new-school-password').value.trim().toUpperCase(), d = document.getElementById('input-director-name').value.trim().toUpperCase(), a = document.getElementById('input-admin-name').value.trim().toUpperCase();
             if (!n || !p || !d || !a) return;
             try {
-                // FIXED: Sincronización asíncrona robusta
+                // FIXED: Sincronización asíncrona robusta para evitar errores de red prematuros
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'colegios', schoolKey), { name: n, accessKey: p, director: d, adminMaster: a, entryTime: "08:00", createdAt: serverTimestamp() });
                 await setDoc(getDocRef('maestros', '123'), { nombre: a, role: 'admin_maestro', idCambiado: false });
-                schoolName = n; document.getElementById('display-school-name').innerText = schoolName;
+                schoolName = n;
+                await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'session', 'current'), { schoolCCT: schoolKey });
+                document.getElementById('display-school-name').innerText = schoolName;
                 document.querySelectorAll('.setup-step').forEach(s => s.classList.remove('active')); document.getElementById('step-login').classList.add('active');
             } catch (e) { window.showModalMsg("Error", "Fallo al registrar institución."); }
         };
@@ -321,7 +404,7 @@
         window.manualAttendance = () => { const vInput = document.getElementById('input-manual-id'); if(vInput && vInput.value) { window.processAttendance(vInput.value.trim().toUpperCase()); vInput.value = ''; } };
         function listenToAttendanceToday() { if (!schoolKey || schoolKey=="SISTEMA") return; onSnapshot(getColl('asistencias'), (snap) => { const today = window.getMexicoDate(); const logs = snap.docs.map(d => d.data()).filter(d => d.fecha === today); document.getElementById('scan-count').innerText = `${logs.length} HOY`; }); }
 
-        // ARRANQUE SEGURO (OBLIGATORIO PARA ESTE ENTORNO)
+        // 3. ARRANQUE SEGURO (REGLA 3)
         const initAuth = async () => {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -331,16 +414,31 @@
                 }
             } catch (e) {
                 console.error("Auth error:", e);
-                window.showModalMsg("Error de Conexión", "No se pudo autenticar con el servidor central.");
+                window.showModalMsg("Error de Conexión", "No se pudo conectar al servidor central.");
             }
         };
 
-        onAuthStateChanged(auth, u => { 
+        onAuthStateChanged(auth, async u => { 
             currentUser = u; 
-            const btn = document.getElementById('btn-validate-cct'); 
-            if(u && btn) { 
-                btn.innerText = "Validar CCT"; 
-                btn.classList.remove('btn-disabled'); 
+            if(u) {
+                const btn = document.getElementById('btn-validate-cct'); 
+                if(btn) { btn.innerText = "Validar CCT"; btn.classList.remove('btn-disabled'); }
+                
+                // INTENTO CARGAR SESIÓN PREVIA
+                try {
+                    const sess = await getDoc(doc(db, 'artifacts', appId, 'users', u.uid, 'session', 'current'));
+                    if (sess.exists() && sess.data().schoolCCT) {
+                        const c = sess.data().schoolCCT; 
+                        const sd = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'colegios', c));
+                        if(sd.exists()) { 
+                            schoolKey = c; schoolName = sd.data().name; 
+                            document.getElementById('display-school-name').innerText = schoolName; 
+                            document.getElementById('display-school-key').innerText = `CCT: ${schoolKey}`; 
+                            document.querySelectorAll('.setup-step').forEach(x => x.classList.remove('active')); 
+                            document.getElementById('step-login').classList.add('active'); 
+                        }
+                    }
+                } catch(e) {}
             }
         });
 
