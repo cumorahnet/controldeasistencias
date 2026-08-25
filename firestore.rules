@@ -1,0 +1,94 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return signedIn() ? request.auth.token.role : null;
+    }
+
+    function schoolKey() {
+      return signedIn() ? request.auth.token.schoolKey : null;
+    }
+
+    function teacherId() {
+      return signedIn() ? request.auth.token.teacherId : null;
+    }
+
+    function currentTeacherData() {
+      return get(/databases/$(database)/documents/artifacts/listadeasistencia/public/data/$(schoolKey() + '_maestros')/$(teacherId())).data;
+    }
+
+    function currentSchoolData() {
+      return get(/databases/$(database)/documents/artifacts/listadeasistencia/public/data/colegios/$(schoolKey())).data;
+    }
+
+    function hasCurrentTeacherSession() {
+      return signedIn()
+        && schoolKey() != null
+        && teacherId() != null
+        && exists(/databases/$(database)/documents/artifacts/listadeasistencia/public/data/$(schoolKey() + '_maestros')/$(teacherId()))
+        && exists(/databases/$(database)/documents/artifacts/listadeasistencia/public/data/colegios/$(schoolKey()))
+        && currentSchoolData().get('status', 'active') == 'active'
+        && currentTeacherData().get('status', 'active') == 'active'
+        && currentTeacherData().get('role', 'docente') == role()
+        && currentTeacherData().get('authUid', request.auth.uid) == request.auth.uid
+        && request.auth.token.passwordChangeRequired == false
+        && currentTeacherData().get('passwordChangeRequired', true) == false;
+    }
+
+    function isSuper() {
+      return role() == 'super';
+    }
+
+    function isAdmin() {
+      return role() in ['admin_jr', 'admin_maestro'] && hasCurrentTeacherSession();
+    }
+
+    function belongsToSchool(collectionId, suffix) {
+      return signedIn() && collectionId == schoolKey() + suffix;
+    }
+
+    function isOwnTeacherDocument(collectionId, documentId) {
+      return signedIn()
+        && teacherId() != null
+        && belongsToSchool(collectionId, '_maestros')
+        && teacherId() == documentId;
+    }
+
+    match /artifacts/listadeasistencia/public/data/colegios/{schoolId} {
+      // El token firmado permite leer solamente el perfil del propio plantel durante
+      // la comprobación inicial de la sesión. El resto de los datos conserva la
+      // validación completa de cuenta activa.
+      allow read: if isSuper()
+        || (signedIn() && teacherId() != null && schoolKey() == schoolId);
+      allow write: if false;
+    }
+
+    match /artifacts/listadeasistencia/public/data/{collectionId}/{documentId} {
+      allow read: if isSuper()
+        || isOwnTeacherDocument(collectionId, documentId)
+        || (hasCurrentTeacherSession() && belongsToSchool(collectionId, '_alumnos'))
+        || (hasCurrentTeacherSession() && belongsToSchool(collectionId, '_asistencias'))
+        || (hasCurrentTeacherSession() && belongsToSchool(collectionId, '_maestros') && isAdmin());
+
+      // Las altas masivas de alumnos se permiten solo a administradores del plantel.
+      allow create, update: if belongsToSchool(collectionId, '_alumnos') && isAdmin();
+      allow delete: if false;
+
+      // Docentes, asistencias, escuelas, secretos y operaciones destructivas se modifican
+      // exclusivamente mediante Cloud Functions con Admin SDK.
+    }
+
+    match /artifacts/listadeasistencia/private/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

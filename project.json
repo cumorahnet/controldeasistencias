@@ -1,0 +1,16 @@
+{
+  "id": "listasdeasistencia",
+  "nombre": "Listas de Asistencia",
+  "version": "0.1.0",
+  "estado": "Activo",
+  "prioridad": 1,
+  "tipo": "Web",
+  "tecnologias": [
+    "HTML",
+    "CSS",
+    "JavaScript"
+  ],
+  "generaIngresos": true,
+  "descripcion": "Sistema para el control de listas de asistencia.",
+  "autor": "Antonio Hernández"
+}

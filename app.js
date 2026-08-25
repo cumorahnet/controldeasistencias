@@ -1,0 +1,1328 @@
+import {initializeApp} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  getFirestore,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+  writeBatch,
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import {
+  getAuth,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithCustomToken,
+  signOut,
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+import {
+  getFunctions,
+  httpsCallable,
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBLH2OuKVr8ez5_9GeRJBcnHFlhfgeHD1o",
+  authDomain: "controldeasistencias-8308c.firebaseapp.com",
+  projectId: "controldeasistencias-8308c",
+  storageBucket: "controldeasistencias-8308c.firebasestorage.app",
+  messagingSenderId: "409924433431",
+  appId: "1:409924433431:web:ee649dc98030edc4bece52",
+};
+
+const APP_ROOT_PATH = "listadeasistencia";
+const DEFAULT_ACCENT = "#3b82f6";
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+const auth = getAuth(firebaseApp);
+const functions = getFunctions(firebaseApp, "us-central1");
+
+const api = Object.fromEntries([
+  "lookupSchool",
+  "requestSchoolRegistration",
+  "createSchool",
+  "loginTeacher",
+  "listTeachers",
+  "createTeacher",
+  "repairTeacherAccount",
+  "changeTeacherPassword",
+  "updateSchool",
+  "updateTeacherRole",
+  "approveTeacher",
+  "deleteTeacher",
+  "recordAttendance",
+  "deleteStudent",
+  "clearStudents",
+  "toggleSchoolFlag",
+  "setSchoolVerification",
+  "correctSchoolCct",
+  "deleteSchool",
+].map((name) => [name, httpsCallable(functions, name)]));
+
+let schoolKey = "";
+let schoolName = "";
+let currentSchool = null;
+let loggedTeacher = null;
+let accessChallenge = "";
+let html5QrScanner = null;
+let isScannerRunning = false;
+let isScannerTransitioning = false;
+let unsubscribeAttendance = null;
+let modalPreviousFocus = null;
+let teacherBeingRepaired = "";
+const attendanceInFlight = new Set();
+
+const byId = (id) => document.getElementById(id);
+const normalizeCode = (value, max = 80) => String(value || "").trim().toUpperCase().slice(0, max);
+const normalizeText = (value, max = 160) => String(value || "").trim().replace(/\s+/g, " ").slice(0, max);
+const normalizeSchoolLevel = (value) => {
+  const key = String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const map = { preescolar: "PRE", primaria: "PRI", secundaria: "SEC", bachillerato: "BAC", pre: "PRE", pri: "PRI", sec: "SEC", bac: "BAC" };
+  return map[key] || normalizeCode(value, 3);
+};
+const normalizeGroupName = (value, max = 12) => String(value || "").trim().toUpperCase().replace(/\s+/g, " ").slice(0, max);
+const buildStudentId = (level, group, list) => `${normalizeSchoolLevel(level)}${normalizeGroupName(group).replace(/\s+/g, "").replace(/[^A-Z0-9]/g, "")}${String(list).padStart(2, "0")}`.replace(/\s+/g, "");
+const validPassword = (value) => String(value || "").length >= 8 && String(value || "").length <= 72 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(value)) && /\d/.test(String(value));
+const isAdmin = () => ["admin_maestro", "admin_jr", "super"].includes(loggedTeacher?.role);
+const isMaster = () => ["admin_maestro", "super"].includes(loggedTeacher?.role);
+
+function functionError(error, fallback = "No fue posible completar la operación.") {
+  const friendlyMessages = {
+    "auth/invalid-credential": "El correo o la contraseña son incorrectos.",
+    "auth/user-disabled": "La cuenta está desactivada.",
+    "auth/unauthorized-domain": "Este sitio de pruebas no está autorizado en Firebase Authentication.",
+    "auth/too-many-requests": "Se realizaron demasiados intentos. Espere unos minutos.",
+    "auth/network-request-failed": "No fue posible conectarse con Firebase. Revise su conexión.",
+    "functions/internal": "Firebase encontró un error interno al procesar la solicitud. Inténtelo nuevamente o contacte a soporte.",
+    "functions/unavailable": "El servicio de acceso no está disponible temporalmente. Inténtelo nuevamente en unos minutos.",
+    "permission-denied": "La sesión no tiene permisos para consultar los datos solicitados. Cierre la sesión e inténtelo nuevamente.",
+  };
+  if (friendlyMessages[error?.code]) return friendlyMessages[error.code];
+  const message = error?.message || error?.details || "";
+  return String(message).replace(/^Firebase:\s*/i, "").replace(/\s*\(functions\/[\w-]+\)\.?$/i, "").trim() || fallback;
+}
+
+function backendUnavailable(error) {
+  return new Set([
+    "functions/internal",
+    "functions/unavailable",
+    "functions/deadline-exceeded",
+  ]).has(String(error?.code || ""));
+}
+
+function setConnection(connected, text = connected ? "Conectado" : "Sin conexión") {
+  for (const suffix of ["", "-mini"]) {
+    const dot = byId(`conn-dot${suffix}`);
+    const label = byId(`conn-text${suffix}`);
+    if (dot) dot.className = `status-dot ${connected ? "bg-green-500" : "bg-red-500"}`;
+    if (label) label.textContent = text;
+  }
+  const button = byId("btn-validate-cct");
+  if (button) {
+    button.disabled = !connected;
+    button.classList.toggle("opacity-50", !connected);
+    button.classList.toggle("cursor-not-allowed", !connected);
+  }
+}
+
+window.safeToggle = (id, hidden) => {
+  const element = byId(id);
+  if (!element) return;
+  element.classList.toggle("hidden", Boolean(hidden));
+  element.setAttribute("aria-hidden", String(Boolean(hidden)));
+};
+
+function closeModal() {
+  const modal = byId("custom-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modalPreviousFocus?.focus?.();
+  modalPreviousFocus = null;
+}
+
+window.showModalMsg = (title, message, supportType = null) => {
+  const modal = byId("custom-modal");
+  if (!modal) return;
+  modalPreviousFocus = document.activeElement;
+  byId("modal-msg-title").textContent = title;
+  byId("modal-msg-body").textContent = message;
+  window.safeToggle("btn-modal-cancel", true);
+  window.safeToggle("btn-modal-support", supportType !== "institutional");
+  const confirm = byId("btn-modal-confirm");
+  confirm.textContent = "Aceptar";
+  confirm.disabled = false;
+  confirm.onclick = closeModal;
+  const support = byId("btn-modal-support");
+  support.onclick = () => {
+    const subject = encodeURIComponent(`Soporte CCT: ${schoolKey}`);
+    window.location.href = `mailto:profetono102@gmail.com?subject=${subject}`;
+  };
+  modal.classList.remove("hidden");
+  confirm.focus();
+};
+
+window.showConfirmMsg = (title, message, onConfirm) => {
+  const modal = byId("custom-modal");
+  if (!modal) return;
+  modalPreviousFocus = document.activeElement;
+  byId("modal-msg-title").textContent = title;
+  byId("modal-msg-body").textContent = message;
+  window.safeToggle("btn-modal-support", true);
+  window.safeToggle("btn-modal-cancel", false);
+  const cancel = byId("btn-modal-cancel");
+  const confirm = byId("btn-modal-confirm");
+  cancel.onclick = closeModal;
+  confirm.textContent = "Confirmar";
+  confirm.disabled = false;
+  confirm.onclick = async () => {
+    confirm.disabled = true;
+    try {
+      await onConfirm();
+      closeModal();
+    } catch (error) {
+      confirm.disabled = false;
+      byId("modal-msg-body").textContent = functionError(error);
+    }
+  };
+  modal.classList.remove("hidden");
+  cancel.focus();
+};
+
+document.addEventListener("keydown", (event) => {
+  const modal = byId("custom-modal");
+  if (!modal || modal.classList.contains("hidden")) return;
+  if (event.key === "Escape") return closeModal();
+  if (event.key !== "Tab") return;
+  const focusable = [...modal.querySelectorAll("button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])")]
+    .filter((element) => !element.classList.contains("hidden"));
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+
+window.togglePass = (id, control) => {
+  const input = byId(id);
+  if (!input) return;
+  const reveal = input.type === "password";
+  input.type = reveal ? "text" : "password";
+  const icon = control?.querySelector?.("i") || control;
+  icon?.classList.toggle("fa-eye", !reveal);
+  icon?.classList.toggle("fa-eye-slash", reveal);
+  control?.setAttribute?.("aria-label", reveal ? "Ocultar contraseña" : "Mostrar contraseña");
+  control?.setAttribute?.("aria-pressed", String(reveal));
+  input.focus();
+};
+
+window.switchToStep = (stepId) => {
+  document.querySelectorAll(".setup-step").forEach((step) => {
+    step.classList.remove("active");
+    step.setAttribute("aria-hidden", "true");
+  });
+  const target = byId(stepId);
+  if (target) {
+    target.classList.add("active");
+    target.setAttribute("aria-hidden", "false");
+    target.querySelector("input, button")?.focus();
+  }
+};
+
+window.applySchoolBranding = (data = {}) => {
+  const color = data.allowBranding && /^#[0-9a-f]{6}$/i.test(String(data.brandColor || ""))
+    ? data.brandColor
+    : DEFAULT_ACCENT;
+  document.documentElement.style.setProperty("--accent-color", color);
+  if (typeof data.name === "string") {
+    if (byId("header-school-name")) byId("header-school-name").textContent = data.name;
+    if (byId("login-logo-placeholder")) byId("login-logo-placeholder").setAttribute("aria-label", `Identidad de ${data.name}`);
+  }
+};
+
+window.resetGateway = () => {
+  schoolKey = "";
+  schoolName = "";
+  currentSchool = null;
+  accessChallenge = "";
+  window.cancelTeacherRepair?.();
+  window.applySchoolBranding({});
+  [
+    "input-school-key",
+    "input-login-id",
+    "input-login-password",
+    "super-email",
+    "super-password",
+    "register-school-name",
+    "register-director-name",
+    "register-admin-name",
+    "register-admin-id",
+    "register-admin-password",
+    "register-admin-password-confirm",
+    "input-current-password",
+    "input-new-password",
+    "input-confirm-password",
+  ]
+    .forEach((id) => { if (byId(id)) byId(id).value = ""; });
+  window.switchToStep("step-school-key");
+};
+
+window.logout = async () => {
+  unsubscribeAttendance?.();
+  unsubscribeAttendance = null;
+  if (isScannerRunning) await window.stopScanner();
+  loggedTeacher = null;
+  attendanceInFlight.clear();
+  document.querySelectorAll("header, main").forEach((element) => element.classList.add("hidden"));
+  window.safeToggle("modal-change-password", true);
+  window.safeToggle("section-gateway", false);
+  window.resetGateway();
+  await signOut(auth).catch(() => {});
+};
+
+function createCell(text, className = "") {
+  const cell = document.createElement("td");
+  cell.textContent = text;
+  cell.className = className;
+  return cell;
+}
+
+function createIconButton(label, iconClass, action, className = "text-red-500 p-2 rounded-lg hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-500") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.setAttribute("aria-label", label);
+  const icon = document.createElement("i");
+  icon.className = iconClass;
+  icon.setAttribute("aria-hidden", "true");
+  button.append(icon);
+  button.addEventListener("click", action);
+  return button;
+}
+
+async function loadTeachers() {
+  const body = byId("teacher-table-body");
+  if (!body || !schoolKey || !isAdmin()) return;
+  try {
+    const response = await api.listTeachers({schoolKey});
+    const teachers = response.data.teachers
+      .filter((teacher) => teacher.id !== "DIR")
+      .sort((a, b) => String(a.nombre || "").localeCompare(String(b.nombre || ""), "es"));
+    body.replaceChildren();
+    for (const teacher of teachers) {
+      const row = document.createElement("tr");
+      row.append(createCell(teacher.id, "p-3 text-center"));
+      row.append(createCell(`${normalizeText(teacher.nombre)}${teacher.id === "DIR" ? " — DIRECTOR(A)" : ""}${teacher.status === "pending" ? " — PENDIENTE" : ""}`, "p-2 text-center"));
+      const roleCell = document.createElement("td");
+      roleCell.className = "p-2 text-center";
+      if (isMaster()) {
+        const select = document.createElement("select");
+        select.className = "role-select";
+        select.setAttribute("aria-label", `Rol de ${normalizeText(teacher.nombre)}`);
+        for (const [value, label] of [["docente", "DOC"], ["admin_jr", "JR"], ["admin_maestro", "MASTER"]]) {
+          const option = new Option(label, value, false, teacher.role === value);
+          select.add(option);
+        }
+        select.disabled = loggedTeacher?.role !== "super" && teacher.id === loggedTeacher?.id;
+        select.addEventListener("change", () => window.updateTeacherRole(teacher.id, select.value));
+        roleCell.append(select);
+      } else {
+        roleCell.textContent = String(teacher.role || "docente").toUpperCase();
+      }
+      row.append(roleCell);
+      const actionCell = document.createElement("td");
+      actionCell.className = "text-center";
+      const canManageTarget = isMaster() || teacher.role === "docente" || !teacher.role;
+      if (teacher.status === "pending" && canManageTarget) {
+        const approve = document.createElement("button");
+        approve.type = "button";
+        approve.className = "text-green-700 p-2 rounded-lg hover:bg-green-50 focus-visible:ring-2 focus-visible:ring-green-600";
+        approve.setAttribute("aria-label", `Aprobar a ${normalizeText(teacher.nombre)}`);
+        const approveIcon = document.createElement("i");
+        approveIcon.className = "fas fa-check";
+        approveIcon.setAttribute("aria-hidden", "true");
+        approve.append(approveIcon);
+        approve.addEventListener("click", () => window.approveTeacher(teacher.id));
+        actionCell.append(approve);
+      }
+      if (canManageTarget) {
+        actionCell.append(createIconButton(
+          `Corregir o restablecer el acceso de ${normalizeText(teacher.nombre)}`,
+          "fas fa-key",
+          () => window.openTeacherRepair(teacher.id, teacher.nombre),
+          "text-blue-700 p-2 rounded-lg hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-600",
+        ));
+      }
+      if (canManageTarget && (loggedTeacher?.role === "super" || teacher.id !== loggedTeacher?.id)) {
+        actionCell.append(createIconButton(`Eliminar a ${normalizeText(teacher.nombre)}`, "fas fa-trash", () => window.deleteTeacher(teacher.id, teacher.role)));
+      }
+      row.append(actionCell);
+      body.append(row);
+    }
+    if (!teachers.length) {
+      const row = document.createElement("tr");
+      const cell = createCell("No hay personal registrado", "p-8 text-slate-400 text-center");
+      cell.colSpan = 4;
+      row.append(cell);
+      body.append(row);
+    }
+  } catch (error) {
+    if (error?.code === "permission-denied" && body.children.length) return;
+    window.showModalMsg("Error", functionError(error, "No fue posible cargar al personal."));
+  }
+}
+
+function configureTeacherCreationForm() {
+  const roleSelect = byId("new-teacher-role");
+  if (!roleSelect) return;
+  const canAssignAdministrativeRoles = isMaster();
+  for (const option of roleSelect.options) {
+    option.disabled = !canAssignAdministrativeRoles && option.value !== "docente";
+  }
+  if (!canAssignAdministrativeRoles) roleSelect.value = "docente";
+}
+
+async function loadStudents() {
+  const body = byId("data-table-body");
+  if (!body || !schoolKey || schoolKey === "SISTEMA") return;
+  body.replaceChildren();
+  try {
+    const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
+    const students = snapshot.docs.map((entry) => ({...entry.data(), id: entry.id}));
+    const groups = Map.groupBy
+      ? Map.groupBy(students, (student) => normalizeText(student.grupo) || "SIN GRUPO")
+      : students.reduce((map, student) => map.set(normalizeText(student.grupo) || "SIN GRUPO", [...(map.get(normalizeText(student.grupo) || "SIN GRUPO") || []), student]), new Map());
+    for (const groupName of [...groups.keys()].sort((a, b) => a.localeCompare(b, "es"))) {
+      const headingRow = document.createElement("tr");
+      headingRow.className = "group-header";
+      const heading = createCell(groupName, "p-2 text-left");
+      heading.colSpan = 3;
+      headingRow.append(heading);
+      body.append(headingRow);
+      const groupStudents = groups.get(groupName).sort((a, b) => normalizeText(a.nombres).localeCompare(normalizeText(b.nombres), "es"));
+      for (const student of groupStudents) {
+        const row = document.createElement("tr");
+        row.append(createCell(student.id, "p-3 font-black text-center"));
+        const fullName = [student.paterno, student.materno, student.nombres].map((value) => normalizeText(value)).filter(Boolean).join(" ");
+        row.append(createCell(fullName, "text-left pl-2"));
+        const actionCell = document.createElement("td");
+        actionCell.className = "text-center";
+        actionCell.append(createIconButton(`Eliminar a ${fullName}`, "fas fa-trash", () => window.deleteStudent(student.id)));
+        row.append(actionCell);
+        body.append(row);
+      }
+    }
+    if (!students.length) {
+      const row = document.createElement("tr");
+      const cell = createCell("No hay alumnos", "p-10 italic text-slate-400 text-center");
+      cell.colSpan = 3;
+      row.append(cell);
+      body.append(row);
+    }
+    window.safeToggle("general-table-container", students.length === 0);
+  } catch (error) {
+    window.showModalMsg("Error", functionError(error, "No fue posible cargar a los alumnos."));
+  }
+}
+
+async function enterApp() {
+  if (!loggedTeacher) return;
+  window.safeToggle("section-gateway", true);
+  window.safeToggle("main-header", false);
+  window.safeToggle("main-content", false);
+  byId("header-school-name").textContent = schoolName;
+  byId("user-display-name").textContent = loggedTeacher.nombre;
+  byId("user-display-role").textContent = String(loggedTeacher.role || "docente").replace("_", " ");
+  const superUser = loggedTeacher.role === "super";
+  window.safeToggle("tab-admin", !isAdmin());
+  window.safeToggle("tab-super", !superUser);
+  window.safeToggle("tab-scanner", superUser);
+  window.safeToggle("maint-cat-institucion", !isMaster());
+  if (superUser) await window.switchTab("global");
+  else {
+    await loadStudents();
+    listenToAttendanceToday();
+    await window.switchTab("scanner");
+  }
+}
+
+async function switchTab(tab) {
+  const allowed = new Set(["scanner", "admin", "global"]);
+  if (!allowed.has(tab)) return;
+  if (tab === "admin" && !isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos de administración.");
+  if (tab === "global" && loggedTeacher?.role !== "super") return window.showModalMsg("Acceso", "Esta sección requiere el rol maestro global.");
+  window.safeToggle("section-scanner", tab !== "scanner");
+  window.safeToggle("section-admin", tab !== "admin");
+  window.safeToggle("section-global", tab !== "global");
+  if (tab === "scanner") await window.initScanner();
+  else if (isScannerRunning) await window.stopScanner();
+  if (tab === "admin" && loggedTeacher.role === "super") {
+    window.safeToggle("super-school-selector", false);
+    window.safeToggle("school-management-cards", true);
+    await window.loadSchoolsForSelection();
+  } else if (tab === "admin") {
+    window.safeToggle("super-school-selector", true);
+    window.safeToggle("school-management-cards", false);
+  }
+  if (tab === "global") await window.loadAllSchools();
+}
+
+window.loadSchoolsForSelection = async () => {
+  if (loggedTeacher?.role !== "super") return;
+  const list = byId("school-selection-list");
+  list.replaceChildren();
+  try {
+    const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios"));
+    for (const entry of snapshot.docs) {
+      const data = entry.data();
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "school-card-select text-center";
+      button.setAttribute("aria-label", `Gestionar ${normalizeText(data.name || entry.id)}`);
+      const code = document.createElement("strong");
+      code.className = "block font-black theme-text";
+      code.textContent = entry.id;
+      const name = document.createElement("span");
+      name.className = "block font-bold text-xs uppercase text-slate-600";
+      name.textContent = normalizeText(data.name);
+      const director = document.createElement("span");
+      director.className = "block text-xs text-slate-500 mt-1";
+      director.textContent = normalizeText(data.director) || "Sin director";
+      button.append(code, name, director);
+      button.addEventListener("click", () => window.selectSchoolForManagement(entry.id));
+      list.append(button);
+    }
+  } catch (error) {
+    window.showModalMsg("Error", functionError(error, "No fue posible cargar las instituciones."));
+  }
+};
+
+window.selectSchoolForManagement = async (id) => {
+  if (loggedTeacher?.role !== "super") return;
+  const schoolId = normalizeCode(id, 40);
+  window.cancelTeacherRepair?.();
+  const snapshot = await getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios", schoolId));
+  if (!snapshot.exists()) return;
+  schoolKey = schoolId;
+  currentSchool = {...snapshot.data(), id: schoolId};
+  schoolName = normalizeText(currentSchool.name || schoolId);
+  window.applySchoolBranding(currentSchool);
+  byId("header-school-name").textContent = `GESTIÓN: ${schoolName}`;
+  window.safeToggle("super-school-selector", true);
+  window.safeToggle("school-management-cards", false);
+  await window.switchMaintCategory("alumnos");
+};
+
+window.validateSchoolCCT = async () => {
+  const cct = normalizeCode(byId("input-school-key")?.value, 40);
+  if (!/^[A-Z0-9-]{5,40}$/.test(cct)) return window.showModalMsg("CCT", "Capture una CCT válida.");
+  try {
+    const response = await api.lookupSchool({schoolKey: cct});
+    schoolKey = cct;
+    currentSchool = response.data;
+    schoolName = normalizeText(response.data.name || cct);
+    byId("display-school-name").textContent = schoolName;
+    window.applySchoolBranding(currentSchool);
+    window.switchToStep("step-login");
+  } catch (error) {
+    if (error?.code === "functions/not-found") {
+      schoolKey = cct;
+      const cctLabel = byId("register-school-cct");
+      if (cctLabel) cctLabel.textContent = cct;
+      window.switchToStep("step-school-register");
+    } else if (error?.code === "functions/failed-precondition") {
+      window.showModalMsg("CCT no disponible", functionError(error));
+    } else if (backendUnavailable(error)) {
+      setConnection(false, "Servicio no disponible");
+      window.showModalMsg("Servicio no disponible", "La validación segura de CCT todavía no está desplegada en Firebase. Despliegue las Cloud Functions y vuelva a intentar.");
+    } else {
+      window.showModalMsg("Clave no registrada", functionError(error, "La CCT no está registrada."));
+    }
+  }
+};
+
+window.requestSchoolRegistration = async () => {
+  const schoolNameInput = normalizeText(byId("register-school-name")?.value, 120).toUpperCase();
+  const directorName = normalizeText(byId("register-director-name")?.value, 120).toUpperCase();
+  const adminName = normalizeText(byId("register-admin-name")?.value, 120).toUpperCase();
+  const adminEmailInput = byId("register-admin-id");
+  const adminEmail = normalizeText(adminEmailInput?.value, 160).toLowerCase();
+  const password = String(byId("register-admin-password")?.value || "");
+  const passwordConfirmation = String(byId("register-admin-password-confirm")?.value || "");
+  if (!/^[A-Z0-9-]{5,40}$/.test(schoolKey)) return window.showModalMsg("Registro de plantel", "Vuelva a capturar la CCT.");
+  if (!schoolNameInput || directorName.length < 5) return window.showModalMsg("Registro de plantel", "Capture el nombre de la escuela y el nombre completo del director o directora.");
+  if (adminName.length < 5) return window.showModalMsg("Registro de plantel", "Capture el nombre completo del administrador o administradora.");
+  if (!adminEmail || !adminEmailInput?.checkValidity()) return window.showModalMsg("Registro de plantel", "El usuario administrador debe ser un correo electrónico válido.");
+  if (!validPassword(password)) return window.showModalMsg("Registro de plantel", "La contraseña debe tener entre 8 y 72 caracteres e incluir letras y números.");
+  if (password !== passwordConfirmation) return window.showModalMsg("Registro de plantel", "La confirmación de la contraseña no coincide.");
+  const button = byId("btn-request-school");
+  const originalLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Enviando…";
+  }
+  try {
+    const response = await api.requestSchoolRegistration({schoolKey, schoolName: schoolNameInput, directorName, adminName, adminEmail, password});
+    const adminId = normalizeCode(response.data.administrator?.id || adminEmail, 160);
+    currentSchool = response.data.school;
+    schoolName = normalizeText(currentSchool.name || schoolKey);
+    byId("display-school-name").textContent = schoolName;
+    byId("input-login-id").value = adminId;
+    byId("register-admin-password").value = "";
+    byId("register-admin-password-confirm").value = "";
+    window.applySchoolBranding(currentSchool);
+    window.switchToStep("step-login");
+    window.showModalMsg(
+      "Plantel creado",
+      `La CCT ${schoolKey} quedó activa con el administrador ${adminId}. Ya puede ingresar con el correo y la contraseña que registró.`,
+    );
+  } catch (error) {
+    window.showModalMsg("Registro de plantel", functionError(error));
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "Crear plantel y continuar";
+    }
+  }
+};
+
+window.loginSuper = async () => {
+  const email = normalizeText(byId("super-email")?.value, 160).toLowerCase();
+  const password = String(byId("super-password")?.value || "");
+  if (!email || !password) return window.showModalMsg("Acceso maestro", "Capture correo y contraseña.");
+  try {
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const token = await credential.user.getIdTokenResult(true);
+    if (token.claims.role !== "super") {
+      await signOut(auth);
+      throw new Error("La cuenta no tiene autorización de maestro global.");
+    }
+  } catch (error) {
+    window.showModalMsg("Acceso maestro", functionError(error, "No fue posible iniciar sesión."));
+  }
+};
+
+window.recoverSuperPassword = async () => {
+  const emailInput = byId("super-email");
+  const email = normalizeText(emailInput?.value, 160).toLowerCase();
+  if (!email || !emailInput?.checkValidity()) {
+    emailInput?.focus();
+    return window.showModalMsg("Recuperar contraseña", "Capture un correo electrónico válido.");
+  }
+
+  const button = byId("btn-recover-super");
+  const originalLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Enviando…";
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, email);
+    window.showModalMsg(
+      "Revisa tu correo",
+      "Si el correo pertenece a una cuenta registrada, recibirás un enlace para establecer una contraseña nueva. Revisa también la carpeta de correo no deseado.",
+    );
+  } catch (error) {
+    const code = String(error?.code || "");
+    if (code === "auth/invalid-email") {
+      window.showModalMsg("Recuperar contraseña", "El correo electrónico no tiene un formato válido.");
+    } else if (code === "auth/too-many-requests") {
+      window.showModalMsg("Recuperar contraseña", "Se realizaron demasiados intentos. Espera unos minutos antes de volver a solicitar el enlace.");
+    } else if (code === "auth/network-request-failed") {
+      window.showModalMsg("Recuperar contraseña", "No fue posible conectarse con Firebase. Revisa tu conexión e inténtalo nuevamente.");
+    } else {
+      // El mensaje es deliberadamente genérico para no revelar qué correos están registrados.
+      window.showModalMsg(
+        "Revisa tu correo",
+        "Si el correo pertenece a una cuenta registrada, recibirás un enlace para establecer una contraseña nueva.",
+      );
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "Olvidé mi contraseña";
+    }
+  }
+};
+
+window.explainInstitutionalRecovery = () => window.showModalMsg(
+  "Recuperar clave institucional",
+  "La clave institucional no se envía por correo. Solicita al administrador maestro global que establezca una clave nueva para el plantel.",
+);
+
+window.explainTeacherRecovery = () => window.showModalMsg(
+  "Recuperar contraseña",
+  "Solicite al administrador del plantel una contraseña temporal nueva. Desde Personal puede elegir el botón de llave de su cuenta y restablecerla.",
+);
+
+window.claimSchoolCct = () => {
+  if (!schoolKey) return window.showModalMsg("Reclamar CCT", "Primero capture y valide la CCT que desea reclamar.");
+  const subject = encodeURIComponent(`Reclamación de CCT ${schoolKey}`);
+  const body = encodeURIComponent(
+    `Solicito revisar la titularidad de la CCT ${schoolKey} (${schoolName || "plantel registrado"}).\n\n` +
+    "Motivo de la reclamación:\n\n" +
+    "Nombre completo del solicitante:\nCargo:\nTeléfono:\n\n" +
+    "Adjuntaré documentos probatorios de la CCT, nombramiento o representación del plantel e identificación oficial. Entiendo que Cumorahnet deliberará la disputa antes de modificar accesos o datos.",
+  );
+  window.location.href = `mailto:cumorahnet@gmail.com?subject=${subject}&body=${body}`;
+};
+
+window.verifySchoolAccess = async () => {
+  const input = byId("input-school-access-key");
+  const accessKey = normalizeCode(input?.value, 100);
+  if (accessKey.length < 4) return window.showModalMsg("Acceso", "Capture la clave institucional.");
+  try {
+    const response = await api.verifySchoolAccess({schoolKey, accessKey});
+    accessChallenge = response.data.challengeId;
+    currentSchool = response.data.school;
+    schoolName = normalizeText(currentSchool.name || schoolKey);
+    input.value = "";
+    byId("display-school-name").textContent = schoolName;
+    window.switchToStep("step-login");
+  } catch (error) {
+    window.showModalMsg("Acceso", functionError(error), "institutional");
+  }
+};
+
+window.attemptLogin = async () => {
+  const teacherId = normalizeCode(byId("input-login-id")?.value, 160);
+  const password = String(byId("input-login-password")?.value || "");
+  if (!teacherId || !password) return window.showModalMsg("Acceso", "Capture su usuario y contraseña.");
+  try {
+    const response = await api.loginTeacher({schoolKey, teacherId, password});
+    byId("input-login-password").value = "";
+    await signInWithCustomToken(auth, response.data.token);
+  } catch (error) {
+    window.showModalMsg("Acceso", functionError(error));
+  }
+};
+
+window.registerTeacherSelf = async () => {
+  const name = normalizeText(byId("self-reg-name")?.value, 100).toUpperCase();
+  const teacherId = normalizeCode(byId("self-reg-id")?.value, 40);
+  if (!accessChallenge) return window.showModalMsg("Registro", "La autorización institucional expiró.");
+  try {
+    await api.registerTeacherSelf({schoolKey, name, teacherId, challengeId: accessChallenge});
+    accessChallenge = "";
+    window.showModalMsg("Solicitud enviada", "Un administrador deberá autorizar la cuenta antes del primer acceso.");
+    window.resetGateway();
+  } catch (error) {
+    window.showModalMsg("Registro", functionError(error));
+  }
+};
+
+window.switchMaintCategory = async (category) => {
+  if (!isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos de administración.");
+  if (!new Set(["alumnos", "maestros", "institucion"]).has(category)) return;
+  if (category === "institucion" && !isMaster()) return window.showModalMsg("Acceso", "Los ajustes institucionales requieren un administrador maestro.");
+  ["alumnos", "maestros", "institucion"].forEach((name) => {
+    window.safeToggle(`div-mantenimiento-${name}`, name !== category);
+    byId(`maint-cat-${name}`)?.classList.toggle("cat-active", name === category);
+  });
+  window.safeToggle("general-table-container", category !== "alumnos");
+  if (category === "alumnos") return loadStudents();
+  if (category === "maestros") {
+    configureTeacherCreationForm();
+    return loadTeachers();
+  }
+  const snapshot = await getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios", schoolKey));
+  if (!snapshot.exists()) return;
+  const data = snapshot.data();
+  const fields = {
+    "edit-school-name": data.name,
+    "edit-director-name": data.director,
+    "edit-entry-time": data.entryTime,
+    "edit-recess-return": data.recessReturnTime,
+    "edit-tolerance": data.tolerance,
+    "edit-class-duration": data.classDuration,
+    "display-school-cct-readonly": schoolKey,
+    "edit-school-contact-email": data.contactEmail,
+  };
+  for (const [id, value] of Object.entries(fields)) if (byId(id)) byId(id).value = value ?? "";
+  window.safeToggle("premium-badge-local", data.isPremium !== true);
+  window.safeToggle("invite-branding-panel", data.allowBranding === true);
+  window.safeToggle("super-cct-correction-panel", loggedTeacher?.role !== "super");
+  if (byId("correct-school-cct")) byId("correct-school-cct").value = "";
+};
+
+window.updateSchoolGlobalData = async () => {
+  if (!isAdmin()) return;
+  const profile = {
+    name: byId("edit-school-name").value,
+    director: byId("edit-director-name").value,
+    entryTime: byId("edit-entry-time").value,
+    recessReturnTime: byId("edit-recess-return").value,
+    tolerance: byId("edit-tolerance").value,
+    classDuration: byId("edit-class-duration").value,
+    contactEmail: byId("edit-school-contact-email")?.value || "",
+  };
+  try {
+    await api.updateSchool({schoolKey, profile});
+    window.showModalMsg("Éxito", "Los cambios fueron guardados.");
+  } catch (error) {
+    window.showModalMsg("Error", functionError(error));
+  }
+};
+
+window.correctSchoolCct = () => {
+  if (loggedTeacher?.role !== "super") return window.showModalMsg("Corregir CCT", "Esta operación requiere el acceso maestro global.");
+  const oldSchoolKey = schoolKey;
+  const newSchoolKey = normalizeCode(byId("correct-school-cct")?.value, 40);
+  if (!/^[A-Z0-9-]{5,40}$/.test(newSchoolKey)) return window.showModalMsg("Corregir CCT", "Capture una CCT nueva válida.");
+  if (newSchoolKey === oldSchoolKey) return window.showModalMsg("Corregir CCT", "La CCT nueva debe ser diferente de la actual.");
+  window.showConfirmMsg(
+    "Corregir CCT",
+    `¿Cambiar ${oldSchoolKey} por ${newSchoolKey}? Se migrarán docentes, alumnos, asistencias y accesos. Todas las sesiones del plantel se cerrarán.`,
+    async () => {
+      await api.correctSchoolCct({oldSchoolKey, newSchoolKey});
+      schoolKey = newSchoolKey;
+      await window.selectSchoolForManagement(newSchoolKey);
+    },
+  );
+};
+
+function normalizedHeader(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+}
+
+function rowValue(row, aliases) {
+  const entries = Object.entries(row).map(([key, value]) => [normalizedHeader(key), value]);
+  for (const alias of aliases) {
+    const match = entries.find(([key]) => key === normalizedHeader(alias));
+    if (match) return match[1];
+  }
+  return "";
+}
+
+async function parseImportFile(file) {
+  const buffer = await file.arrayBuffer();
+  if (/\.csv$/i.test(file.name)) {
+    const parsed = Papa.parse(new TextDecoder("utf-8").decode(buffer), {header: true, skipEmptyLines: true});
+    if (parsed.errors?.length) throw new Error(`CSV inválido: ${parsed.errors[0].message}`);
+    return parsed.data;
+  }
+  const workbook = XLSX.read(buffer, {type: "array", cellDates: false});
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!firstSheet) throw new Error("El libro no contiene hojas.");
+  return XLSX.utils.sheet_to_json(firstSheet, {defval: "", raw: false});
+}
+
+async function commitStudentChunks(students, progress) {
+  const chunks = [];
+  for (let index = 0; index < students.length; index += 400) chunks.push(students.slice(index, index + 400));
+  let completed = 0;
+  for (const chunk of chunks) {
+    const batch = writeBatch(db);
+    for (const student of chunk) {
+      batch.set(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, student.id), student.data);
+    }
+    await batch.commit();
+    completed += chunk.length;
+    progress(completed / students.length);
+  }
+}
+
+window.handleBatchImport = async (event) => {
+  if (!isAdmin()) return;
+  const file = event.target.files?.[0];
+  const level = normalizeSchoolLevel(byId("batch-level")?.value);
+  const group = normalizeGroupName(byId("batch-group")?.value, 12);
+  if (!level || !group || !file) return window.showModalMsg("Faltan datos", "Indique nivel, grupo y archivo.");
+  const container = byId("batch-progress-container");
+  const bar = byId("batch-progress-bar");
+  const text = byId("batch-progress-text");
+  container.style.display = "block";
+  bar.style.width = "0%";
+  bar.classList.remove("progress-success");
+  text.textContent = "Validando archivo…";
+  try {
+    const rows = await parseImportFile(file);
+    const students = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const listNumber = Number(rowValue(row, ["Número de lista", "Numero de lista", "#", "Lista"]));
+      const names = normalizeText(rowValue(row, ["Nombre(s)", "Nombre", "Nombres"]), 100).toUpperCase();
+      if (!Number.isInteger(listNumber) || listNumber < 1 || listNumber > 99 || !names) continue;
+      const list = String(listNumber).padStart(2, "0");
+      const id = buildStudentId(level, group, list);
+      if (seen.has(id)) throw new Error(`El número de lista ${list} está duplicado en el archivo.`);
+      seen.add(id);
+      students.push({
+        id,
+        data: {
+          paterno: normalizeText(rowValue(row, ["Apellido paterno", "Paterno"]), 80).toUpperCase(),
+          materno: normalizeText(rowValue(row, ["Apellido materno", "Materno"]), 80).toUpperCase(),
+          nombres: names,
+          grupo: group,
+          lista: list,
+          level,
+          createdAt: serverTimestamp(),
+        },
+      });
+    }
+    if (!students.length) throw new Error("No se encontraron filas válidas. Revise los encabezados y números de lista.");
+    text.textContent = `Importando ${students.length} alumnos…`;
+    await commitStudentChunks(students, (ratio) => { bar.style.width = `${Math.round(ratio * 100)}%`; });
+    bar.classList.add("progress-success");
+    text.textContent = `Carga completada: ${students.length} alumnos.`;
+    event.target.value = "";
+    await loadStudents();
+  } catch (error) {
+    text.textContent = functionError(error, "La importación falló.");
+    bar.style.width = "0%";
+    window.showModalMsg("Importación", text.textContent);
+  }
+};
+
+window.addStudent = async () => {
+  if (!isAdmin()) return;
+  const level = normalizeSchoolLevel(byId("input-a-nivel").value);
+  const group = normalizeGroupName(byId("input-a-grupo").value, 12);
+  const listNumber = Number(byId("input-a-lista").value);
+  const names = normalizeText(byId("input-a-nombres").value, 100).toUpperCase();
+  if (!level || !group || !Number.isInteger(listNumber) || listNumber < 1 || listNumber > 99 || !names) {
+    return window.showModalMsg("Datos", "Capture nivel, grupo, nombre y un número de lista entre 1 y 99.");
+  }
+  const list = String(listNumber).padStart(2, "0");
+  const id = buildStudentId(level, group, list);
+  try {
+    const ref = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, id);
+    const existing = await getDoc(ref);
+    if (existing.exists()) return window.showModalMsg("Duplicado", `Ya existe un alumno con el ID ${id}.`);
+    await setDoc(ref, {
+      paterno: normalizeText(byId("input-a-paterno").value, 80).toUpperCase(),
+      materno: normalizeText(byId("input-a-materno").value, 80).toUpperCase(),
+      nombres: names,
+      grupo: group,
+      lista: list,
+      level,
+      createdAt: serverTimestamp(),
+    });
+    ["input-a-lista", "input-a-paterno", "input-a-materno", "input-a-nombres", "input-a-grupo", "input-a-nivel"].forEach((field) => { byId(field).value = ""; });
+    await loadStudents();
+  } catch (error) {
+    window.showModalMsg("Error", functionError(error));
+  }
+};
+window.clearAllStudents = () => window.showConfirmMsg("Limpieza", "¿Borrar todo el catálogo de alumnos? Esta acción no se puede deshacer.", async () => {
+  await api.clearStudents({schoolKey});
+  await loadStudents();
+});
+
+window.deleteStudent = (id) => window.showConfirmMsg("Eliminar", `¿Eliminar al alumno ${id}?`, async () => {
+  await api.deleteStudent({schoolKey, studentId: id});
+  await loadStudents();
+});
+
+window.updateTeacherRole = async (id, role) => {
+  try {
+    await api.updateTeacherRole({schoolKey, teacherId: id, role});
+    await loadTeachers();
+  } catch (error) {
+    window.showModalMsg("Rol", functionError(error));
+    await loadTeachers();
+  }
+};
+
+window.createTeacher = async () => {
+  if (!isAdmin() || !schoolKey || schoolKey === "SISTEMA") {
+    return window.showModalMsg("Alta de personal", "Seleccione primero el plantel que desea administrar.");
+  }
+  const name = normalizeText(byId("new-teacher-name")?.value, 100).toUpperCase();
+  const teacherId = normalizeCode(byId("new-teacher-id")?.value, 40);
+  const role = String(byId("new-teacher-role")?.value || "docente");
+  const temporaryPassword = String(byId("new-teacher-password")?.value || "");
+  if (name.length < 5) return window.showModalMsg("Alta de personal", "Capture el nombre completo del docente.");
+  if (!/^[A-Z0-9._-]{4,40}$/.test(teacherId)) {
+    return window.showModalMsg("Alta de personal", "El usuario debe tener entre 4 y 40 caracteres alfanuméricos.");
+  }
+  if (!validPassword(temporaryPassword)) return window.showModalMsg("Alta de personal", "La contraseña temporal debe tener entre 8 y 72 caracteres e incluir letras y números.");
+
+  const button = byId("btn-create-teacher");
+  const originalLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Guardando…";
+  }
+  try {
+    await api.createTeacher({schoolKey, name, teacherId, role, temporaryPassword});
+    byId("new-teacher-name").value = "";
+    byId("new-teacher-id").value = "";
+    byId("new-teacher-password").value = "";
+    byId("new-teacher-role").value = "docente";
+    await loadTeachers();
+    window.showModalMsg(
+      "Cuenta creada",
+      `La cuenta ${teacherId} fue creada. Entregue la contraseña temporal de forma privada; deberá cambiarla en el primer acceso.`,
+    );
+  } catch (error) {
+    window.showModalMsg("Alta de personal", functionError(error));
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "Crear cuenta";
+    }
+  }
+};
+
+window.openTeacherRepair = (teacherId, teacherName) => {
+  teacherBeingRepaired = normalizeCode(teacherId, 40);
+  byId("repair-teacher-name").value = normalizeText(teacherName, 100);
+  byId("repair-teacher-password").value = "";
+  byId("repair-teacher-label").textContent = `Cuenta seleccionada: ${normalizeText(teacherName, 100)}`;
+  window.safeToggle("teacher-repair-panel", false);
+  byId("repair-teacher-name").focus();
+};
+
+window.cancelTeacherRepair = () => {
+  teacherBeingRepaired = "";
+  byId("repair-teacher-name").value = "";
+  byId("repair-teacher-password").value = "";
+  window.safeToggle("teacher-repair-panel", true);
+};
+
+window.saveTeacherRepair = async () => {
+  if (!teacherBeingRepaired) return window.showModalMsg("Corregir cuenta", "Seleccione primero una cuenta de la tabla.");
+  const name = normalizeText(byId("repair-teacher-name")?.value, 100).toUpperCase();
+  const temporaryPassword = String(byId("repair-teacher-password")?.value || "");
+  if (name.length < 5) return window.showModalMsg("Corregir cuenta", "Capture el nombre completo del docente.");
+  if (temporaryPassword && !validPassword(temporaryPassword)) return window.showModalMsg("Corregir cuenta", "La contraseña temporal debe tener entre 8 y 72 caracteres e incluir letras y números.");
+  const button = byId("btn-repair-teacher");
+  const originalLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Guardando…";
+  }
+  try {
+    await api.repairTeacherAccount({schoolKey, teacherId: teacherBeingRepaired, name, temporaryPassword: temporaryPassword || null});
+    window.cancelTeacherRepair();
+    await loadTeachers();
+    window.showModalMsg(
+      "Cuenta actualizada",
+      temporaryPassword
+        ? "Entregue la contraseña temporal de forma privada. Las sesiones anteriores dejaron de ser válidas."
+        : "El nombre de la cuenta fue corregido.",
+    );
+  } catch (error) {
+    window.showModalMsg("Corregir cuenta", functionError(error));
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "Guardar corrección";
+    }
+  }
+};
+
+window.approveTeacher = (id) => window.showConfirmMsg("Autorizar docente", `¿Autorizar el ID ${id} para ingresar al sistema?`, async () => {
+  await api.approveTeacher({schoolKey, teacherId: id});
+  await loadTeachers();
+});
+
+window.deleteTeacher = (id) => window.showConfirmMsg("Eliminar personal", `¿Eliminar el ID ${id}?`, async () => {
+  await api.deleteTeacher({schoolKey, teacherId: id});
+  await loadTeachers();
+});
+
+window.createSchool = async () => {
+  if (loggedTeacher?.role !== "super") return window.showModalMsg("Alta de plantel", "Esta operación requiere el acceso maestro global.");
+  const newSchoolKey = normalizeCode(byId("school-create-cct")?.value, 40);
+  const schoolNameInput = normalizeText(byId("school-create-name")?.value, 120).toUpperCase();
+  const directorName = normalizeText(byId("school-create-director")?.value, 120).toUpperCase();
+  const adminName = normalizeText(byId("school-create-admin-name")?.value, 120).toUpperCase();
+  const adminEmailInput = byId("school-create-admin-id");
+  const adminId = normalizeText(adminEmailInput?.value, 160).toLowerCase();
+  const password = String(byId("school-create-password")?.value || "");
+  const passwordConfirmation = String(byId("school-create-password-confirm")?.value || "");
+  if (!/^[A-Z0-9-]{5,40}$/.test(newSchoolKey)) return window.showModalMsg("Alta de plantel", "Capture una CCT válida.");
+  if (!schoolNameInput || directorName.length < 5) return window.showModalMsg("Alta de plantel", "Capture el nombre de la escuela y del director o directora.");
+  if (adminName.length < 5) return window.showModalMsg("Alta de plantel", "Capture el nombre del administrador o administradora.");
+  if (!adminId || !adminEmailInput?.checkValidity()) return window.showModalMsg("Alta de plantel", "El usuario administrador debe ser un correo electrónico válido.");
+  if (!validPassword(password)) return window.showModalMsg("Alta de plantel", "La contraseña debe tener entre 8 y 72 caracteres e incluir letras y números.");
+  if (password !== passwordConfirmation) return window.showModalMsg("Alta de plantel", "La confirmación de la contraseña no coincide.");
+  const button = byId("btn-create-school");
+  const originalLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Creando…";
+  }
+  try {
+    await api.createSchool({schoolKey: newSchoolKey, schoolName: schoolNameInput, directorName, adminName, adminId, password});
+    ["school-create-cct", "school-create-name", "school-create-director", "school-create-admin-name", "school-create-admin-id", "school-create-password", "school-create-password-confirm"]
+      .forEach((id) => { byId(id).value = ""; });
+    await window.loadAllSchools();
+    window.showModalMsg("Plantel creado", `La CCT ${newSchoolKey} quedó registrada con el administrador ${adminId}. La contraseña capturada quedó activa como contraseña definitiva.`);
+  } catch (error) {
+    window.showModalMsg("Alta de plantel", functionError(error));
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "Crear plantel y administrador";
+    }
+  }
+};
+
+window.loadAllSchools = async () => {
+  if (loggedTeacher?.role !== "super") return;
+  const body = byId("global-schools-body");
+  body.replaceChildren();
+  try {
+    const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios"));
+    for (const entry of snapshot.docs) {
+      const school = entry.data();
+      const row = document.createElement("tr");
+      row.append(createCell(entry.id));
+      row.append(createCell(normalizeText(school.name)));
+      const verificationCell = document.createElement("td");
+      const verificationStatus = new Set(["verified", "unverified", "disputed"]).has(school.verificationStatus)
+        ? school.verificationStatus
+        : "unverified";
+      const verificationLabel = {verified: "VALIDADA", unverified: "SIN VALIDAR", disputed: "EN DISPUTA"}[verificationStatus];
+      verificationCell.textContent = verificationLabel;
+      verificationCell.className = verificationStatus === "verified"
+        ? "text-green-700 font-black"
+        : verificationStatus === "disputed" ? "text-red-700 font-black" : "text-amber-700 font-black";
+      row.append(verificationCell);
+      for (const field of ["isPremium", "allowBranding"]) {
+        const cell = document.createElement("td");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `px-3 py-2 rounded-lg font-black ${school[field] ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`;
+        button.textContent = school[field] ? "SÍ" : "NO";
+        button.setAttribute("aria-label", `${field === "isPremium" ? "Publicidad desactivada" : "Identidad visual"} para ${normalizeText(school.name)}: ${button.textContent}`);
+        button.addEventListener("click", () => window.togglePremiumMaster(entry.id, field, school[field] === true));
+        cell.append(button);
+        row.append(cell);
+      }
+      const actions = document.createElement("td");
+      actions.className = "whitespace-nowrap";
+      actions.append(createIconButton(
+        `Gestionar usuarios y datos de ${normalizeText(school.name)}`,
+        "fas fa-tools",
+        () => window.manageSchoolGlobal(entry.id),
+        "text-blue-700 p-2 rounded-lg hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-600",
+      ));
+      actions.append(createIconButton(
+        `Validar la CCT ${entry.id}`,
+        "fas fa-shield-alt",
+        () => window.setSchoolVerification(entry.id, "verified"),
+        "text-green-700 p-2 rounded-lg hover:bg-green-50 focus-visible:ring-2 focus-visible:ring-green-600",
+      ));
+      actions.append(createIconButton(
+        `Marcar la CCT ${entry.id} en disputa`,
+        "fas fa-exclamation-triangle",
+        () => window.setSchoolVerification(entry.id, "disputed"),
+        "text-amber-700 p-2 rounded-lg hover:bg-amber-50 focus-visible:ring-2 focus-visible:ring-amber-600",
+      ));
+      actions.append(createIconButton(`Eliminar escuela ${normalizeText(school.name)}`, "fas fa-trash", () => window.deleteSchoolGlobal(entry.id)));
+      row.append(actions);
+      body.append(row);
+    }
+  } catch (error) {
+    window.showModalMsg("Error", functionError(error));
+  }
+};
+
+window.manageSchoolGlobal = async (id) => {
+  await window.switchTab("admin");
+  await window.selectSchoolForManagement(id);
+};
+
+window.setSchoolVerification = (id, verificationStatus) => {
+  const cct = normalizeCode(id, 40);
+  const action = verificationStatus === "verified" ? "validar" : "marcar en disputa";
+  window.showConfirmMsg("Verificación de CCT", `¿Confirmar que desea ${action} la CCT ${cct}?`, async () => {
+    await api.setSchoolVerification({schoolKey: cct, verificationStatus});
+    await window.loadAllSchools();
+  });
+};
+
+window.togglePremiumMaster = async (id, field, current) => {
+  try {
+    await api.toggleSchoolFlag({schoolKey: id, field, value: !current});
+    await window.loadAllSchools();
+  } catch (error) {
+    window.showModalMsg("Error", functionError(error));
+  }
+};
+
+window.deleteSchoolGlobal = (id) => window.showConfirmMsg("Eliminar escuela", `¿Borrar permanentemente ${id}, incluyendo alumnos, docentes y asistencias?`, async () => {
+  await api.deleteSchool({schoolKey: id});
+  await window.loadAllSchools();
+});
+
+window.initScanner = async () => {
+  if (isScannerTransitioning || isScannerRunning || !loggedTeacher) return;
+  isScannerTransitioning = true;
+  try {
+    if (!html5QrScanner) html5QrScanner = new Html5Qrcode("qr-reader");
+    await html5QrScanner.start({facingMode: "environment"}, {fps: 8, qrbox: 250}, (text) => window.processAttendance(text));
+    isScannerRunning = true;
+    byId("btn-camera").textContent = "Apagar cámara";
+    byId("btn-camera").setAttribute("aria-pressed", "true");
+  } catch (error) {
+    byId("btn-camera").textContent = "Encender cámara";
+    window.showModalMsg("Cámara", "No se pudo iniciar la cámara. Revise el permiso del navegador o use la captura manual.");
+  } finally {
+    isScannerTransitioning = false;
+  }
+};
+
+window.stopScanner = async () => {
+  if (isScannerTransitioning || !isScannerRunning || !html5QrScanner) return;
+  isScannerTransitioning = true;
+  try {
+    await html5QrScanner.stop();
+    isScannerRunning = false;
+    byId("btn-camera").textContent = "Encender cámara";
+    byId("btn-camera").setAttribute("aria-pressed", "false");
+  } finally {
+    isScannerTransitioning = false;
+  }
+};
+
+window.toggleCamera = () => isScannerRunning ? window.stopScanner() : window.initScanner();
+
+window.processAttendance = async (rawId) => {
+  if (!loggedTeacher) return;
+  const studentId = normalizeCode(rawId, 40);
+  if (!/^[A-Z0-9._-]{4,40}$/.test(studentId) || attendanceInFlight.has(studentId)) return;
+  attendanceInFlight.add(studentId);
+  try {
+    const response = await api.recordAttendance({schoolKey, studentId});
+    const status = byId("scanner-status");
+    if (status) status.textContent = response.data.created ? `Asistencia registrada: ${studentId}` : `El alumno ${studentId} ya tenía asistencia hoy.`;
+  } catch (error) {
+    window.showModalMsg("Asistencia", functionError(error));
+  } finally {
+    setTimeout(() => attendanceInFlight.delete(studentId), 2500);
+  }
+};
+
+window.manualAttendance = () => {
+  const input = byId("input-manual-id");
+  const value = input?.value;
+  if (!value) return;
+  input.value = "";
+  window.processAttendance(value);
+};
+
+window.processPasswordChange = async () => {
+  const currentPassword = String(byId("input-current-password")?.value || "");
+  const newPassword = String(byId("input-new-password")?.value || "");
+  const confirmation = String(byId("input-confirm-password")?.value || "");
+  if (!currentPassword) return window.showModalMsg("Contraseña", "Capture la contraseña temporal actual.");
+  if (!validPassword(newPassword) || newPassword !== confirmation) return window.showModalMsg("Contraseña", "Las contraseñas nuevas deben coincidir, tener entre 8 y 72 caracteres e incluir letras y números.");
+  try {
+    const response = await api.changeTeacherPassword({currentPassword, newPassword});
+    loggedTeacher.passwordChangeRequired = false;
+    byId("input-current-password").value = "";
+    byId("input-new-password").value = "";
+    byId("input-confirm-password").value = "";
+    window.safeToggle("modal-change-password", true);
+    await signInWithCustomToken(auth, response.data.token);
+  } catch (error) {
+    window.showModalMsg("Contraseña", functionError(error));
+  }
+};
+
+function attendanceTimestamp(value) {
+  return value?.toMillis?.() || 0;
+}
+
+function listenToAttendanceToday() {
+  unsubscribeAttendance?.();
+  const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
+  const attendanceQuery = query(
+    collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_asistencias`),
+    where("fecha", "==", today),
+  );
+  unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
+    const logs = snapshot.docs.map((entry) => entry.data()).sort((a, b) => attendanceTimestamp(b.timestamp) - attendanceTimestamp(a.timestamp));
+    byId("scan-count").textContent = `${logs.length} HOY`;
+    const list = byId("recent-logs");
+    list.replaceChildren();
+    for (const log of logs.slice(0, 10)) {
+      const item = document.createElement("li");
+      item.className = "p-4 flex justify-between items-center";
+      const description = document.createElement("div");
+      const name = document.createElement("p");
+      name.className = "font-black uppercase";
+      name.textContent = [log.nombre, log.apellido].map((value) => normalizeText(value)).filter(Boolean).join(" ");
+      const time = document.createElement("p");
+      time.className = "text-xs text-slate-500";
+      time.textContent = normalizeText(log.hora);
+      description.append(name, time);
+      const state = document.createElement("span");
+      state.className = "text-green-600 font-black uppercase text-xs";
+      state.textContent = "Presente";
+      item.append(description, state);
+      list.append(item);
+    }
+    if (!logs.length) {
+      const empty = document.createElement("li");
+      empty.className = "p-14 text-center text-slate-400 italic font-bold uppercase";
+      empty.textContent = "Sin actividad";
+      list.append(empty);
+    }
+  }, (error) => window.showModalMsg("Asistencias", functionError(error, "No fue posible actualizar la lista.")));
+}
+
+window.loadTeachers = loadTeachers;
+window.loadStudents = loadStudents;
+window.enterApp = enterApp;
+window.switchTab = switchTab;
+
+onAuthStateChanged(auth, async (user) => {
+  setConnection(true);
+  if (!user) {
+    window.safeToggle("section-gateway", false);
+    return;
+  }
+  try {
+    const tokenResult = await user.getIdTokenResult(true);
+    const claims = tokenResult.claims;
+    if (!claims.role) throw new Error("La sesión no contiene un rol autorizado.");
+    if (claims.role === "super") {
+      loggedTeacher = {id: "MASTER", nombre: normalizeText(claims.name || "SGE GLOBAL"), role: "super", passwordChangeRequired: false};
+      schoolKey = "SISTEMA";
+      schoolName = "SGE GLOBAL";
+      await enterApp();
+      return;
+    }
+    schoolKey = normalizeCode(claims.schoolKey, 40);
+    const teacherId = normalizeCode(claims.teacherId, 160);
+    if (claims.passwordChangeRequired === true) {
+      loggedTeacher = {id: teacherId, nombre: normalizeText(claims.name || teacherId), role: claims.role, passwordChangeRequired: true};
+      window.safeToggle("section-gateway", true);
+      window.safeToggle("modal-change-password", false);
+      byId("input-current-password")?.focus();
+      return;
+    }
+    const [schoolSnapshot, teacherSnapshot] = await Promise.all([
+      getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios", schoolKey)),
+      getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_maestros`, teacherId)),
+    ]);
+    if (!schoolSnapshot.exists() || !teacherSnapshot.exists()) throw new Error("La escuela o el usuario ya no existen.");
+    currentSchool = {...schoolSnapshot.data(), id: schoolKey};
+    schoolName = normalizeText(currentSchool.name || schoolKey);
+    loggedTeacher = {...teacherSnapshot.data(), id: teacherId, nombre: normalizeText(claims.name || teacherSnapshot.get("nombre")), role: claims.role};
+    window.applySchoolBranding(currentSchool);
+    await enterApp();
+  } catch (error) {
+    await signOut(auth).catch(() => {});
+    window.showModalMsg("Sesión", functionError(error, "La sesión no es válida. Inicie nuevamente."));
+  }
+});
+
+window.addEventListener("online", () => setConnection(true));
+window.addEventListener("offline", () => setConnection(false));
+setConnection(navigator.onLine, navigator.onLine ? "Conectado" : "Sin conexión");
