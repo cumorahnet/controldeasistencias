@@ -92,6 +92,7 @@
             <h3 id="print-qr-title" class="text-lg font-black theme-text uppercase tracking-tight">QR de Alumno</h3>
             <div class="space-y-4">
                 <p id="print-qr-student-name" class="text-base font-bold text-slate-800 uppercase"></p>
+                <p id="print-qr-student-details" class="text-xs text-slate-600 font-medium"></p>
                 <div id="print-qr-code-container" class="flex justify-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <!-- QR code will be generated here -->
                 </div>
@@ -143,7 +144,7 @@
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
-                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.8.1</p>
+                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.13.5</p>
                 <div class="flex items-center justify-center gap-2">
                     <span id="conn-dot" aria-hidden="true" class="status-dot bg-red-500"></span>
                     <p id="conn-text" role="status" aria-live="polite" class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Iniciando...</p>
@@ -216,11 +217,8 @@
                 <div class="flex flex-col">
                     <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
                     <div class="user-id-badge shadow-sm mt-1">
-                        <i class="fas fa-user-circle theme-accent-text text-lg text-center"></i>
-                        <div class="flex flex-col leading-none">
-                            <span id="user-display-name" class="text-[11px] font-black text-slate-900 uppercase">--</span>
-                            <span id="user-display-role" class="text-[8px] font-bold theme-accent-text uppercase italic">--</span>
-                        </div>
+                        <span id="user-display-name" class="text-[11px] font-black text-slate-900 uppercase">--</span>
+                        <span id="user-display-role" class="text-[8px] font-bold theme-accent-text uppercase italic">--</span>
                     </div>
                 </div>
             </div>
@@ -287,7 +285,6 @@
                                     </select>
                                 </div>
                                 <div class="space-y-1 text-center"><label for="input-a-grupo" class="text-[8px] font-black text-slate-500 uppercase">Grupo</label><input id="input-a-grupo" type="text" placeholder="1A / A / 3B" maxlength="12" aria-label="Grupo del alumno" class="w-full px-3 py-3 border rounded-3xl uppercase font-black text-center shadow-inner"></div>
-                                <!-- Eliminado el campo de número de lista, se asignará automáticamente -->
                             </div>
                             <input id="input-a-paterno" type="text" aria-label="Apellido paterno" autocomplete="family-name" placeholder="APELLIDO PATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-materno" type="text" aria-label="Apellido materno" placeholder="APELLIDO MATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-nombres" type="text" aria-label="Nombres del alumno" autocomplete="given-name" placeholder="NOMBRE(S)" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><button type="button" onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-xl text-center">Guardar</button>
                             <button onclick="window.logout()" class="w-full text-slate-400 font-bold uppercase text-[9px] underline text-center">Cerrar Sesión</button>
@@ -525,6 +522,7 @@
             currentStudentForQR = studentData; // Store student data globally
             const modal = document.getElementById('modal-print-single-qr');
             document.getElementById('print-qr-student-name').innerText = studentData.nombreCompleto || 'ALUMNO NUEVO';
+            document.getElementById('print-qr-student-details').innerText = `${studentData.nivel || ''} - ${studentData.grupo || ''} - Lista: ${studentData.lista || 'N/A'}`;
             
             const qrContainer = document.getElementById('print-qr-code-container');
             qrContainer.innerHTML = ''; // Clear previous QR
@@ -541,7 +539,7 @@
             const centerLabel = document.createElement('span');
             centerLabel.className = 'qr-center-id';
             centerLabel.textContent = studentData.qrContent;
-            qrContainer.style.position = 'relative';
+            qrContainer.style.position = 'relative'; // Ensure position is relative for absolute child
             qrContainer.appendChild(centerLabel);
 
             modal.classList.remove('hidden');
@@ -561,7 +559,12 @@
             const qrCard = document.createElement('div');
             qrCard.className = 'student-qr-card student-qr-single'; // Use existing print styles, add single column layout
             qrCard.innerHTML = `
+                <div class="student-print-header">
+                    <h1>${document.getElementById('header-school-name').innerText}</h1>
+                    <p>${document.getElementById('user-display-name').innerText}</p>
+                </div>
                 <h2>${studentData.nombreCompleto}</h2>
+                <p>${studentData.nivel || ''} ${studentData.grupo || ''} | No. Lista: ${studentData.lista || 'N/A'}</p>
                 <div class="qr-print-code" id="print-single-qr-target"></div>
             `;
             printArea.appendChild(qrCard);
@@ -570,7 +573,7 @@
             const qrTarget = qrCard.querySelector('#print-single-qr-target');
             new QRCode(qrTarget, {
                 text: studentData.qrContent,
-                width: 180,
+                width: 180, // Use consistent size for print
                 height: 180,
                 colorDark: "#1e293b",
                 colorLight: "#ffffff",
@@ -579,7 +582,7 @@
             const centerLabel = document.createElement('span');
             centerLabel.className = 'qr-center-id';
             centerLabel.textContent = studentData.qrContent;
-            qrTarget.style.position = 'relative';
+            qrTarget.style.position = 'relative'; // Ensure position is relative for absolute child
             qrTarget.appendChild(centerLabel);
 
             window.print();
