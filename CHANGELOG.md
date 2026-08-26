@@ -1,5 +1,41 @@
 # CHANGELOG
 
+<!-- cdc-session:session-20260824163402-410a01 -->
+## Sesión 24/08/2026, 10:58 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 13 cambio(s): 11 creado(s), 2 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .gitignore
+- CHANGELOG.md
+- DEPLOY_FIREBASE.md
+- app.js
+- firebase.json
+- firestore.rules
+- functions/index.js
+- functions/package-lock.json
+- functions/package.json
+- functions/scripts/set-super.js
+- index.html
+- index.html.backup
+- version.json
+
+### Riesgos
+
+- Se modificaron archivos de configuración o infraestructura (functions/package-lock.json, functions/package.json). Valida compatibilidad y despliegue.
+- Se modificó código fuente sin cambios detectados en archivos de prueba. Verifica la cobertura antes de cerrar el trabajo.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+- Cambió la definición de dependencias; valida instalación y seguridad.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
 ## Sesión 15/07/2026
 
 ### Logros

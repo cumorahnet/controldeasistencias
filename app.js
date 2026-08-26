@@ -56,6 +56,7 @@ const api = Object.fromEntries([
   "deleteTeacher",
   "recordAttendance",
   "deleteStudent",
+  "renumberStudentGroup",
   "clearStudents",
   "toggleSchoolFlag",
   "setSchoolVerification",
@@ -85,7 +86,15 @@ const normalizeSchoolLevel = (value) => {
   return map[key] || normalizeCode(value, 3);
 };
 const normalizeGroupName = (value, max = 12) => String(value || "").trim().toUpperCase().replace(/\s+/g, " ").slice(0, max);
-const buildStudentId = (level, group, list) => `${normalizeSchoolLevel(level)}${normalizeGroupName(group).replace(/\s+/g, "").replace(/[^A-Z0-9]/g, "")}${String(list).padStart(2, "0")}`.replace(/\s+/g, "");
+const studentInitials = (student) => `${normalizeText(student?.paterno).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/gi, "").slice(0, 2)}${normalizeText(student?.nombres).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/gi, "").slice(0, 2)}`.toUpperCase().padEnd(4, "X");
+const buildStudentId = (level, group, list, student = {}) => `${normalizeSchoolLevel(level)}${normalizeGroupName(group).replace(/\s+/g, "").replace(/[^A-Z0-9]/g, "")}${Number(list)}${studentInitials(student)}`.replace(/\s+/g, "");
+function compareStudentsByName(first, second) {
+  for (const field of ["paterno", "materno", "nombres"]) {
+    const result = normalizeText(first?.[field]).localeCompare(normalizeText(second?.[field]), "es", {sensitivity: "base"});
+    if (result) return result;
+  }
+  return normalizeText(first?.lista).localeCompare(normalizeText(second?.lista), "es", {numeric: true});
+}
 const validPassword = (value) => String(value || "").length >= 8 && String(value || "").length <= 72 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(value)) && /\d/.test(String(value));
 const isAdmin = () => ["admin_maestro", "admin_jr", "super"].includes(loggedTeacher?.role);
 const isMaster = () => ["admin_maestro", "super"].includes(loggedTeacher?.role);
@@ -390,44 +399,336 @@ function configureTeacherCreationForm() {
   if (!canAssignAdministrativeRoles) roleSelect.value = "docente";
 }
 
+const STUDENT_LEVEL_LABELS = {PRE: "Preescolar", PRI: "Primaria", SEC: "Secundaria", BAC: "Bachillerato", "SIN NIVEL": "Sin nivel"};
+const STUDENT_LEVEL_ORDER = new Map(["PRE", "PRI", "SEC", "BAC", "SIN NIVEL"].map((level, index) => [level, index]));
+
+function groupStudentsBy(items, keyFor) {
+  return items.reduce((groups, item) => {
+    const key = keyFor(item);
+    groups.set(key, [...(groups.get(key) || []), item]);
+    return groups;
+  }, new Map());
+}
+
+function createCatalogButton(label, detail, active, action) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `min-w-[8rem] px-5 py-3 rounded-2xl border font-black uppercase transition-all ${active
+    ? "theme-primary text-white border-transparent shadow-lg"
+    : "bg-white theme-text border-slate-200 hover:border-slate-400 shadow-sm"}`;
+  button.setAttribute("aria-pressed", String(active));
+  const title = document.createElement("span");
+  title.className = "block text-xs";
+  title.textContent = label;
+  const metadata = document.createElement("span");
+  metadata.className = `block mt-1 text-[9px] ${active ? "text-white/80" : "text-slate-500"}`;
+  metadata.textContent = detail;
+  button.append(title, metadata);
+  button.addEventListener("click", action);
+  return button;
+}
+
+function studentDisplayName(student) {
+  return [student?.paterno, student?.materno, student?.nombres].map((value) => normalizeText(value)).filter(Boolean).join(" ");
+}
+
+function assignDisplayListNumbers(students) {
+  return [...students].sort(compareStudentsByName).map((student, index) => ({
+    ...student,
+    displayListNumber: String(index + 1).padStart(2, "0"),
+  }));
+}
+
+function createStudentPrintHeader(title, levelLabel, groupLabel) {
+  const header = document.createElement("header");
+  header.className = "student-print-header";
+  const school = document.createElement("h1");
+  school.textContent = schoolName || "Control de asistencia";
+  const detail = document.createElement("p");
+  detail.textContent = `${title} · ${levelLabel} · ${groupLabel}`;
+  const cct = document.createElement("p");
+  cct.textContent = `CCT: ${schoolKey}`;
+  header.append(school, detail, cct);
+  return header;
+}
+
+function launchStudentPrint(content, afterMount) {
+  const area = byId("student-print-area");
+  if (!area) return;
+  area.replaceChildren(content);
+  try {
+    afterMount?.();
+  } catch (error) {
+    area.replaceChildren();
+    return window.showModalMsg("Impresión", functionError(error, "No fue posible generar los códigos QR."));
+  }
+  const cleanup = () => area.replaceChildren();
+  window.addEventListener("afterprint", cleanup, {once: true});
+  requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+}
+
+function printGroupRoster(levelLabel, groupLabel, students) {
+  const content = document.createElement("div");
+  content.append(createStudentPrintHeader("Lista del grupo", levelLabel, groupLabel));
+  const table = document.createElement("table");
+  table.className = "student-roster";
+  const head = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (const label of ["Núm. de lista", "Alumno"]) {
+    const cell = document.createElement("th");
+    cell.textContent = label;
+    headerRow.append(cell);
+  }
+  head.append(headerRow);
+  const body = document.createElement("tbody");
+  [...students].sort(compareStudentsByName).forEach((student) => {
+    const row = document.createElement("tr");
+    for (const value of [student.displayListNumber || "", studentDisplayName(student)]) {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.append(cell);
+    }
+    body.append(row);
+  });
+  table.append(head, body);
+  content.append(table);
+  launchStudentPrint(content);
+}
+
+function printStudentQrs(levelLabel, groupLabel, students) {
+  if (typeof window.QRCode !== "function") return window.showModalMsg("Códigos QR", "El generador de códigos QR no está disponible. Recargue la página e inténtelo nuevamente.");
+  const content = document.createElement("div");
+  const grid = document.createElement("div");
+  grid.className = `student-qr-grid${students.length === 1 ? " student-qr-single" : ""}`;
+  const qrTargets = [];
+  for (const student of [...students].sort(compareStudentsByName)) {
+    const card = document.createElement("article");
+    card.className = "student-qr-card";
+    const name = document.createElement("h2");
+    name.textContent = studentDisplayName(student);
+    const qr = document.createElement("div");
+    qr.className = "qr-print-code";
+    card.append(name, qr);
+    grid.append(card);
+    qrTargets.push([qr, student.id]);
+  }
+  content.append(grid);
+  launchStudentPrint(content, () => {
+    for (const [target, id] of qrTargets) {
+      new window.QRCode(target, {
+        text: id,
+        width: 180,
+        height: 180,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: window.QRCode.CorrectLevel.H,
+      });
+      const centerLabel = document.createElement("span");
+      centerLabel.className = "qr-center-id";
+      centerLabel.textContent = id;
+      target.appendChild(centerLabel);
+    }
+  });
+}
+
+function createPrintActionButton(label, iconClass, action, primary = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `px-4 py-3 rounded-xl font-black uppercase text-[9px] shadow-sm ${primary ? "theme-primary text-white" : "bg-white theme-text border border-slate-200"}`;
+  const icon = document.createElement("i");
+  icon.className = `${iconClass} mr-2`;
+  icon.setAttribute("aria-hidden", "true");
+  button.append(icon, document.createTextNode(label));
+  button.addEventListener("click", action);
+  return button;
+}
+
+function createStudentTable(levelLabel, groupLabel, students) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "overflow-x-auto border-t border-slate-100";
+  const table = document.createElement("table");
+  table.className = "w-full border-collapse text-center";
+  const caption = document.createElement("caption");
+  caption.className = "sr-only";
+  caption.textContent = `Alumnos de ${groupLabel}`;
+  const head = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  headerRow.className = "bg-slate-50 text-[9px] font-black uppercase border-b";
+  for (const [label, className] of [["Núm. de lista", "p-4"], ["Alumno", ""], ["QR", ""], ["Acción", ""]]) {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.className = className;
+    cell.textContent = label;
+    headerRow.append(cell);
+  }
+  head.append(headerRow);
+  const body = document.createElement("tbody");
+  body.className = "divide-y divide-slate-100 text-[11px] font-bold uppercase";
+  for (const student of [...students].sort(compareStudentsByName)) {
+    const row = document.createElement("tr");
+    row.append(createCell(student.displayListNumber || "", "p-3 font-black text-center"));
+    const fullName = studentDisplayName(student);
+    row.append(createCell(fullName, "text-left px-2"));
+    const qrCell = document.createElement("td");
+    qrCell.className = "text-center";
+    qrCell.append(createIconButton(
+      `Imprimir QR de ${fullName}`,
+      "fas fa-qrcode",
+      () => printStudentQrs(levelLabel, groupLabel, [student]),
+      "theme-accent-text p-2 rounded-lg hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500",
+    ));
+    row.append(qrCell);
+    const actionCell = document.createElement("td");
+    actionCell.className = "text-center";
+    actionCell.append(createIconButton(
+      `Eliminar a ${fullName}`,
+      "fas fa-trash",
+      () => window.deleteStudent(student.id, student.level || student.nivel, student.grupo),
+    ));
+    row.append(actionCell);
+    body.append(row);
+  }
+  table.append(caption, head, body);
+  wrapper.append(table);
+  return wrapper;
+}
+
+function createGroupView(level, levelLabel, group, groupLabel, students) {
+  const numberedStudents = assignDisplayListNumbers(students);
+  const view = document.createElement("div");
+  const toolbar = document.createElement("div");
+  toolbar.className = "p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50";
+  const title = document.createElement("div");
+  title.className = "text-center md:text-left";
+  const heading = document.createElement("h4");
+  heading.className = "font-black uppercase theme-text text-sm";
+  heading.textContent = `${levelLabel} · ${groupLabel}`;
+  const count = document.createElement("p");
+  count.className = "mt-1 text-[9px] font-bold uppercase text-slate-500";
+  count.textContent = `${numberedStudents.length} ${numberedStudents.length === 1 ? "alumno" : "alumnos"}`;
+  title.append(heading, count);
+  const actions = document.createElement("div");
+  actions.className = "flex flex-wrap justify-center gap-2";
+  actions.append(
+    createPrintActionButton("Imprimir lista", "fas fa-print", () => printGroupRoster(levelLabel, groupLabel, numberedStudents)),
+    createPrintActionButton("Imprimir QR", "fas fa-qrcode", () => printStudentQrs(levelLabel, groupLabel, numberedStudents), true),
+  );
+  toolbar.append(title, actions);
+  view.append(toolbar, createStudentTable(levelLabel, groupLabel, numberedStudents));
+  return view;
+}
+
 async function loadStudents() {
-  const body = byId("data-table-body");
-  if (!body || !schoolKey || schoolKey === "SISTEMA") return;
-  body.replaceChildren();
+  const container = byId("student-levels-container");
+  if (!container || !schoolKey || schoolKey === "SISTEMA") return;
+  const preserveSelection = container.dataset.schoolKey === schoolKey;
+  const previousLevel = preserveSelection ? container.dataset.selectedLevel || "" : "";
+  const previousGroup = preserveSelection ? container.dataset.selectedGroup || "" : "";
+  container.replaceChildren();
+  container.dataset.schoolKey = schoolKey;
   try {
     const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
     const students = snapshot.docs.map((entry) => ({...entry.data(), id: entry.id}));
-    const groups = Map.groupBy
-      ? Map.groupBy(students, (student) => normalizeText(student.grupo) || "SIN GRUPO")
-      : students.reduce((map, student) => map.set(normalizeText(student.grupo) || "SIN GRUPO", [...(map.get(normalizeText(student.grupo) || "SIN GRUPO") || []), student]), new Map());
-    for (const groupName of [...groups.keys()].sort((a, b) => a.localeCompare(b, "es"))) {
-      const headingRow = document.createElement("tr");
-      headingRow.className = "group-header";
-      const heading = createCell(groupName, "p-2 text-left");
-      heading.colSpan = 3;
-      headingRow.append(heading);
-      body.append(headingRow);
-      const groupStudents = groups.get(groupName).sort((a, b) => normalizeText(a.nombres).localeCompare(normalizeText(b.nombres), "es"));
-      for (const student of groupStudents) {
-        const row = document.createElement("tr");
-        row.append(createCell(student.id, "p-3 font-black text-center"));
-        const fullName = [student.paterno, student.materno, student.nombres].map((value) => normalizeText(value)).filter(Boolean).join(" ");
-        row.append(createCell(fullName, "text-left pl-2"));
-        const actionCell = document.createElement("td");
-        actionCell.className = "text-center";
-        actionCell.append(createIconButton(`Eliminar a ${fullName}`, "fas fa-trash", () => window.deleteStudent(student.id)));
-        row.append(actionCell);
-        body.append(row);
+    const studentsWithGroup = students.filter((student) => normalizeGroupName(student.grupo));
+    const levels = groupStudentsBy(studentsWithGroup, (student) => normalizeSchoolLevel(student.level || student.nivel) || "SIN NIVEL");
+    const levelNames = [...levels.keys()].sort((first, second) => {
+      const order = (STUDENT_LEVEL_ORDER.get(first) ?? 99) - (STUDENT_LEVEL_ORDER.get(second) ?? 99);
+      return order || first.localeCompare(second, "es", {numeric: true});
+    });
+    const groupsByLevel = new Map(levelNames.map((levelName) => [
+      levelName,
+      groupStudentsBy(levels.get(levelName), (student) => normalizeGroupName(student.grupo)),
+    ]).filter(([, groups]) => groups.size));
+    const availableLevels = levelNames.filter((levelName) => groupsByLevel.has(levelName));
+    window.safeToggle("general-table-container", availableLevels.length === 0);
+    if (!availableLevels.length) return;
+
+    let selectedLevel = groupsByLevel.has(previousLevel) ? previousLevel : "";
+    let selectedGroup = selectedLevel && groupsByLevel.get(selectedLevel).has(previousGroup) ? previousGroup : "";
+    container.dataset.selectedLevel = selectedLevel;
+    container.dataset.selectedGroup = selectedGroup;
+
+    const levelSection = document.createElement("section");
+    const levelHeading = document.createElement("h4");
+    levelHeading.className = "mb-3 text-[10px] font-black uppercase text-slate-500";
+    levelHeading.textContent = "Seleccione un nivel";
+    const levelButtons = document.createElement("div");
+    levelButtons.className = "flex flex-wrap justify-center gap-3";
+    levelSection.append(levelHeading, levelButtons);
+
+    const groupSection = document.createElement("section");
+    groupSection.className = "rounded-[2rem] bg-slate-50 border border-slate-200 p-4 md:p-5";
+    const tableSection = document.createElement("section");
+    tableSection.className = "rounded-[2rem] border border-slate-200 bg-white overflow-hidden";
+    tableSection.setAttribute("aria-live", "polite");
+    container.append(levelSection, groupSection, tableSection);
+
+    const showPrompt = (target, text) => {
+      target.replaceChildren();
+      const prompt = document.createElement("p");
+      prompt.className = "py-4 text-xs font-bold text-slate-500";
+      prompt.textContent = text;
+      target.append(prompt);
+    };
+
+    const renderLevelButtons = () => {
+      levelButtons.replaceChildren();
+      for (const levelName of availableLevels) {
+        const groups = groupsByLevel.get(levelName);
+        const count = groups.size;
+        levelButtons.append(createCatalogButton(
+          STUDENT_LEVEL_LABELS[levelName] || levelName,
+          `${count} ${count === 1 ? "grupo" : "grupos"}`,
+          selectedLevel === levelName,
+          () => selectLevel(levelName),
+        ));
       }
+    };
+
+    const renderGroupButtons = () => {
+      groupSection.replaceChildren();
+      if (!selectedLevel) return showPrompt(groupSection, "Seleccione un nivel para ver sus grupos.");
+      const heading = document.createElement("h4");
+      heading.className = "mb-3 text-[10px] font-black uppercase text-slate-500";
+      heading.textContent = `Grupos de ${STUDENT_LEVEL_LABELS[selectedLevel] || selectedLevel}`;
+      const buttons = document.createElement("div");
+      buttons.className = "flex flex-wrap justify-center gap-3";
+      const groups = groupsByLevel.get(selectedLevel);
+      for (const groupName of [...groups.keys()].sort((a, b) => a.localeCompare(b, "es", {numeric: true, sensitivity: "base"}))) {
+        const groupStudents = groups.get(groupName);
+        buttons.append(createCatalogButton(
+          `Grupo ${groupName}`,
+          `${groupStudents.length} ${groupStudents.length === 1 ? "alumno" : "alumnos"}`,
+          selectedGroup === groupName,
+          () => selectGroup(groupName),
+        ));
+      }
+      groupSection.append(heading, buttons);
+    };
+
+    function selectLevel(levelName) {
+      selectedLevel = levelName;
+      selectedGroup = "";
+      container.dataset.selectedLevel = selectedLevel;
+      container.dataset.selectedGroup = "";
+      renderLevelButtons();
+      renderGroupButtons();
+      showPrompt(tableSection, "Seleccione el grupo que desea visualizar.");
     }
-    if (!students.length) {
-      const row = document.createElement("tr");
-      const cell = createCell("No hay alumnos", "p-10 italic text-slate-400 text-center");
-      cell.colSpan = 3;
-      row.append(cell);
-      body.append(row);
+
+    function selectGroup(groupName) {
+      selectedGroup = groupName;
+      container.dataset.selectedGroup = selectedGroup;
+      renderGroupButtons();
+      const levelLabel = STUDENT_LEVEL_LABELS[selectedLevel] || selectedLevel;
+      const groupLabel = `Grupo ${groupName}`;
+      tableSection.replaceChildren(createGroupView(selectedLevel, levelLabel, groupName, groupLabel, groupsByLevel.get(selectedLevel).get(groupName)));
     }
-    window.safeToggle("general-table-container", students.length === 0);
+
+    renderLevelButtons();
+    renderGroupButtons();
+    if (selectedGroup) selectGroup(selectedGroup);
+    else showPrompt(tableSection, selectedLevel ? "Seleccione el grupo que desea visualizar." : "Seleccione primero un nivel y después un grupo.");
   } catch (error) {
     window.showModalMsg("Error", functionError(error, "No fue posible cargar a los alumnos."));
   }
@@ -794,26 +1095,224 @@ function normalizedHeader(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 }
 
-function rowValue(row, aliases) {
-  const entries = Object.entries(row).map(([key, value]) => [normalizedHeader(key), value]);
-  for (const alias of aliases) {
-    const match = entries.find(([key]) => key === normalizedHeader(alias));
-    if (match) return match[1];
+const SURNAME_PARTICLES = new Set(["DA", "DAS", "DE", "DEL", "DO", "DOS", "LA", "LAS", "LOS", "SAN", "SANTA", "VAN", "VON"]);
+const COMMON_GIVEN_NAMES = new Set((
+  "AARON ABIGAIL ABRAHAM ADRIAN ADRIANA AGUSTIN ALAN ALEJANDRA ALEJANDRO ALEXIS ALFONSO ALFREDO "
+  + "ALICIA ALMA AMANDA AMELIA ANA ANDREA ANDRES ANGEL ANGELA ANTONIA ANTONIO ARMANDO ARTURO "
+  + "BEATRIZ BENJAMIN BERENICE BRENDA BRUNO CAMILA CARLA CARLOS CARMEN CAROLINA CATALINA CECILIA "
+  + "CESAR CHRISTIAN CLAUDIA CRISTIAN CRISTINA DANIEL DANIELA DARIO DAVID DIANA DIEGO DULCE EDGAR "
+  + "EDUARDO ELENA ELIZABETH EMILIANO EMILIO ENRIQUE ERICK ERIKA ESMERALDA ESTEBAN ESTELA ESTHER "
+  + "EVA FABIOLA FATIMA FELIPE FERNANDO FRANCISCO GABRIEL GABRIELA GERARDO GLORIA GUADALUPE GUILLERMO "
+  + "HECTOR HUGO IGNACIO INES IRENE ISAAC ISABEL ISABELA ISRAEL IVAN JACQUELINE JAIME JAVIER JESUS "
+  + "JOAQUIN JORGE JOSE JOSEFINA JUAN JULIA JULIANA JULIO KARLA LAURA LEONARDO LETICIA LILIANA LORENA "
+  + "LOURDES LUCIA LUIS LUZ MANUEL MARCO MARCOS MARGARITA MARIA MARIANA MARIO MARISOL MARTHA MARTIN "
+  + "MATEO MATIAS MAURICIO MAXIMILIANO MAYRA MELANIE MERCEDES MIGUEL MIRANDA MONICA MONSERRAT NANCY "
+  + "NATALIA NICOLAS NOEMI NORMA OCTAVIO OLGA OMAR OSCAR PABLO PAOLA PATRICIA PEDRO RAFAEL RAUL "
+  + "REBECA REGINA RENATA RICARDO ROBERTO ROCIO RODRIGO ROSA RUBEN SALVADOR SAMANTHA SANDRA SANTIAGO "
+  + "SARA SEBASTIAN SERGIO SILVIA SOFIA SUSANA TERESA VALENTINA VALERIA VANESSA VERONICA VICTOR "
+  + "VICTORIA XIMENA YOLANDA YURIDIA"
+).split(" "));
+const NAME_HEADER_NAMES = new Set(["alumno", "apellido y nombre", "apellidos nombre", "apellidos y nombres", "estudiante", "nombre", "nombre completo", "nombre del alumno", "nombre del estudiante", "nombre y apellido", "nombre y apellidos", "nombres", "nombres y apellidos"]);
+
+function compactHeader(value) {
+  return normalizedHeader(value).replace(/[().:º°]/g, "").replace(/[,/]+/g, " ").replace(/\s+/g, " ");
+}
+
+function isNameHeader(value) {
+  const header = compactHeader(value);
+  return NAME_HEADER_NAMES.has(header)
+    || header.startsWith("nombre del alumno")
+    || header.startsWith("nombre del estudiante")
+    || (header.includes("nombre") && header.includes("apellido"));
+}
+
+function nameParts(value) {
+  return normalizeText(value, 200).toUpperCase().replace(/[,;]+/g, " ").split(" ").filter(Boolean);
+}
+
+function looksLikeStudentName(value) {
+  const parts = nameParts(value);
+  if (parts.length < 3) return false;
+  const excluded = new Set(["ALUMNO", "ALUMNOS", "CICLO", "ESCUELA", "GRADO", "GRUPO", "LISTA", "NIVEL", "TOTAL"]);
+  return !parts.some((part) => excluded.has(normalizedHeader(part).toUpperCase()));
+}
+
+function surnameFromStart(parts, start) {
+  let end = start + 1;
+  if (SURNAME_PARTICLES.has(parts[start])) {
+    while (end < parts.length && SURNAME_PARTICLES.has(parts[end])) end += 1;
+    if (end < parts.length) end += 1;
   }
+  return {value: parts.slice(start, end).join(" "), next: end};
+}
+
+function surnameFromEnd(parts, end) {
+  let start = end - 1;
+  while (start > 0 && SURNAME_PARTICLES.has(parts[start - 1])) start -= 1;
+  return {value: parts.slice(start, end).join(" "), next: start};
+}
+
+function splitStudentFullName(value, sourceOrder) {
+  const parts = nameParts(value);
+  if (parts.length < 3) return null;
+  if (sourceOrder === "names-first") {
+    const maternal = surnameFromEnd(parts, parts.length);
+    const paternal = surnameFromEnd(parts, maternal.next);
+    const names = parts.slice(0, paternal.next).join(" ");
+    if (!paternal.value || !maternal.value || !names) return null;
+    return {
+      paterno: paternal.value,
+      materno: maternal.value,
+      nombres: names,
+    };
+  }
+  const paternal = surnameFromStart(parts, 0);
+  const maternal = surnameFromStart(parts, paternal.next);
+  const names = parts.slice(maternal.next).join(" ");
+  if (!paternal.value || !maternal.value || !names) return null;
+  return {
+    paterno: paternal.value,
+    materno: maternal.value,
+    nombres: names,
+  };
+}
+
+function headerOrderHint(value) {
+  const header = compactHeader(value);
+  if (header.startsWith("apellido") && header.includes("nombre")) return "surnames-first";
+  if (header.startsWith("nombre") && header.includes("apellido")) return "names-first";
   return "";
+}
+
+function findImportColumns(table) {
+  const scanLimit = Math.min(table.length, 30);
+  for (let rowIndex = 0; rowIndex < scanLimit; rowIndex += 1) {
+    const row = Array.isArray(table[rowIndex]) ? table[rowIndex] : [];
+    const nameIndex = row.findIndex(isNameHeader);
+    if (nameIndex >= 0) {
+      return {nameIndex, startIndex: rowIndex + 1, orderHint: headerOrderHint(row[nameIndex])};
+    }
+  }
+  let bestMatch = null;
+  for (let rowIndex = 0; rowIndex < scanLimit; rowIndex += 1) {
+    const row = Array.isArray(table[rowIndex]) ? table[rowIndex] : [];
+    const nameIndexes = row.map((value, index) => looksLikeStudentName(value) ? index : -1).filter((index) => index >= 0);
+    for (const nameIndex of nameIndexes) {
+      let score = 0;
+      for (let index = rowIndex; index < Math.min(table.length, rowIndex + 50); index += 1) {
+        const candidate = Array.isArray(table[index]) ? table[index] : [];
+        if (looksLikeStudentName(candidate[nameIndex])) score += 1;
+      }
+      if (!bestMatch || score > bestMatch.score) bestMatch = {nameIndex, startIndex: rowIndex, orderHint: "", score};
+    }
+  }
+  if (!bestMatch) return null;
+  const {score, ...columns} = bestMatch;
+  return columns;
+}
+
+function extractImportRows(table) {
+  const columns = findImportColumns(table);
+  if (!columns) return null;
+  const rows = [];
+  let skippedRows = 0;
+  for (let index = columns.startIndex; index < table.length; index += 1) {
+    const row = Array.isArray(table[index]) ? table[index] : [];
+    const fullName = normalizeText(row[columns.nameIndex], 200);
+    if (!fullName) continue;
+    if (!looksLikeStudentName(fullName)) {
+      skippedRows += 1;
+      continue;
+    }
+    rows.push({fullName, sourceRow: index + 1});
+  }
+  return {rows, skippedRows, orderHint: columns.orderHint};
+}
+
+function edgeGivenNameScore(parts, fromStart) {
+  const edge = fromStart ? parts.slice(0, 3) : parts.slice(-3).reverse();
+  return edge.reduce((score, part, index) => score + (COMMON_GIVEN_NAMES.has(normalizedHeader(part).toUpperCase()) ? 3 - index : 0), 0);
+}
+
+function detectNameOrder(rows, orderHint) {
+  if (orderHint) return orderHint;
+  let namesFirstScore = 0;
+  let surnamesFirstScore = 0;
+  for (const row of rows.slice(0, 100)) {
+    const parts = nameParts(row.fullName);
+    namesFirstScore += edgeGivenNameScore(parts, true);
+    surnamesFirstScore += edgeGivenNameScore(parts, false);
+  }
+  return namesFirstScore > surnamesFirstScore ? "names-first" : "surnames-first";
+}
+
+function decodeCsvBuffer(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes[0] === 0xFF && bytes[1] === 0xFE) return new TextDecoder("utf-16le").decode(buffer);
+  const utf8 = new TextDecoder("utf-8").decode(buffer);
+  return utf8.includes("\uFFFD") ? new TextDecoder("windows-1252").decode(buffer) : utf8;
 }
 
 async function parseImportFile(file) {
   const buffer = await file.arrayBuffer();
+  const tables = [];
   if (/\.csv$/i.test(file.name)) {
-    const parsed = Papa.parse(new TextDecoder("utf-8").decode(buffer), {header: true, skipEmptyLines: true});
+    const parsed = Papa.parse(decodeCsvBuffer(buffer), {skipEmptyLines: "greedy"});
     if (parsed.errors?.length) throw new Error(`CSV inválido: ${parsed.errors[0].message}`);
-    return parsed.data;
+    tables.push(parsed.data);
+  } else if (/\.xlsx?$/i.test(file.name)) {
+    const workbook = XLSX.read(buffer, {type: "array", cellDates: false});
+    for (const sheetName of workbook.SheetNames) {
+      tables.push(XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {header: 1, defval: "", raw: false, blankrows: false}));
+    }
+  } else {
+    throw new Error("Seleccione un archivo Excel o CSV.");
   }
-  const workbook = XLSX.read(buffer, {type: "array", cellDates: false});
-  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!firstSheet) throw new Error("El libro no contiene hojas.");
-  return XLSX.utils.sheet_to_json(firstSheet, {defval: "", raw: false});
+  for (const table of tables) {
+    const extracted = extractImportRows(table);
+    if (extracted?.rows.length) return extracted;
+  }
+  throw new Error("No fue posible localizar la columna con el nombre de los alumnos.");
+}
+
+function studentIdentityKey(student) {
+  return [student?.paterno, student?.materno, student?.nombres].map(normalizedHeader).join("|");
+}
+
+function studentIdentityHash(value) {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).toUpperCase().padStart(7, "0");
+}
+
+function buildImportedStudentId(level, group, student, usedIds) {
+  const prefix = `${normalizeSchoolLevel(level)}${normalizeGroupName(group).replace(/[^A-Z0-9]/g, "")}`;
+  const base = `${prefix}-${studentIdentityHash(studentIdentityKey(student))}`.slice(0, 40);
+  let id = base;
+  let suffix = 2;
+  while (usedIds.has(id)) {
+    const ending = `-${suffix}`;
+    id = `${base.slice(0, 40 - ending.length)}${ending}`;
+    suffix += 1;
+  }
+  return id;
+}
+
+async function existingStudentIdentityIndex(level, group) {
+  const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
+  const usedIds = new Set(snapshot.docs.map((entry) => entry.id));
+  const idsByIdentity = new Map();
+  for (const entry of snapshot.docs) {
+    const student = entry.data();
+    if (normalizeSchoolLevel(student.level || student.nivel) !== level || normalizeGroupName(student.grupo) !== group) continue;
+    const key = studentIdentityKey(student);
+    idsByIdentity.set(key, [...(idsByIdentity.get(key) || []), entry.id]);
+  }
+  for (const ids of idsByIdentity.values()) ids.sort((a, b) => a.localeCompare(b, "es", {numeric: true}));
+  return {idsByIdentity, usedIds};
 }
 
 async function commitStudentChunks(students, progress) {
@@ -836,7 +1335,11 @@ window.handleBatchImport = async (event) => {
   const file = event.target.files?.[0];
   const level = normalizeSchoolLevel(byId("batch-level")?.value);
   const group = normalizeGroupName(byId("batch-group")?.value, 12);
-  if (!level || !group || !file) return window.showModalMsg("Faltan datos", "Indique nivel, grupo y archivo.");
+  const orderPreference = byId("batch-name-order")?.value || "auto";
+  if (!level || !group || !file) {
+    event.target.value = "";
+    return window.showModalMsg("Faltan datos", "Indique nivel, grupo y archivo.");
+  }
   const container = byId("batch-progress-container");
   const bar = byId("batch-progress-bar");
   const text = byId("batch-progress-text");
@@ -845,38 +1348,57 @@ window.handleBatchImport = async (event) => {
   bar.classList.remove("progress-success");
   text.textContent = "Validando archivo…";
   try {
-    const rows = await parseImportFile(file);
+    const imported = await parseImportFile(file);
+    const detectedOrder = detectNameOrder(imported.rows, imported.orderHint);
+    const sourceOrder = new Set(["names-first", "surnames-first"]).has(orderPreference) ? orderPreference : detectedOrder;
+    const parsedStudents = [];
+    for (const row of imported.rows) {
+      const parsedName = splitStudentFullName(row.fullName, sourceOrder);
+      if (!parsedName) {
+        throw new Error(`Fila ${row.sourceRow}: el nombre completo debe incluir nombre(s), apellido paterno y apellido materno.`);
+      }
+      parsedStudents.push({
+        paterno: normalizeText(parsedName.paterno, 80),
+        materno: normalizeText(parsedName.materno, 80),
+        nombres: normalizeText(parsedName.nombres, 100),
+      });
+    }
+    if (!parsedStudents.length) throw new Error("No se encontraron nombres de alumnos válidos en el archivo.");
+    if (parsedStudents.length > 99) throw new Error("Un grupo no puede contener más de 99 alumnos.");
+    parsedStudents.sort(compareStudentsByName);
+    const {idsByIdentity, usedIds} = await existingStudentIdentityIndex(level, group);
     const students = [];
-    const seen = new Set();
-    for (const row of rows) {
-      const listNumber = Number(rowValue(row, ["Número de lista", "Numero de lista", "#", "Lista"]));
-      const names = normalizeText(rowValue(row, ["Nombre(s)", "Nombre", "Nombres"]), 100).toUpperCase();
-      if (!Number.isInteger(listNumber) || listNumber < 1 || listNumber > 99 || !names) continue;
-      const list = String(listNumber).padStart(2, "0");
-      const id = buildStudentId(level, group, list);
-      if (seen.has(id)) throw new Error(`El número de lista ${list} está duplicado en el archivo.`);
-      seen.add(id);
+    parsedStudents.forEach((parsedStudent, index) => {
+      const identity = studentIdentityKey(parsedStudent);
+      const existingIds = idsByIdentity.get(identity) || [];
+      const id = existingIds.shift() || buildImportedStudentId(level, group, parsedStudent, usedIds);
+      usedIds.add(id);
+      const list = String(index + 1).padStart(2, "0");
       students.push({
         id,
         data: {
-          paterno: normalizeText(rowValue(row, ["Apellido paterno", "Paterno"]), 80).toUpperCase(),
-          materno: normalizeText(rowValue(row, ["Apellido materno", "Materno"]), 80).toUpperCase(),
-          nombres: names,
+          paterno: parsedStudent.paterno,
+          materno: parsedStudent.materno,
+          nombres: parsedStudent.nombres,
           grupo: group,
           lista: list,
           level,
           createdAt: serverTimestamp(),
         },
       });
-    }
-    if (!students.length) throw new Error("No se encontraron filas válidas. Revise los encabezados y números de lista.");
+    });
     text.textContent = `Importando ${students.length} alumnos…`;
     await commitStudentChunks(students, (ratio) => { bar.style.width = `${Math.round(ratio * 100)}%`; });
+    text.textContent = "Aplicando numeración y nuevos identificadores QR…";
+    await api.renumberStudentGroup({schoolKey, level, group});
     bar.classList.add("progress-success");
-    text.textContent = `Carga completada: ${students.length} alumnos.`;
+    const orderLabel = sourceOrder === "names-first" ? "nombres primero" : "apellidos primero";
+    const skippedLabel = imported.skippedRows ? ` Se omitieron ${imported.skippedRows} filas incompletas.` : "";
+    text.textContent = `Carga completada: ${students.length} alumnos (${orderLabel}).${skippedLabel}`;
     event.target.value = "";
     await loadStudents();
   } catch (error) {
+    event.target.value = "";
     text.textContent = functionError(error, "La importación falló.");
     bar.style.width = "0%";
     window.showModalMsg("Importación", text.textContent);
@@ -887,28 +1409,48 @@ window.addStudent = async () => {
   if (!isAdmin()) return;
   const level = normalizeSchoolLevel(byId("input-a-nivel").value);
   const group = normalizeGroupName(byId("input-a-grupo").value, 12);
-  const listNumber = Number(byId("input-a-lista").value);
+  const paterno = normalizeText(byId("input-a-paterno").value, 80).toUpperCase();
+  const materno = normalizeText(byId("input-a-materno").value, 80).toUpperCase();
   const names = normalizeText(byId("input-a-nombres").value, 100).toUpperCase();
-  if (!level || !group || !Number.isInteger(listNumber) || listNumber < 1 || listNumber > 99 || !names) {
-    return window.showModalMsg("Datos", "Capture nivel, grupo, nombre y un número de lista entre 1 y 99.");
+  if (!level || !group || !paterno || !names) {
+    return window.showModalMsg("Datos", "Capture nivel, grupo, apellido paterno y nombre(s).");
   }
-  const list = String(listNumber).padStart(2, "0");
-  const id = buildStudentId(level, group, list);
   try {
+    const groupSnapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
+    const groupStudents = groupSnapshot.docs
+      .map((entry) => entry.data())
+      .filter((student) => normalizeSchoolLevel(student.level || student.nivel) === level && normalizeGroupName(student.grupo) === group);
+    if (groupStudents.length >= 99) return window.showModalMsg("Datos", "Un grupo no puede contener más de 99 alumnos.");
+    const usedIds = new Set(groupSnapshot.docs.map((entry) => entry.id));
+    let listNumber = groupStudents.length + 1;
+    let list = String(listNumber).padStart(2, "0");
+    let id = buildStudentId(level, group, list, {paterno, nombres: names});
+    while (usedIds.has(id) && listNumber < 99) {
+      listNumber += 1;
+      list = String(listNumber).padStart(2, "0");
+      id = buildStudentId(level, group, list, {paterno, nombres: names});
+    }
+    if (usedIds.has(id)) return window.showModalMsg("Datos", "No hay un número de lista disponible para este grupo.");
     const ref = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, id);
-    const existing = await getDoc(ref);
-    if (existing.exists()) return window.showModalMsg("Duplicado", `Ya existe un alumno con el ID ${id}.`);
     await setDoc(ref, {
-      paterno: normalizeText(byId("input-a-paterno").value, 80).toUpperCase(),
-      materno: normalizeText(byId("input-a-materno").value, 80).toUpperCase(),
+      paterno,
+      materno,
       nombres: names,
       grupo: group,
       lista: list,
       level,
       createdAt: serverTimestamp(),
     });
-    ["input-a-lista", "input-a-paterno", "input-a-materno", "input-a-nombres", "input-a-grupo", "input-a-nivel"].forEach((field) => { byId(field).value = ""; });
+    ["input-a-paterno", "input-a-materno", "input-a-nombres", "input-a-grupo", "input-a-nivel"].forEach((field) => { byId(field).value = ""; });
     await loadStudents();
+    window.openSingleStudentQRPrintModal({
+      id,
+      nivel: level,
+      grupo: group,
+      lista: list,
+      nombreCompleto: [paterno, materno, names].filter(Boolean).join(" "),
+      qrContent: id,
+    });
   } catch (error) {
     window.showModalMsg("Error", functionError(error));
   }
@@ -918,10 +1460,37 @@ window.clearAllStudents = () => window.showConfirmMsg("Limpieza", "¿Borrar todo
   await loadStudents();
 });
 
-window.deleteStudent = (id) => window.showConfirmMsg("Eliminar", `¿Eliminar al alumno ${id}?`, async () => {
-  await api.deleteStudent({schoolKey, studentId: id});
-  await loadStudents();
-});
+window.deleteStudent = (id, rawLevel = "", rawGroup = "") => window.showConfirmMsg(
+  "Eliminar",
+  `¿Eliminar al alumno ${id}? El grupo se renumerará y deberán imprimirse nuevamente sus QR.`,
+  async () => {
+    const level = normalizeSchoolLevel(rawLevel);
+    const group = normalizeGroupName(rawGroup, 12);
+    await api.deleteStudent({schoolKey, studentId: id});
+    if (level && group) {
+      try {
+        await api.renumberStudentGroup({schoolKey, level, group});
+      } catch (error) {
+        if (!String(error?.code || "").includes("not-found")) throw error;
+      }
+    }
+    await loadStudents();
+  },
+);
+
+window.renumberStudentGroup = (level, group) => window.showConfirmMsg(
+  "Actualizar numeración y QR",
+  "Se asignarán nuevos identificadores QR según el orden alfabético actual. Los QR impresos anteriormente dejarán de ser válidos. ¿Desea continuar?",
+  async () => {
+    const response = await api.renumberStudentGroup({schoolKey, level, group});
+    await loadStudents();
+    const result = response.data || {};
+    setTimeout(() => window.showModalMsg(
+      "QR actualizados",
+      `Se actualizaron ${result.students || 0} alumnos y ${result.attendanceRecords || 0} registros de asistencia.`,
+    ), 0);
+  },
+);
 
 window.updateTeacherRole = async (id, role) => {
   try {

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Control de Asistencia</title>
-    <script src="https://cdn.tailwindcss.com/"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -27,14 +27,36 @@
         .user-id-badge { background: #ffffff; border: 2px solid var(--accent-color); border-radius: 1.5rem; padding: 0.5rem 1.25rem; display: flex; align-items: center; gap: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
         .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; transition: background 0.3s; }
         .cat-active { border-bottom: 3px solid var(--accent-color) !important; color: var(--accent-color) !important; font-weight: 900; }
-        @media print { .no-print { display: none !important; } }
+        .print-only { display: none; }
+        .qr-center-id { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border: 1px solid #000; border-radius: 0.2rem; color: #000; font-size: 0.65rem; font-weight: 900; line-height: 1; padding: 0.35rem; white-space: nowrap; pointer-events: none; }
+        @media print {
+            @page { size: A4; margin: 10mm; }
+            body { background: #fff !important; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            .student-print-header { border-bottom: 2px solid #0f172a; margin-bottom: 6mm; padding-bottom: 3mm; text-align: center; }
+            .student-print-header h1 { font-size: 16pt; font-weight: 900; text-transform: uppercase; }
+            .student-print-header p { font-size: 9pt; font-weight: 700; margin-top: 1mm; text-transform: uppercase; }
+            .student-qr-grid { display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+            .student-qr-grid.student-qr-single { grid-template-columns: 70mm; justify-content: center; }
+            .student-qr-card { break-inside: avoid; min-height: 55mm; padding: 2mm; text-align: center; }
+            .student-qr-card h2 { font-size: 7pt; font-weight: 700; line-height: 1.15; margin-bottom: 1mm; text-transform: uppercase; }
+            .student-qr-card p { font-size: 7.5pt; font-weight: 700; margin-top: 1mm; text-transform: uppercase; }
+            .qr-print-code { position: relative; display: flex; align-items: center; justify-content: center; width: 49mm; height: 49mm; margin: 1mm auto 0; background: linear-gradient(#cbd5e1, #cbd5e1) left top / 5mm 0.25mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) left top / 0.25mm 5mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) right top / 5mm 0.25mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) right top / 0.25mm 5mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) left bottom / 5mm 0.25mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) left bottom / 0.25mm 5mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) right bottom / 5mm 0.25mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) right bottom / 0.25mm 5mm no-repeat; }
+            .qr-print-code canvas, .qr-print-code img { height: 44mm !important; width: 44mm !important; }
+            .qr-center-id { border-radius: 1mm; font-size: 6pt; padding: 1.2mm; }
+            .student-roster { border-collapse: collapse; width: 100%; }
+            .student-roster thead { display: table-header-group; }
+            .student-roster tr { break-inside: avoid; }
+            .student-roster th, .student-roster td { border: 1px solid #94a3b8; font-size: 8.5pt; padding: 2.5mm; text-align: left; text-transform: uppercase; }
+            .student-roster th { background: #e2e8f0 !important; font-weight: 900; }
+        }
         .logo-container { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 1rem; }
         .logo-img { max-width: 100%; max-height: 100%; object-fit: contain; }
         .pass-container { position: relative; width: 100%; }
         .toggle-eye { position: absolute; right: 1.25rem; top: 50%; transform: translateY(-50%); cursor: pointer; color: #94a3b8; font-size: 1.1rem; padding: 0.5rem; z-index: 10; }
-        .group-header { background-color: #f8fafc; color: #475569; font-weight: 800; text-transform: uppercase; border-left: 4px solid var(--accent-color); }
         /* Barra de Progreso */
-        .progress-container { width: 100%; background-color: #f1f5f9; border-radius: 1rem; overflow: hidden; margin-top: 1rem; display: none; border: 1px solid #e2e8f0; }
+        .progress-container { width: 100%; background-color: #f1f1f9; border-radius: 1rem; overflow: hidden; margin-top: 1rem; display: none; border: 1px solid #e2e8f0; }
         .progress-bar { width: 0%; height: 10px; background-color: var(--accent-color); transition: width 0.3s ease; }
         .progress-success { background-color: #22c55e !important; }
         :focus-visible { outline: 3px solid #f97316 !important; outline-offset: 3px; }
@@ -60,6 +82,23 @@
                     <button type="button" id="btn-modal-cancel" class="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase shadow-lg hidden">Cancelar</button>
                     <button type="button" id="btn-modal-confirm" class="flex-1 theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Aceptar</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEW MODAL FOR SINGLE STUDENT QR PRINT -->
+    <div id="modal-print-single-qr" role="dialog" aria-modal="true" aria-labelledby="print-qr-title" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[900] hidden flex items-center justify-center p-4 text-center">
+        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-10 space-y-6 border-t-8 theme-border">
+            <h3 id="print-qr-title" class="text-lg font-black theme-text uppercase tracking-tight">QR de Alumno</h3>
+            <div class="space-y-4">
+                <p id="print-qr-student-name" class="text-base font-bold text-slate-800 uppercase"></p>
+                <div id="print-qr-code-container" class="flex justify-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <!-- QR code will be generated here -->
+                </div>
+            </div>
+            <div class="pt-4 flex flex-col gap-2">
+                <button type="button" id="btn-print-single-qr" class="theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Imprimir QR</button>
+                <button type="button" id="btn-close-single-qr-modal" class="bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Cerrar</button>
             </div>
         </div>
     </div>
@@ -104,7 +143,7 @@
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
-                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.5</p>
+                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.8.1</p>
                 <div class="flex items-center justify-center gap-2">
                     <span id="conn-dot" aria-hidden="true" class="status-dot bg-red-500"></span>
                     <p id="conn-text" role="status" aria-live="polite" class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Iniciando...</p>
@@ -236,7 +275,7 @@
                     <div class="bg-white p-10 rounded-[3rem] border border-slate-200 space-y-5 shadow-xl text-center">
                         <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3 text-center">Registro de Alumno</h3>
                         <div class="space-y-4">
-                            <div class="grid grid-cols-3 gap-2">
+                            <div class="grid grid-cols-2 gap-2">
                                 <div class="space-y-1">
                                     <label for="input-a-nivel" class="text-[8px] font-black text-slate-500 uppercase">Nivel</label>
                                     <select id="input-a-nivel" aria-label="Nivel del alumno" class="w-full px-3 py-3 border rounded-3xl uppercase font-black text-center shadow-inner bg-white">
@@ -248,7 +287,7 @@
                                     </select>
                                 </div>
                                 <div class="space-y-1 text-center"><label for="input-a-grupo" class="text-[8px] font-black text-slate-500 uppercase">Grupo</label><input id="input-a-grupo" type="text" placeholder="1A / A / 3B" maxlength="12" aria-label="Grupo del alumno" class="w-full px-3 py-3 border rounded-3xl uppercase font-black text-center shadow-inner"></div>
-                                <div class="space-y-1 text-center"><label for="input-a-lista" class="text-[8px] font-black text-slate-500 uppercase">Lista</label><input id="input-a-lista" type="number" placeholder="01" min="1" max="99" aria-label="Número de lista" class="w-full px-3 py-3 border rounded-3xl uppercase font-black text-center shadow-inner"></div>
+                                <!-- Eliminado el campo de número de lista, se asignará automáticamente -->
                             </div>
                             <input id="input-a-paterno" type="text" aria-label="Apellido paterno" autocomplete="family-name" placeholder="APELLIDO PATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-materno" type="text" aria-label="Apellido materno" placeholder="APELLIDO MATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-nombres" type="text" aria-label="Nombres del alumno" autocomplete="given-name" placeholder="NOMBRE(S)" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><button type="button" onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-xl text-center">Guardar</button>
                             <button onclick="window.logout()" class="w-full text-slate-400 font-bold uppercase text-[9px] underline text-center">Cerrar Sesión</button>
@@ -267,10 +306,21 @@
                             </select>
                             <input id="batch-group" type="text" aria-label="Grupo para la carga" placeholder="1A / A / 3B" maxlength="12" class="w-full px-3 py-3 border rounded-2xl font-black text-center">
                         </div>
-                        
-                        <input type="file" id="batch-file-input" aria-label="Archivo de alumnos en formato Excel o CSV" accept=".xlsx,.xls,.csv" class="hidden text-center" onchange="window.handleBatchImport(event)">
-                        <button id="btn-batch-upload" onclick="document.getElementById('batch-file-input').click()" class="w-full bg-slate-50 text-slate-600 py-4 rounded-3xl border border-slate-200 font-black uppercase text-[10px] text-center">Subir Excel</button>
-                        
+
+                        <input type="file" id="batch-file-input" aria-label="Listado de alumnos en Excel o CSV" accept=".xlsx,.xls,.csv,text/csv" class="hidden text-center" onchange="window.handleBatchImport(event)">
+                        <button type="button" id="btn-batch-upload" onclick="document.getElementById('batch-file-input').click()" class="w-full bg-slate-50 text-slate-600 py-4 rounded-3xl border border-slate-200 font-black uppercase text-[10px] text-center">Subir listado</button>
+                        <p class="mt-2 text-[9px] leading-relaxed text-slate-500 text-center">Puede usar el archivo Excel o CSV habitual de la escuela. El sistema localizar&aacute; los nombres, ignorar&aacute; cualquier numeraci&oacute;n existente y asignar&aacute; el n&uacute;mero de lista despu&eacute;s de ordenar por apellidos.</p>
+
+                        <details class="mt-3 text-left text-slate-500">
+                            <summary class="cursor-pointer text-[9px] font-black uppercase text-center">Opciones avanzadas</summary>
+                            <label for="batch-name-order" class="block mt-3 mb-1 text-[9px] font-black uppercase">Orden del nombre</label>
+                            <select id="batch-name-order" class="w-full px-3 py-3 border rounded-2xl font-black text-center bg-white">
+                                <option value="auto">Detectar autom&aacute;ticamente</option>
+                                <option value="surnames-first">Apellidos primero</option>
+                                <option value="names-first">Nombres primero</option>
+                            </select>
+                        </details>
+
                         <!-- BARRA DE PROGRESO SOLICITADA -->
                         <div id="batch-progress-container" class="progress-container">
                             <div id="batch-progress-bar" class="progress-bar"></div>
@@ -396,12 +446,12 @@
                             <input id="correct-school-cct" type="text" maxlength="40" autocapitalize="characters" class="w-full px-4 py-3 border-2 border-red-100 rounded-2xl uppercase font-black text-center">
                             <button type="button" onclick="window.correctSchoolCct()" class="w-full mt-3 bg-red-700 text-white font-black py-3 rounded-2xl uppercase">Migrar a la CCT correcta</button>
                         </div>
-                        <button onclick="window.logout()" class="w-full mt-4 text-slate-400 font-bold uppercase text-[9px] underline text-center text-center text-center">Cerrar Sesión / Salir</button>
+                        <button onclick="window.logout()" class="w-full mt-4 text-slate-400 font-bold uppercase text-[9px] underline text-center">Cerrar Sesión / Salir</button>
                     </div>
                 </div>
 
-                <div id="general-table-container" class="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-2xl hidden animate-fadeIn text-center text-center text-center">
-                    <div class="overflow-x-auto"><table class="w-full border-collapse text-center"><caption class="sr-only">Catálogo de alumnos</caption><thead><tr class="bg-slate-50 text-[9px] font-black uppercase border-b"><th scope="col" class="p-4">ID</th><th scope="col">Alumno</th><th scope="col">Acción</th></tr></thead><tbody id="data-table-body" class="divide-y divide-slate-100 text-[11px] font-bold uppercase"></tbody></table></div>
+                <div id="general-table-container" class="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-2xl hidden animate-fadeIn text-center">
+                    <div id="student-levels-container" class="p-4 md:p-6 space-y-5" aria-label="Catálogo de alumnos agrupado por nivel y grupo"></div>
                 </div>
             </div>
         </section>
@@ -431,6 +481,129 @@
         </section>
     </main>
 
+    <section id="student-print-area" class="print-only" aria-hidden="true"></section>
+
+    <script>
+        // Helper function to show custom modal (assuming app.js might use it, or for quick feedback)
+        window.showCustomModal = function(title, body, confirmText = 'Aceptar', cancelText = null, onConfirm = null, onCancel = null, showSupport = false) {
+            document.getElementById('modal-msg-title').innerText = title;
+            document.getElementById('modal-msg-body').innerText = body;
+            document.getElementById('btn-modal-confirm').innerText = confirmText;
+
+            document.getElementById('btn-modal-confirm').onclick = () => {
+                document.getElementById('custom-modal').classList.add('hidden');
+                if (onConfirm) onConfirm();
+            };
+
+            if (cancelText) {
+                document.getElementById('btn-modal-cancel').innerText = cancelText;
+                document.getElementById('btn-modal-cancel').classList.remove('hidden');
+                document.getElementById('btn-modal-cancel').onclick = () => {
+                    document.getElementById('custom-modal').classList.add('hidden');
+                    if (onCancel) onCancel();
+                };
+            } else {
+                document.getElementById('btn-modal-cancel').classList.add('hidden');
+            }
+
+            if (showSupport) {
+                document.getElementById('btn-modal-support').classList.remove('hidden');
+            } else {
+                document.getElementById('btn-modal-support').classList.add('hidden');
+            }
+            document.getElementById('custom-modal').classList.remove('hidden');
+        };
+
+        let currentStudentForQR = null;
+
+        // Function to open the single student QR print modal
+        window.openSingleStudentQRPrintModal = function(studentData) {
+            if (!studentData || !studentData.qrContent) {
+                window.showCustomModal('Error', 'No se pudieron obtener los datos completos del alumno para imprimir el QR.');
+                return;
+            }
+            currentStudentForQR = studentData; // Store student data globally
+            const modal = document.getElementById('modal-print-single-qr');
+            document.getElementById('print-qr-student-name').innerText = studentData.nombreCompleto || 'ALUMNO NUEVO';
+            
+            const qrContainer = document.getElementById('print-qr-code-container');
+            qrContainer.innerHTML = ''; // Clear previous QR
+            
+            // Generate QR code
+            new QRCode(qrContainer, {
+                text: studentData.qrContent,
+                width: 180,
+                height: 180,
+                colorDark: "#1e293b",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+            const centerLabel = document.createElement('span');
+            centerLabel.className = 'qr-center-id';
+            centerLabel.textContent = studentData.qrContent;
+            qrContainer.style.position = 'relative';
+            qrContainer.appendChild(centerLabel);
+
+            modal.classList.remove('hidden');
+        };
+
+        // Function to handle printing a single QR
+        window.printSingleQR = function() {
+            if (!currentStudentForQR) {
+                window.showCustomModal('Error', 'No hay datos de alumno para imprimir.');
+                return;
+            }
+
+            const studentData = currentStudentForQR;
+            const printArea = document.getElementById('student-print-area');
+            printArea.innerHTML = ''; // Clear previous content
+
+            const qrCard = document.createElement('div');
+            qrCard.className = 'student-qr-card student-qr-single'; // Use existing print styles, add single column layout
+            qrCard.innerHTML = `
+                <h2>${studentData.nombreCompleto}</h2>
+                <div class="qr-print-code" id="print-single-qr-target"></div>
+            `;
+            printArea.appendChild(qrCard);
+
+            // Generate QR code specifically for printing
+            const qrTarget = qrCard.querySelector('#print-single-qr-target');
+            new QRCode(qrTarget, {
+                text: studentData.qrContent,
+                width: 180,
+                height: 180,
+                colorDark: "#1e293b",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+            const centerLabel = document.createElement('span');
+            centerLabel.className = 'qr-center-id';
+            centerLabel.textContent = studentData.qrContent;
+            qrTarget.style.position = 'relative';
+            qrTarget.appendChild(centerLabel);
+
+            window.print();
+            printArea.innerHTML = ''; // Clear print area after printing
+            document.getElementById('modal-print-single-qr').classList.add('hidden'); // Close modal after print
+            currentStudentForQR = null; // Clear student data
+        };
+
+        // Event listeners for the new modal buttons
+        document.addEventListener('DOMContentLoaded', () => {
+            const closeModalBtn = document.getElementById('btn-close-single-qr-modal');
+            if (closeModalBtn) {
+                closeModalBtn.addEventListener('click', () => {
+                    document.getElementById('modal-print-single-qr').classList.add('hidden');
+                    currentStudentForQR = null; // Clear student data
+                });
+            }
+
+            const printQrBtn = document.getElementById('btn-print-single-qr');
+            if (printQrBtn) {
+                printQrBtn.addEventListener('click', window.printSingleQR);
+            }
+        });
+    </script>
     <script type="module" src="./app.js"></script>
 </body>
 </html>

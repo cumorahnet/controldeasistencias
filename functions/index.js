@@ -48,6 +48,38 @@ function normalizeText(value, maxLength = 160) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, maxLength);
 }
 
+function normalizeSchoolLevel(value) {
+  const key = normalizeText(value, 20).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const levels = {preescolar: "PRE", primaria: "PRI", secundaria: "SEC", bachillerato: "BAC", pre: "PRE", pri: "PRI", sec: "SEC", bac: "BAC"};
+  const level = levels[key] || normalizeCode(value, 3);
+  if (!new Set(["PRE", "PRI", "SEC", "BAC"]).has(level)) throw new HttpsError("invalid-argument", "El nivel escolar no es válido.");
+  return level;
+}
+
+function normalizeGroupName(value) {
+  const group = normalizeCode(value, 12).replace(/\s+/g, " ");
+  if (!group || !/[A-Z0-9]/.test(group)) throw new HttpsError("invalid-argument", "El grupo no es válido.");
+  return group;
+}
+
+function studentInitials(student) {
+  const clean = (value) => normalizeText(value, 100).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  return `${clean(student?.paterno).slice(0, 2)}${clean(student?.nombres).slice(0, 2)}`.padEnd(4, "X");
+}
+
+function buildStudentId(level, group, listNumber, student = {}) {
+  const groupCode = normalizeGroupName(group).replace(/[^A-Z0-9]/g, "");
+  return `${normalizeSchoolLevel(level)}${groupCode}${Number(listNumber)}${studentInitials(student)}`;
+}
+
+function compareStudentNames(first, second) {
+  for (const field of ["paterno", "materno", "nombres"]) {
+    const result = normalizeText(first?.[field]).localeCompare(normalizeText(second?.[field]), "es", {sensitivity: "base"});
+    if (result) return result;
+  }
+  return normalizeText(first?.id).localeCompare(normalizeText(second?.id), "es", {numeric: true});
+}
+
 function requireIdentifier(value, label = "identificador") {
   const normalized = normalizeCode(value, 160);
   const isLegacyIdentifier = /^[A-Z0-9._-]{4,40}$/.test(normalized);
@@ -822,6 +854,7 @@ exports.recordAttendance = onCall(async (request) => {
       alumnoId: studentId,
       nombre: normalizeText(student.nombres, 100),
       apellido: normalizeText(student.paterno, 80),
+      studentIdRevision: normalizeText(student.studentIdRevision, 40),
       profesorId: token.teacherId,
       profesorNombre: normalizeText(token.name, 100),
       fecha,
@@ -839,6 +872,117 @@ exports.deleteStudent = onCall(async (request) => {
   const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
   await schoolCollection(schoolKey, "alumnos").doc(studentId).delete();
   return {ok: true};
+});
+
+exports.renumberStudentGroup = onCall({timeoutSeconds: 540, memory: "512MiB"}, async (request) => {
+  const token = await assertRole(request, ADMIN_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const level = normalizeSchoolLevel(request.data?.level);
+  const group = normalizeGroupName(request.data?.group);
+  const studentsRef = schoolCollection(schoolKey, "alumnos");
+  const studentsSnapshot = await studentsRef.get();
+  const groupStudents = [];
+  for (const document of studentsSnapshot.docs) {
+    const data = document.data() || {};
+    let studentLevel = "";
+    try {
+      studentLevel = normalizeSchoolLevel(data.level || data.nivel);
+    } catch {
+      continue;
+    }
+    if (studentLevel !== level || normalizeCode(data.grupo, 12).replace(/\s+/g, " ") !== group) continue;
+    groupStudents.push({id: document.id, ref: document.ref, data});
+  }
+  if (!groupStudents.length) throw new HttpsError("not-found", "El grupo no contiene alumnos para renumerar.");
+  if (groupStudents.length > 99) throw new HttpsError("failed-precondition", "Un grupo no puede contener más de 99 alumnos.");
+  groupStudents.sort((first, second) => compareStudentNames({...first.data, id: first.id}, {...second.data, id: second.id}));
+
+  const desiredStudents = groupStudents.map((student, index) => ({
+    ...student,
+    list: String(index + 1).padStart(2, "0"),
+    newId: buildStudentId(level, group, index + 1, student.data),
+  }));
+  const revision = createHash("sha256").update(desiredStudents.map((student) => [
+    student.newId,
+    normalizeText(student.data.paterno, 80),
+    normalizeText(student.data.materno, 80),
+    normalizeText(student.data.nombres, 100),
+  ].join(":" )).join("|")).digest("hex").slice(0, 20);
+  const idChanges = new Map(desiredStudents.map((student) => [student.id, student.newId]));
+
+  const attendanceRef = schoolCollection(schoolKey, "asistencias");
+  const attendanceSnapshot = await attendanceRef.get();
+  const attendanceDocumentsByPath = new Map(attendanceSnapshot.docs.map((document) => [document.ref.path, document]));
+  const attendanceByDate = new Map();
+  for (const document of attendanceSnapshot.docs) {
+    const data = document.data() || {};
+    if (data.studentIdArchived === true) continue;
+    const oldStudentId = normalizeCode(data.alumnoId, 40);
+    if (!idChanges.has(oldStudentId)) continue;
+    const newStudentId = idChanges.get(oldStudentId);
+    if (data.studentIdRevision === revision) continue;
+    const date = normalizeText(data.fecha, 20);
+    const targetId = date
+      ? `${date}_${newStudentId}`
+      : document.id.endsWith(`_${oldStudentId}`) ? `${document.id.slice(0, -oldStudentId.length)}${newStudentId}` : document.id;
+    const key = date || `document:${document.id}`;
+    attendanceByDate.set(key, [...(attendanceByDate.get(key) || []), {
+      document,
+      targetRef: attendanceRef.doc(targetId),
+      data: {
+        ...data,
+        alumnoId: newStudentId,
+        studentIdRevision: revision,
+        studentIdMigratedAt: FieldValue.serverTimestamp(),
+      },
+    }]);
+  }
+
+  for (const migrations of attendanceByDate.values()) {
+    const batch = db.batch();
+    const sourcePaths = new Set(migrations.map((migration) => migration.document.ref.path));
+    const conflicts = new Map();
+    for (const migration of migrations) {
+      const conflict = attendanceDocumentsByPath.get(migration.targetRef.path);
+      if (conflict && !sourcePaths.has(conflict.ref.path)) conflicts.set(conflict.ref.path, conflict);
+    }
+    for (const conflict of conflicts.values()) {
+      const archiveRef = attendanceRef.doc(`${conflict.id}_ARCHIVED_${revision.slice(0, 8)}`);
+      batch.delete(conflict.ref);
+      batch.set(archiveRef, {
+        ...conflict.data(),
+        studentIdArchived: true,
+        studentIdArchivedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    for (const migration of migrations) {
+      if (migration.document.ref.path !== migration.targetRef.path) batch.delete(migration.document.ref);
+    }
+    for (const migration of migrations) batch.set(migration.targetRef, migration.data);
+    await batch.commit();
+  }
+
+  const studentBatch = db.batch();
+  for (const student of desiredStudents) {
+    if (student.ref.id !== student.newId) studentBatch.delete(student.ref);
+  }
+  for (const student of desiredStudents) {
+    studentBatch.set(studentsRef.doc(student.newId), {
+      ...student.data,
+      level,
+      grupo: group,
+      lista: student.list,
+      studentIdRevision: revision,
+      studentIdMigratedAt: FieldValue.serverTimestamp(),
+    });
+  }
+  await studentBatch.commit();
+  return {
+    ok: true,
+    students: desiredStudents.length,
+    changedIds: desiredStudents.filter((student) => student.id !== student.newId).length,
+    attendanceRecords: [...attendanceByDate.values()].reduce((total, migrations) => total + migrations.length, 0),
+  };
 });
 
 async function deleteCollection(collectionRef) {
