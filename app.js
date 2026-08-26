@@ -86,21 +86,37 @@ function installQrPrintCutStyles() {
   const style = document.createElement("style");
   style.id = "qr-print-cut-styles";
   style.textContent = `
+    @page {
+      size: Letter portrait;
+      margin: 6mm;
+    }
     @media print {
-      /* 50.6 mm menos dos líneas de 0.3 mm deja 50 mm interiores:
-         el QR de 44 mm queda separado exactamente 3 mm por lado. */
+      .student-qr-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 3mm !important;
+      }
+      .student-qr-grid.student-qr-single {
+        grid-template-columns: 65.6mm !important;
+      }
+      .student-qr-card {
+        min-width: 0 !important;
+        padding: 1mm 0 !important;
+      }
+      /* 65.6 mm menos dos líneas de 0.3 mm deja 65 mm interiores:
+         el QR de 59 mm queda separado exactamente 3 mm por lado. */
       .qr-print-code {
-        width: 50.6mm !important;
-        height: 50.6mm !important;
+        width: 65.6mm !important;
+        height: 65.6mm !important;
         box-sizing: border-box !important;
-        border: 0.3mm solid #111827 !important;
+        border: 0.3mm dashed #111827 !important;
         background: none !important;
         overflow: visible !important;
       }
       .qr-print-code canvas,
       .qr-print-code img {
-        width: 44mm !important;
-        height: 44mm !important;
+        width: 59mm !important;
+        height: 59mm !important;
+        image-rendering: pixelated;
       }
       .qr-print-code .qr-center-id {
         z-index: 1;
@@ -573,8 +589,8 @@ function printStudentQrs(levelLabel, groupLabel, students) {
     for (const [target, id] of qrTargets) {
       new window.QRCode(target, {
         text: id,
-        width: 180,
-        height: 180,
+        width: 256,
+        height: 256,
         colorDark: "#000000",
         colorLight: "#ffffff",
         correctLevel: window.QRCode.CorrectLevel.H,
