@@ -144,7 +144,7 @@
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
-                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.14.0</p>
+                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.15.0</p>
                 <div class="flex items-center justify-center gap-2">
                     <span id="conn-dot" aria-hidden="true" class="status-dot bg-red-500"></span>
                     <p id="conn-text" role="status" aria-live="polite" class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Iniciando...</p>
@@ -286,7 +286,7 @@
                                 </div>
                                 <div class="space-y-1 text-center"><label for="input-a-grupo" class="text-[8px] font-black text-slate-500 uppercase">Grupo</label><input id="input-a-grupo" type="text" placeholder="1A / A / 3B" maxlength="12" aria-label="Grupo del alumno" class="w-full px-3 py-3 border rounded-3xl uppercase font-black text-center shadow-inner"></div>
                             </div>
-                            <input id="input-a-paterno" type="text" aria-label="Apellido paterno" autocomplete="family-name" placeholder="APELLIDO PATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-materno" type="text" aria-label="Apellido materno" placeholder="APELLIDO MATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-nombres" type="text" aria-label="Nombres del alumno" autocomplete="given-name" placeholder="NOMBRE(S)" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><button type="button" onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-xl text-center">Guardar</button>
+                            <input id="input-a-paterno" type="text" aria-label="Apellido paterno" autocomplete="family-name" placeholder="APELLIDO PATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-materno" type="text" aria-label="Apellido materno" placeholder="APELLIDO MATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-nombres" type="text" aria-label="Nombres del alumno" autocomplete="given-name" placeholder="NOMBRE(S)" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><button type="button" id="btn-add-student" onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-xl text-center">Guardar</button>
                             <button onclick="window.logout()" class="w-full text-slate-400 font-bold uppercase text-[9px] underline text-center">Cerrar Sesión</button>
                         </div>
                     </div>
@@ -607,6 +607,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.14.0"></script>
+    <script type="module" src="./app.js?v=36.15.0"></script>
 </body>
 </html>

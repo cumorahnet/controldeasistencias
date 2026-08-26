@@ -75,6 +75,7 @@ let isScannerTransitioning = false;
 let unsubscribeAttendance = null;
 let modalPreviousFocus = null;
 let teacherBeingRepaired = "";
+let studentRegistrationInFlight = false;
 const attendanceInFlight = new Set();
 
 const byId = (id) => document.getElementById(id);
@@ -599,7 +600,7 @@ function createStudentTable(levelLabel, groupLabel, students) {
     actionCell.append(createIconButton(
       `Eliminar a ${fullName}`,
       "fas fa-trash",
-      () => window.deleteStudent(student.id, student.level || student.nivel, student.grupo),
+      () => window.deleteStudent(student.id),
     ));
     row.append(actionCell);
     body.append(row);
@@ -1422,7 +1423,7 @@ window.handleBatchImport = async (event) => {
 };
 
 window.addStudent = async () => {
-  if (!isAdmin()) return;
+  if (!isAdmin() || studentRegistrationInFlight) return;
   const level = normalizeSchoolLevel(byId("input-a-nivel").value);
   const group = normalizeGroupName(byId("input-a-grupo").value, 12);
   const paterno = normalizeText(byId("input-a-paterno").value, 80).toUpperCase();
@@ -1431,11 +1432,29 @@ window.addStudent = async () => {
   if (!level || !group || !paterno || !names) {
     return window.showModalMsg("Datos", "Capture nivel, grupo, apellido paterno y nombre(s).");
   }
+  const button = byId("btn-add-student");
+  const originalLabel = button?.textContent;
+  studentRegistrationInFlight = true;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Guardando…";
+  }
   try {
     const groupSnapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
     const groupStudents = groupSnapshot.docs
-      .map((entry) => entry.data())
+      .map((entry) => ({...entry.data(), id: entry.id}))
       .filter((student) => normalizeSchoolLevel(student.level || student.nivel) === level && normalizeGroupName(student.grupo) === group);
+    const existingStudent = groupStudents.find((student) => (
+      normalizeText(student.paterno, 80).toUpperCase() === paterno
+      && normalizeText(student.materno, 80).toUpperCase() === materno
+      && normalizeText(student.nombres, 100).toUpperCase() === names
+    ));
+    if (existingStudent) {
+      return window.showModalMsg(
+        "Alumno ya registrado",
+        `${[paterno, materno, names].filter(Boolean).join(" ")} ya tiene el número de lista ${studentListNumber(existingStudent)?.toString().padStart(2, "0") || "registrado"}.`,
+      );
+    }
     if (groupStudents.length >= 99) return window.showModalMsg("Datos", "Un grupo no puede contener más de 99 alumnos.");
     const usedIds = new Set(groupSnapshot.docs.map((entry) => entry.id));
     const lastListNumber = groupStudents.reduce((highest, student) => Math.max(highest, studentListNumber(student) || 0), 0);
@@ -1466,6 +1485,12 @@ window.addStudent = async () => {
     });
   } catch (error) {
     window.showModalMsg("Error", functionError(error));
+  } finally {
+    studentRegistrationInFlight = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "Guardar";
+    }
   }
 };
 window.clearAllStudents = () => window.showConfirmMsg("Limpieza", "¿Borrar todo el catálogo de alumnos? Esta acción no se puede deshacer.", async () => {
@@ -1473,19 +1498,16 @@ window.clearAllStudents = () => window.showConfirmMsg("Limpieza", "¿Borrar todo
   await loadStudents();
 });
 
-window.deleteStudent = (id, rawLevel = "", rawGroup = "") => window.showConfirmMsg(
+window.deleteStudent = (id) => window.showConfirmMsg(
   "Eliminar",
-  `¿Eliminar al alumno ${id}? El grupo se renumerará y deberán imprimirse nuevamente sus QR.`,
+  `¿Eliminar al alumno ${id}? Los demás números de lista y sus QR se conservarán sin cambios.`,
   async () => {
-    const level = normalizeSchoolLevel(rawLevel);
-    const group = normalizeGroupName(rawGroup, 12);
-    await api.deleteStudent({schoolKey, studentId: id});
-    if (level && group) {
-      try {
-        await api.renumberStudentGroup({schoolKey, level, group});
-      } catch (error) {
-        if (!String(error?.code || "").includes("not-found")) throw error;
-      }
+    try {
+      await api.deleteStudent({schoolKey, studentId: id});
+    } catch (error) {
+      const studentRef = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, id);
+      const studentSnapshot = await getDoc(studentRef);
+      if (studentSnapshot.exists()) throw error;
     }
     await loadStudents();
   },
