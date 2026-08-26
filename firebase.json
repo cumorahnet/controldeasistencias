@@ -4,5 +4,38 @@
   },
   "firestore": {
     "rules": "firestore.rules"
+  },
+  "hosting": {
+    "site": "controldeasistencias-8308c",
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      ".git/**",
+      ".cdc/**",
+      ".firebase/**",
+      ".agents/**",
+      ".codex/**",
+      "**/node_modules/**",
+      "functions/**",
+      "scripts/**",
+      "*.md",
+      "*.json",
+      "*.rules",
+      "*.backup",
+      "firebase-debug*.log"
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -145,7 +145,7 @@
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
-                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.16.0</p>
+                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.19.0</p>
                 <div class="flex items-center justify-center gap-2">
                     <span id="conn-dot" aria-hidden="true" class="status-dot bg-red-500"></span>
                     <p id="conn-text" role="status" aria-live="polite" class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Iniciando...</p>
@@ -234,15 +234,33 @@
     </header>
 
     <main id="main-content" class="max-w-6xl mx-auto p-4 md:p-8 no-print hidden">
+        <div data-free-ad class="hidden mb-6 rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-center text-[10px] font-black uppercase text-slate-500">
+            Espacio publicitario · La versión Premium elimina la publicidad
+        </div>
+        <div id="premium-upsell" class="hidden mb-6 rounded-[2rem] bg-gradient-to-r from-indigo-700 to-purple-600 p-6 text-center text-white shadow-xl">
+            <h2 class="text-lg font-black uppercase">Activa Premium</h2>
+            <p class="mt-2 text-xs font-bold">Elimina la publicidad y habilita logotipo y colores institucionales.</p>
+            <button type="button" onclick="window.showModalMsg('Premium','Contacta a Soporte para comprobar el pago y activar Premium.','institutional')" class="mt-4 rounded-xl bg-white px-6 py-3 text-[10px] font-black uppercase text-indigo-700">Contactar soporte</button>
+        </div>
         <!-- ESCÁNER -->
         <section id="section-scanner" class="space-y-8 animate-fadeIn text-center">
             <div class="max-w-md mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200">
-                <div class="theme-primary p-6 text-white text-center"><h2 class="text-lg font-black uppercase tracking-wide">Pase de Lista</h2></div>
+                <div class="theme-primary p-6 text-white text-center"><h2 class="text-lg font-black uppercase tracking-wide">Pase de Lista</h2><p id="current-schedule-label" class="mt-2 text-[9px] font-black uppercase opacity-80">Sin horario configurado</p></div>
                 <div class="p-8 space-y-6">
                     <div id="qr-reader" aria-label="Lector de código QR" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[350px]"></div>
                     <button type="button" onclick="window.toggleCamera()" id="btn-camera" aria-pressed="false" class="w-full bg-slate-800 text-white font-black py-4 rounded-[2rem] shadow-lg uppercase text-[10px]">Encender cámara</button>
                     <div class="flex gap-3"><input id="input-manual-id" type="text" aria-label="ID del alumno" autocapitalize="characters" placeholder="ID ALUMNO" class="flex-1 px-5 py-3 border-2 border-slate-100 rounded-3xl uppercase text-sm font-black focus:ring-2 focus:ring-orange-500 shadow-sm text-center"><button type="button" onclick="window.manualAttendance()" class="theme-accent text-white px-8 py-3 rounded-3xl text-xs font-black uppercase shadow-lg">Registrar</button></div>
                     <p id="scanner-status" role="status" aria-live="polite" class="min-h-5 text-sm font-bold text-slate-600"></p>
+                    <details class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
+                        <summary class="cursor-pointer text-center text-[10px] font-black uppercase text-slate-700">Mi horario</summary>
+                        <div class="mt-4 grid grid-cols-2 gap-3">
+                            <label class="text-[9px] font-black uppercase text-slate-600">Entrada<input id="schedule-entry-time" type="time" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Regreso del receso<input id="schedule-recess-return" type="time" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Tolerancia (min)<input id="schedule-tolerance" type="number" min="0" max="120" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Módulo (min)<input id="schedule-class-duration" type="number" min="1" max="240" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
+                        </div>
+                        <button type="button" onclick="window.saveOwnSchedule()" class="mt-4 w-full rounded-xl bg-slate-800 py-3 text-[9px] font-black uppercase text-white">Guardar mi horario</button>
+                    </details>
                     <button onclick="window.logout()" class="w-full bg-red-50 text-red-500 py-3 rounded-2xl font-bold uppercase text-[9px] border border-red-100 active:scale-95 transition-all text-center">Salir del Sistema</button>
                 </div>
             </div>
@@ -267,6 +285,7 @@
                     <button onclick="window.switchMaintCategory('alumnos')" id="maint-cat-alumnos" class="maint-cat-btn pb-2 px-5 text-[10px] font-black uppercase border-b-2 border-transparent cat-active">Alumnos</button>
                     <button onclick="window.switchMaintCategory('maestros')" id="maint-cat-maestros" class="maint-cat-btn pb-2 px-5 text-[10px] font-black uppercase border-b-2 border-transparent text-slate-600">Personal</button>
                     <button onclick="window.switchMaintCategory('institucion')" id="maint-cat-institucion" class="maint-cat-btn pb-2 px-5 text-[10px] font-black uppercase border-b-2 border-transparent text-orange-600">Escuela</button>
+                    <button onclick="window.switchMaintCategory('reportes')" id="maint-cat-reportes" class="maint-cat-btn pb-2 px-5 text-[10px] font-black uppercase border-b-2 border-transparent text-slate-600">Reportes</button>
                 </div>
 
                 <!-- ALUMNOS -->
@@ -287,6 +306,7 @@
                                 </div>
                                 <div class="space-y-1 text-center"><label for="input-a-grupo" class="text-[8px] font-black text-slate-500 uppercase">Grupo</label><input id="input-a-grupo" type="text" placeholder="1A / A / 3B" maxlength="12" aria-label="Grupo del alumno" class="w-full px-3 py-3 border rounded-3xl uppercase font-black text-center shadow-inner"></div>
                             </div>
+                            <input id="input-a-id" type="text" maxlength="40" autocapitalize="characters" aria-label="ID manual opcional del alumno" placeholder="ID O MATRÍCULA (OPCIONAL)" class="w-full px-5 py-3 border rounded-3xl uppercase font-black text-center">
                             <input id="input-a-paterno" type="text" aria-label="Apellido paterno" autocomplete="family-name" placeholder="APELLIDO PATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-materno" type="text" aria-label="Apellido materno" placeholder="APELLIDO MATERNO" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><input id="input-a-nombres" type="text" aria-label="Nombres del alumno" autocomplete="given-name" placeholder="NOMBRE(S)" class="w-full px-5 py-3 border rounded-3xl uppercase font-bold text-center"><button type="button" id="btn-add-student" onclick="window.addStudent()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-xl text-center">Guardar</button>
                             <button onclick="window.logout()" class="w-full text-slate-400 font-bold uppercase text-[9px] underline text-center">Cerrar Sesión</button>
                         </div>
@@ -334,7 +354,7 @@
                     <div class="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-xl max-w-3xl mx-auto space-y-5">
                         <div>
                             <h3 class="font-black theme-text uppercase text-base">Alta directa de personal</h3>
-                            <p class="text-xs text-slate-600 mt-2">Crea un usuario estable y una contraseña que será definitiva.</p>
+                            <p class="text-xs text-slate-600 mt-2">Crea un usuario estable y una contraseña temporal. Todos los usuarios adicionales deberán cambiarla al ingresar por primera vez.</p>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="md:col-span-2 space-y-1">
@@ -348,7 +368,7 @@
                             <div class="md:col-span-2 space-y-1">
                                 <label for="new-teacher-password" class="text-xs font-black text-slate-600 uppercase">Contraseña</label>
                                 <div class="pass-container"><input id="new-teacher-password" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="CONTRASEÑA" required class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl font-black text-center focus:border-blue-500"><button type="button" class="toggle-eye" aria-label="Mostrar contraseña" aria-pressed="false" onclick="window.togglePass('new-teacher-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
-                                <p class="text-[10px] text-slate-500 mt-1">Use de 8 a 72 caracteres, con letras y números. Esta será su contraseña definitiva.</p>
+                                <p class="text-[10px] text-slate-500 mt-1">Use de 8 a 72 caracteres, con letras y números. Será temporal y deberá cambiarse en el primer acceso.</p>
                             </div>
                             <div class="md:col-span-2 space-y-1">
                                 <label for="new-teacher-password-confirm" class="text-xs font-black text-slate-600 uppercase">Confirmar Contraseña</label>
@@ -358,6 +378,7 @@
                                 <label for="new-teacher-role" class="text-xs font-black text-slate-600 uppercase">Rol inicial</label>
                                 <select id="new-teacher-role" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl font-black text-center focus:border-blue-500">
                                     <option value="docente">Docente</option>
+                                    <option value="porteria">Portería / Entrada</option>
                                     <option value="admin_jr">Administrador JR</option>
                                     <option value="admin_maestro">Administrador maestro</option>
                                 </select>
@@ -387,6 +408,8 @@
                         </div>
                     </div>
                     <div class="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-xl overflow-x-auto text-center">
+                        <label for="teacher-search" class="sr-only">Buscar personal</label>
+                        <input id="teacher-search" type="search" oninput="window.filterTeacherCatalog()" placeholder="BUSCAR POR NOMBRE O USUARIO" class="mb-5 w-full rounded-2xl border border-slate-200 px-5 py-3 text-center font-black uppercase">
                         <table class="w-full text-center">
                             <caption class="sr-only">Personal registrado y funciones de administración</caption>
                             <thead><tr class="bg-slate-50 text-[8px] uppercase border-b text-center"><th class="p-3 text-center">Usuario</th><th class="text-center">Nombre</th><th class="text-center">Rol</th><th class="text-center">Acción</th></tr></thead>
@@ -396,10 +419,30 @@
                     </div>
                 </div>
 
+                <!-- REPORTES -->
+                <div id="div-mantenimiento-reportes" class="hidden space-y-6">
+                    <div class="rounded-[3rem] border border-slate-200 bg-white p-8 shadow-xl">
+                        <div class="flex flex-col gap-4 border-b pb-5 md:flex-row md:items-end">
+                            <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Desde<input id="report-date-from" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
+                            <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Hasta<input id="report-date-to" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
+                            <button id="btn-load-attendance" type="button" onclick="window.loadAttendanceReport()" class="rounded-2xl theme-accent px-7 py-3 font-black uppercase text-white disabled:opacity-50">Consultar</button>
+                            <button id="btn-print-attendance" type="button" onclick="window.printAttendanceReport()" class="hidden rounded-2xl bg-slate-800 px-7 py-3 font-black uppercase text-white"><i class="fas fa-print mr-2"></i>Imprimir</button>
+                        </div>
+                        <p id="attendance-report-summary" class="my-4 text-right text-[10px] font-black uppercase text-slate-500">0 registros</p>
+                        <div class="overflow-x-auto rounded-2xl border border-slate-100">
+                            <table class="w-full border-collapse text-[10px] font-bold uppercase">
+                                <thead class="bg-slate-50"><tr><th class="p-3">#</th><th>Fecha</th><th>Hora</th><th>ID</th><th>Alumno</th><th>Registró</th><th>Estado</th></tr></thead>
+                                <tbody id="attendance-report-body" class="divide-y"><tr><td colspan="7" class="p-10 text-center text-slate-500 italic">Seleccione un rango y consulte el reporte.</td></tr></tbody>
+                            </table>
+                        </div>
+                        <button id="btn-clear-attendance" type="button" onclick="window.clearAttendanceHistory()" class="mt-6 rounded-xl border border-red-300 px-5 py-3 text-[9px] font-black uppercase text-red-700">Vaciar historial de asistencias</button>
+                    </div>
+                </div>
+
                 <!-- ESCUELA -->
                 <div id="div-mantenimiento-institucion" class="hidden animate-fadeIn space-y-6 text-center text-center">
                     <div class="bg-white p-10 rounded-[3rem] border border-slate-200 max-w-4xl mx-auto shadow-2xl text-left text-center">
-                        <div class="flex justify-between items-center mb-8 border-b pb-4 text-center text-center">
+                        <div class="flex justify-between items-center mb-8 border-b pb-4 text-center text-center text-center">
                             <h3 class="font-black theme-text uppercase text-xl text-center">Ajustes Institucionales</h3>
                             <span id="premium-badge-local" class="hidden px-4 py-1.5 bg-amber-100 text-amber-700 rounded-full font-black text-[9px] uppercase italic border border-amber-200 text-center text-center">VERSIÓN PRO</span>
                         </div>
@@ -431,8 +474,18 @@
                                 <div id="invite-branding-panel" class="bg-orange-50 border border-orange-100 p-6 rounded-[2rem] text-center text-center text-center">
                                     <i class="fas fa-lock text-orange-300 text-2xl mb-3 text-center text-center text-center"></i>
                                     <p class="text-orange-700 font-black uppercase text-[10px] mb-2 leading-tight italic text-center text-center text-center">Personalización Bloqueada</p>
-                                    <p class="text-orange-600/80 font-medium leading-normal mb-4 text-[9px] text-center text-center text-center">¡Usa tu propio logotipo y colores institucionales! Contacta a Soporte Global para activar esta función premium.</p>
-                                    <button onclick="window.showModalMsg('Premium','Solicita la activación de Identidad Visual a Soporte.')" class="premium-btn text-center text-center text-center">SABER MÁS</button>
+                                    <p class="text-orange-600/80 font-medium leading-normal mb-4 text-[9px] text-center text-center text-center">El logotipo y los colores se habilitan cuando Soporte confirma el pago Premium.</p>
+                                    <button onclick="window.showModalMsg('Premium','Contacta a Soporte para comprobar el pago y activar Premium.','institutional')" class="premium-btn text-center text-center text-center">SABER MÁS</button>
+                                </div>
+                                <div id="premium-branding-panel" class="hidden space-y-4 rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 text-center">
+                                    <h4 class="text-[10px] font-black uppercase text-emerald-800">Identidad visual Premium</h4>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <label class="text-[8px] font-black uppercase text-slate-600">Color principal<input id="edit-brand-primary" type="color" value="#1e293b" class="mt-1 h-12 w-full rounded-xl border bg-white"></label>
+                                        <label class="text-[8px] font-black uppercase text-slate-600">Color de acento<input id="edit-brand-accent" type="color" value="#3b82f6" class="mt-1 h-12 w-full rounded-xl border bg-white"></label>
+                                    </div>
+                                    <img id="brand-logo-preview" alt="Vista previa del logotipo" class="mx-auto hidden max-h-28 max-w-full rounded-xl bg-white p-2">
+                                    <input id="edit-brand-logo" type="file" accept="image/png,image/jpeg,image/webp" onchange="window.handleLogoUpload(event)" class="w-full text-[9px]">
+                                    <button type="button" onclick="window.removeBrandLogo()" class="rounded-xl border border-slate-300 px-4 py-2 text-[8px] font-black uppercase text-slate-600">Quitar logotipo</button>
                                 </div>
                             </div>
                         </div>
@@ -448,8 +501,13 @@
                     </div>
                 </div>
 
+                <div id="student-search-panel" class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-lg">
+                    <label for="student-search" class="sr-only">Buscar alumnos</label>
+                    <input id="student-search" type="search" oninput="window.filterStudentCatalog()" placeholder="BUSCAR ALUMNO POR NOMBRE, ID O MATRÍCULA" class="w-full rounded-2xl border border-slate-200 px-5 py-3 text-center font-black uppercase">
+                </div>
                 <div id="general-table-container" class="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-2xl hidden animate-fadeIn text-center">
-                    <div id="student-levels-container" class="p-4 md:p-6 space-y-5" aria-label="Catálogo de alumnos agrupado por nivel y grupo"></div>
+                    <div id="student-levels-container" class="p-4 md:p-6 space-y-5" aria-label="Catálogo de alumnos agrupado por nivel y grupo">
+                    </div>
                 </div>
             </div>
         </section>
@@ -477,6 +535,9 @@
                 <div class="overflow-x-auto"><table class="w-full border-collapse text-center"><caption class="sr-only">Directorio maestro de escuelas</caption><thead class="bg-slate-50 text-[9px] uppercase border-b"><tr><th scope="col" class="p-4">CCT</th><th scope="col">Escuela</th><th scope="col">Verificación</th><th scope="col">Ads OFF</th><th scope="col">Identidad</th><th scope="col">Acciones</th></tr></thead><tbody id="global-schools-body" class="divide-y divide-slate-100 text-[11px] font-bold uppercase"></tbody></table></div>
             </div>
         </section>
+        <div data-free-ad class="hidden mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-center text-[10px] font-black uppercase text-slate-500">
+            Publicidad · Apoya la versión gratuita
+        </div>
     </main>
 
     <section id="student-print-area" class="print-only" aria-hidden="true"></section>
@@ -608,6 +669,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.16.0"></script>
+    <script type="module" src="./app.js?v=36.20.2"></script>
 </body>
 </html>

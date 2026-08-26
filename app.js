@@ -50,6 +50,7 @@ const api = Object.fromEntries([
   "createTeacher",
   "repairTeacherAccount",
   "changeTeacherPassword",
+  "updateOwnSchedule",
   "updateSchool",
   "updateTeacherRole",
   "approveTeacher",
@@ -59,6 +60,8 @@ const api = Object.fromEntries([
   "setStudentActive",
   "renumberStudentGroup",
   "clearStudents",
+  "listAttendanceReport",
+  "clearAttendance",
   "toggleSchoolFlag",
   "setSchoolVerification",
   "correctSchoolCct",
@@ -77,9 +80,99 @@ let unsubscribeAttendance = null;
 let modalPreviousFocus = null;
 let teacherBeingRepaired = "";
 let studentRegistrationInFlight = false;
+let audioContext = null;
+let audioUnlockPromise = null;
+let studentCatalogCache = [];
+let teacherCatalogCache = [];
+let latestAttendanceReport = [];
+let pendingLogoDataUrl = "";
 const attendanceInFlight = new Set();
 
 const byId = (id) => document.getElementById(id);
+
+function primeAudioContext(context) {
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  gain.gain.value = 0.0001;
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.01);
+}
+
+async function unlockAudio() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    if (!audioContext) {
+      audioContext = new AudioContextClass();
+    }
+    if (audioContext.state === "running") return audioContext;
+    if (!audioUnlockPromise) {
+      audioUnlockPromise = audioContext.resume()
+        .then(() => {
+          if (audioContext.state !== "running") return null;
+          primeAudioContext(audioContext);
+          return audioContext;
+        })
+        .catch(() => null)
+        .finally(() => {
+          audioUnlockPromise = null;
+        });
+    }
+    return await audioUnlockPromise;
+  } catch {
+    return null;
+  }
+}
+
+async function playScanSound(kind) {
+  try {
+    const context = await unlockAudio();
+    if (!context || context.state !== "running") return;
+    const now = context.currentTime;
+    const tones = kind === "success"
+      ? [{frequency: 880, start: 0, duration: 0.12}, {frequency: 1175, start: 0.13, duration: 0.13}]
+      : [{frequency: 150, start: 0, duration: 0.18}, {frequency: 110, start: 0.2, duration: 0.28}];
+    for (const tone of tones) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = kind === "success" ? "sine" : "square";
+      oscillator.frequency.setValueAtTime(tone.frequency, now + tone.start);
+      gain.gain.setValueAtTime(0.0001, now + tone.start);
+      gain.gain.exponentialRampToValueAtTime(kind === "success" ? 0.35 : 0.22, now + tone.start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + tone.start + tone.duration);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(now + tone.start);
+      oscillator.stop(now + tone.start + tone.duration);
+    }
+  } catch {
+    // El audio es auxiliar y nunca debe alterar el resultado de la asistencia.
+  }
+}
+
+function setScannerStatus(message, kind = "neutral") {
+  const status = byId("scanner-status");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.remove("text-slate-600", "text-green-700", "text-red-700", "bg-green-50", "bg-red-50", "p-3", "rounded-2xl");
+  if (kind === "success") status.classList.add("text-green-700", "bg-green-50", "p-3", "rounded-2xl");
+  else if (kind === "error") status.classList.add("text-red-700", "bg-red-50", "p-3", "rounded-2xl");
+  else status.classList.add("text-slate-600");
+}
+
+function unlockAudioFromGesture() {
+  void unlockAudio().then((context) => {
+    if (context?.state === "running") {
+      document.removeEventListener("click", unlockAudioFromGesture);
+      document.removeEventListener("keydown", unlockAudioFromGesture);
+    }
+  });
+}
+
+document.addEventListener("click", unlockAudioFromGesture, {passive: true});
+document.addEventListener("keydown", unlockAudioFromGesture);
 
 function installQrPrintCutStyles() {
   if (byId("qr-print-cut-styles")) return;
@@ -322,10 +415,35 @@ window.switchToStep = (stepId) => {
 };
 
 window.applySchoolBranding = (data = {}) => {
-  const color = data.allowBranding && /^#[0-9a-f]{6}$/i.test(String(data.brandColor || ""))
-    ? data.brandColor
+  const premium = data.isPremium === true;
+  const primaryColor = premium && /^#[0-9a-f]{6}$/i.test(String(data.brandPrimaryColor || ""))
+    ? data.brandPrimaryColor
+    : "#1e293b";
+  const accentColor = premium && /^#[0-9a-f]{6}$/i.test(String(data.brandAccentColor || data.brandColor || ""))
+    ? String(data.brandAccentColor || data.brandColor)
     : DEFAULT_ACCENT;
-  document.documentElement.style.setProperty("--accent-color", color);
+  document.documentElement.style.setProperty("--primary-color", primaryColor);
+  document.documentElement.style.setProperty("--accent-color", accentColor);
+  const logoDataUrl = premium && /^data:image\/(?:png|jpeg|webp);base64,/i.test(String(data.logoDataUrl || "")) ? data.logoDataUrl : "";
+  for (const id of ["login-logo-placeholder", "header-logo-container"]) {
+    const container = byId(id);
+    if (!container) continue;
+    container.replaceChildren();
+    if (logoDataUrl) {
+      const logo = document.createElement("img");
+      logo.src = logoDataUrl;
+      logo.alt = typeof data.name === "string" ? `Logotipo de ${data.name}` : "Logotipo institucional";
+      logo.className = "logo-img";
+      container.append(logo);
+    } else {
+      const icon = document.createElement("i");
+      icon.className = id === "header-logo-container" ? "fas fa-graduation-cap text-xl" : "fas fa-university text-5xl text-slate-200";
+      icon.setAttribute("aria-hidden", "true");
+      container.append(icon);
+    }
+  }
+  document.querySelectorAll("[data-free-ad]").forEach((element) => element.classList.toggle("hidden", premium));
+  window.safeToggle("premium-upsell", premium);
   if (typeof data.name === "string") {
     if (byId("header-school-name")) byId("header-school-name").textContent = data.name;
     if (byId("login-logo-placeholder")) byId("login-logo-placeholder").setAttribute("aria-label", `Identidad de ${data.name}`);
@@ -392,13 +510,18 @@ function createIconButton(label, iconClass, action, className = "text-red-500 p-
   return button;
 }
 
-async function loadTeachers() {
+async function loadTeachers(useCache = false) {
   const body = byId("teacher-table-body");
   if (!body || !schoolKey || !isAdmin()) return;
   try {
-    const response = await api.listTeachers({schoolKey});
-    const teachers = response.data.teachers
+    if (!useCache || !teacherCatalogCache.length) {
+      const response = await api.listTeachers({schoolKey});
+      teacherCatalogCache = response.data.teachers;
+    }
+    const term = normalizeText(byId("teacher-search")?.value).toUpperCase();
+    const teachers = teacherCatalogCache
       .filter((teacher) => teacher.id !== "DIR")
+      .filter((teacher) => !term || normalizeText(teacher.nombre).toUpperCase().includes(term) || normalizeCode(teacher.id, 160).includes(term))
       .sort((a, b) => String(a.nombre || "").localeCompare(String(b.nombre || ""), "es"));
     body.replaceChildren();
     for (const teacher of teachers) {
@@ -411,7 +534,7 @@ async function loadTeachers() {
         const select = document.createElement("select");
         select.className = "role-select";
         select.setAttribute("aria-label", `Rol de ${normalizeText(teacher.nombre)}`);
-        for (const [value, label] of [["docente", "DOC"], ["admin_jr", "JR"], ["admin_maestro", "MASTER"]]) {
+        for (const [value, label] of [["docente", "DOC"], ["porteria", "PORTERÍA"], ["admin_jr", "JR"], ["admin_maestro", "MASTER"]]) {
           const option = new Option(label, value, false, teacher.role === value);
           select.add(option);
         }
@@ -424,7 +547,7 @@ async function loadTeachers() {
       row.append(roleCell);
       const actionCell = document.createElement("td");
       actionCell.className = "text-center";
-      const canManageTarget = isMaster() || teacher.role === "docente" || !teacher.role;
+      const canManageTarget = isMaster() || new Set(["docente", "porteria"]).has(teacher.role) || !teacher.role;
       if (teacher.status === "pending" && canManageTarget) {
         const approve = document.createElement("button");
         approve.type = "button";
@@ -464,14 +587,16 @@ async function loadTeachers() {
   }
 }
 
+window.filterTeacherCatalog = () => loadTeachers(true);
+
 function configureTeacherCreationForm() {
   const roleSelect = byId("new-teacher-role");
   if (!roleSelect) return;
   const canAssignAdministrativeRoles = isMaster();
   for (const option of roleSelect.options) {
-    option.disabled = !canAssignAdministrativeRoles && option.value !== "docente";
+    option.disabled = !canAssignAdministrativeRoles && !new Set(["docente", "porteria"]).has(option.value);
   }
-  if (!canAssignAdministrativeRoles) roleSelect.value = "docente";
+  if (!canAssignAdministrativeRoles && !new Set(["docente", "porteria"]).has(roleSelect.value)) roleSelect.value = "docente";
 }
 
 const STUDENT_LEVEL_LABELS = {PRE: "Preescolar", PRI: "Primaria", SEC: "Secundaria", BAC: "Bachillerato", "SIN NIVEL": "Sin nivel"};
@@ -712,7 +837,7 @@ function createGroupView(level, levelLabel, group, groupLabel, students) {
   return view;
 }
 
-async function loadStudents() {
+async function loadStudents(useCache = false) {
   const container = byId("student-levels-container");
   if (!container || !schoolKey || schoolKey === "SISTEMA") return;
   const preserveSelection = container.dataset.schoolKey === schoolKey;
@@ -721,8 +846,14 @@ async function loadStudents() {
   container.replaceChildren();
   container.dataset.schoolKey = schoolKey;
   try {
-    const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
-    const students = snapshot.docs.map((entry) => ({...entry.data(), id: entry.id}));
+    if (!useCache || !studentCatalogCache.length) {
+      const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
+      studentCatalogCache = snapshot.docs.map((entry) => ({...entry.data(), id: entry.id}));
+    }
+    const term = normalizeText(byId("student-search")?.value).toUpperCase();
+    const students = studentCatalogCache.filter((student) => !term
+      || normalizeCode(student.id, 40).includes(term)
+      || studentDisplayName(student).toUpperCase().includes(term));
     const studentsWithGroup = students.filter((student) => normalizeGroupName(student.grupo));
     const levels = groupStudentsBy(studentsWithGroup, (student) => normalizeSchoolLevel(student.level || student.nivel) || "SIN NIVEL");
     const levelNames = [...levels.keys()].sort((first, second) => {
@@ -828,6 +959,53 @@ async function loadStudents() {
   }
 }
 
+window.filterStudentCatalog = () => loadStudents(true);
+
+function effectiveSchedule() {
+  const teacher = loggedTeacher || {};
+  const school = currentSchool || {};
+  return {
+    entryTime: String(teacher.entryTime || school.entryTime || "").slice(0, 5),
+    recessReturnTime: String(teacher.recessReturnTime || school.recessReturnTime || "").slice(0, 5),
+    tolerance: Number(teacher.tolerance ?? school.tolerance ?? 0),
+    classDuration: Number(teacher.classDuration ?? school.classDuration ?? 50),
+  };
+}
+
+function populateScheduleForm() {
+  const schedule = effectiveSchedule();
+  const fields = {
+    "schedule-entry-time": schedule.entryTime,
+    "schedule-recess-return": schedule.recessReturnTime,
+    "schedule-tolerance": schedule.tolerance,
+    "schedule-class-duration": schedule.classDuration,
+  };
+  for (const [id, value] of Object.entries(fields)) if (byId(id)) byId(id).value = value ?? "";
+  const label = byId("current-schedule-label");
+  if (label) label.textContent = schedule.entryTime
+    ? `Entrada ${schedule.entryTime} · tolerancia ${schedule.tolerance} min`
+    : "Sin horario de entrada configurado";
+}
+
+window.saveOwnSchedule = async () => {
+  if (!loggedTeacher || loggedTeacher.role === "super") return;
+  const schedule = {
+    schoolKey,
+    entryTime: byId("schedule-entry-time")?.value || "",
+    recessReturnTime: byId("schedule-recess-return")?.value || "",
+    tolerance: byId("schedule-tolerance")?.value || 0,
+    classDuration: byId("schedule-class-duration")?.value || 50,
+  };
+  try {
+    const response = await api.updateOwnSchedule(schedule);
+    loggedTeacher = {...loggedTeacher, ...response.data.schedule};
+    populateScheduleForm();
+    window.showModalMsg("Horario", "El horario personal fue guardado.");
+  } catch (error) {
+    window.showModalMsg("Horario", functionError(error));
+  }
+};
+
 async function enterApp() {
   if (!loggedTeacher) return;
   window.safeToggle("section-gateway", true);
@@ -843,6 +1021,7 @@ async function enterApp() {
   window.safeToggle("maint-cat-institucion", !isMaster());
   if (superUser) await window.switchTab("global");
   else {
+    populateScheduleForm();
     await loadStudents();
     listenToAttendanceToday();
     await window.switchTab("scanner");
@@ -1117,17 +1296,25 @@ window.registerTeacherSelf = async () => {
 
 window.switchMaintCategory = async (category) => {
   if (!isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos de administración.");
-  if (!new Set(["alumnos", "maestros", "institucion"]).has(category)) return;
+  if (!new Set(["alumnos", "maestros", "institucion", "reportes"]).has(category)) return;
   if (category === "institucion" && !isMaster()) return window.showModalMsg("Acceso", "Los ajustes institucionales requieren un administrador maestro.");
-  ["alumnos", "maestros", "institucion"].forEach((name) => {
+  ["alumnos", "maestros", "institucion", "reportes"].forEach((name) => {
     window.safeToggle(`div-mantenimiento-${name}`, name !== category);
     byId(`maint-cat-${name}`)?.classList.toggle("cat-active", name === category);
   });
+  window.safeToggle("student-search-panel", category !== "alumnos");
   window.safeToggle("general-table-container", category !== "alumnos");
   if (category === "alumnos") return loadStudents();
   if (category === "maestros") {
     configureTeacherCreationForm();
     return loadTeachers();
+  }
+  if (category === "reportes") {
+    const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
+    if (byId("report-date-from") && !byId("report-date-from").value) byId("report-date-from").value = today;
+    if (byId("report-date-to") && !byId("report-date-to").value) byId("report-date-to").value = today;
+    window.safeToggle("btn-clear-attendance", !isMaster());
+    return;
   }
   const snapshot = await getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios", schoolKey));
   if (!snapshot.exists()) return;
@@ -1141,12 +1328,73 @@ window.switchMaintCategory = async (category) => {
     "edit-class-duration": data.classDuration,
     "display-school-cct-readonly": schoolKey,
     "edit-school-contact-email": data.contactEmail,
+    "edit-brand-primary": data.brandPrimaryColor || "#1e293b",
+    "edit-brand-accent": data.brandAccentColor || data.brandColor || DEFAULT_ACCENT,
   };
   for (const [id, value] of Object.entries(fields)) if (byId(id)) byId(id).value = value ?? "";
+  pendingLogoDataUrl = String(data.logoDataUrl || "");
+  const logoPreview = byId("brand-logo-preview");
+  if (logoPreview) {
+    if (pendingLogoDataUrl) logoPreview.src = pendingLogoDataUrl;
+    else logoPreview.removeAttribute("src");
+    logoPreview.classList.toggle("hidden", !pendingLogoDataUrl);
+  }
   window.safeToggle("premium-badge-local", data.isPremium !== true);
-  window.safeToggle("invite-branding-panel", data.allowBranding === true);
+  window.safeToggle("invite-branding-panel", data.isPremium === true);
+  window.safeToggle("premium-branding-panel", data.isPremium !== true);
   window.safeToggle("super-cct-correction-panel", loggedTeacher?.role !== "super");
   if (byId("correct-school-cct")) byId("correct-school-cct").value = "";
+};
+
+async function resizeBrandLogo(file) {
+  if (!file || !/^image\/(?:png|jpeg|webp)$/i.test(file.type) || file.size > 5 * 1024 * 1024) {
+    throw new Error("Seleccione una imagen PNG, JPG o WebP de hasta 5 MB.");
+  }
+  const source = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("No fue posible leer el logotipo."));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise((resolve, reject) => {
+    const element = new Image();
+    element.onerror = () => reject(new Error("El archivo no contiene una imagen válida."));
+    element.onload = () => resolve(element);
+    element.src = source;
+  });
+  const scale = Math.min(1, 512 / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  const dataUrl = canvas.toDataURL("image/webp", 0.82);
+  if (dataUrl.length > 300000) throw new Error("El logotipo sigue siendo demasiado pesado después de optimizarlo.");
+  return dataUrl;
+}
+
+window.handleLogoUpload = async (event) => {
+  try {
+    pendingLogoDataUrl = await resizeBrandLogo(event.target.files?.[0]);
+    const preview = byId("brand-logo-preview");
+    if (preview) {
+      preview.src = pendingLogoDataUrl;
+      preview.classList.remove("hidden");
+    }
+  } catch (error) {
+    event.target.value = "";
+    window.showModalMsg("Logotipo", functionError(error));
+  }
+};
+
+window.removeBrandLogo = () => {
+  pendingLogoDataUrl = "";
+  const input = byId("edit-brand-logo");
+  if (input) input.value = "";
+  const preview = byId("brand-logo-preview");
+  if (preview) {
+    preview.removeAttribute("src");
+    preview.classList.add("hidden");
+  }
 };
 
 window.updateSchoolGlobalData = async () => {
@@ -1160,8 +1408,15 @@ window.updateSchoolGlobalData = async () => {
     classDuration: byId("edit-class-duration").value,
     contactEmail: byId("edit-school-contact-email")?.value || "",
   };
+  if (currentSchool?.isPremium === true || byId("premium-branding-panel")?.classList.contains("hidden") === false) {
+    profile.brandPrimaryColor = byId("edit-brand-primary")?.value || "#1e293b";
+    profile.brandAccentColor = byId("edit-brand-accent")?.value || DEFAULT_ACCENT;
+    profile.logoDataUrl = pendingLogoDataUrl;
+  }
   try {
     await api.updateSchool({schoolKey, profile});
+    currentSchool = {...currentSchool, ...profile, isPremium: currentSchool?.isPremium === true};
+    window.applySchoolBranding(currentSchool);
     window.showModalMsg("Éxito", "Los cambios fueron guardados.");
   } catch (error) {
     window.showModalMsg("Error", functionError(error));
@@ -1506,8 +1761,12 @@ window.addStudent = async () => {
   const paterno = normalizeText(byId("input-a-paterno").value, 80).toUpperCase();
   const materno = normalizeText(byId("input-a-materno").value, 80).toUpperCase();
   const names = normalizeText(byId("input-a-nombres").value, 100).toUpperCase();
+  const manualId = normalizeCode(byId("input-a-id")?.value, 40);
   if (!level || !group || !paterno || !names) {
     return window.showModalMsg("Datos", "Capture nivel, grupo, apellido paterno y nombre(s).");
+  }
+  if (manualId && !/^[A-Z0-9._-]{4,40}$/.test(manualId)) {
+    return window.showModalMsg("Datos", "El ID manual debe tener entre 4 y 40 caracteres y usar solo letras, números, punto, guión o guion bajo.");
   }
   const button = byId("btn-add-student");
   const originalLabel = button?.textContent;
@@ -1538,8 +1797,8 @@ window.addStudent = async () => {
     const listNumber = lastListNumber + 1;
     if (listNumber > 99) return window.showModalMsg("Datos", "No hay un número de lista disponible para este grupo.");
     const list = String(listNumber).padStart(2, "0");
-    const id = buildStudentId(level, group, list, {paterno, nombres: names});
-    if (usedIds.has(id)) return window.showModalMsg("Datos", "No fue posible asignar el siguiente número de lista. Recargue la página e inténtelo nuevamente.");
+    const id = manualId || buildStudentId(level, group, list, {paterno, nombres: names});
+    if (usedIds.has(id)) return window.showModalMsg("Datos", manualId ? "Ese ID de alumno ya está registrado." : "No fue posible asignar el siguiente número de lista. Recargue la página e inténtelo nuevamente.");
     const ref = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, id);
     await setDoc(ref, {
       paterno,
@@ -1548,9 +1807,10 @@ window.addStudent = async () => {
       grupo: group,
       lista: list,
       level,
+      manualId: Boolean(manualId),
       createdAt: serverTimestamp(),
     });
-    ["input-a-paterno", "input-a-materno", "input-a-nombres", "input-a-grupo", "input-a-nivel"].forEach((field) => { byId(field).value = ""; });
+    ["input-a-id", "input-a-paterno", "input-a-materno", "input-a-nombres", "input-a-grupo", "input-a-nivel"].forEach((field) => { if (byId(field)) byId(field).value = ""; });
     await loadStudents();
     window.openSingleStudentQRPrintModal({
       id,
@@ -1772,10 +2032,12 @@ window.loadAllSchools = async () => {
         const cell = document.createElement("td");
         const button = document.createElement("button");
         button.type = "button";
-        button.className = `px-3 py-2 rounded-lg font-black ${school[field] ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`;
-        button.textContent = school[field] ? "SÍ" : "NO";
+        const enabled = field === "allowBranding" ? school.isPremium === true : school[field] === true;
+        button.className = `px-3 py-2 rounded-lg font-black ${enabled ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`;
+        button.textContent = enabled ? "SÍ" : "NO";
         button.setAttribute("aria-label", `${field === "isPremium" ? "Publicidad desactivada" : "Identidad visual"} para ${normalizeText(school.name)}: ${button.textContent}`);
-        button.addEventListener("click", () => window.togglePremiumMaster(entry.id, field, school[field] === true));
+        if (field === "isPremium") button.addEventListener("click", () => window.togglePremiumMaster(entry.id, field, enabled));
+        else button.disabled = true;
         cell.append(button);
         row.append(cell);
       }
@@ -1836,6 +2098,100 @@ window.deleteSchoolGlobal = (id) => window.showConfirmMsg("Eliminar escuela", `�
   await window.loadAllSchools();
 });
 
+function renderAttendanceReport(rows, truncated = false) {
+  const body = byId("attendance-report-body");
+  const summary = byId("attendance-report-summary");
+  if (!body || !summary) return;
+  body.replaceChildren();
+  rows.forEach((row, index) => {
+    const tr = document.createElement("tr");
+    const status = normalizeText(row.status || "REGISTRADO").toUpperCase();
+    tr.append(
+      createCell(String(index + 1), "p-3 text-center"),
+      createCell(row.date, "p-3 text-center"),
+      createCell(row.time, "p-3 text-center"),
+      createCell(row.studentId, "p-3 text-center font-mono"),
+      createCell(row.studentName, "p-3 text-left"),
+      createCell(row.teacherName || "-", "p-3 text-left"),
+      createCell(status, `p-3 text-center font-black ${status === "RETARDO" ? "text-red-700" : status === "A TIEMPO" ? "text-green-700" : "text-slate-600"}`),
+    );
+    body.append(tr);
+  });
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    const cell = createCell("No hay asistencias en el rango seleccionado.", "p-10 text-center text-slate-500 italic");
+    cell.colSpan = 7;
+    tr.append(cell);
+    body.append(tr);
+  }
+  summary.textContent = `${rows.length} ${rows.length === 1 ? "registro" : "registros"}${truncated ? " · resultado limitado a 5000" : ""}`;
+  window.safeToggle("btn-print-attendance", rows.length === 0);
+}
+
+window.loadAttendanceReport = async () => {
+  const from = byId("report-date-from")?.value || "";
+  const to = byId("report-date-to")?.value || "";
+  if (!from || !to || from > to) return window.showModalMsg("Reporte", "Seleccione un rango de fechas válido.");
+  const button = byId("btn-load-attendance");
+  if (button) button.disabled = true;
+  try {
+    const response = await api.listAttendanceReport({schoolKey, from, to});
+    latestAttendanceReport = response.data.rows || [];
+    renderAttendanceReport(latestAttendanceReport, response.data.truncated === true);
+  } catch (error) {
+    window.showModalMsg("Reporte", functionError(error));
+  } finally {
+    if (button) button.disabled = false;
+  }
+};
+
+window.printAttendanceReport = () => {
+  if (!latestAttendanceReport.length) return window.showModalMsg("Impresión", "Primero genere un reporte con registros.");
+  const content = document.createElement("div");
+  const header = document.createElement("header");
+  header.className = "student-print-header";
+  const title = document.createElement("h1");
+  title.textContent = schoolName || "Control de asistencia";
+  const range = document.createElement("p");
+  range.textContent = `Reporte de asistencias · ${byId("report-date-from").value} a ${byId("report-date-to").value}`;
+  const cct = document.createElement("p");
+  cct.textContent = `CCT: ${schoolKey}`;
+  header.append(title, range, cct);
+  const table = document.createElement("table");
+  table.className = "student-roster attendance-report-print";
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  ["#", "Fecha", "Hora", "ID", "Alumno", "Registró", "Estado"].forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headerRow.append(th);
+  });
+  thead.append(headerRow);
+  const tbody = document.createElement("tbody");
+  latestAttendanceReport.forEach((row, index) => {
+    const tr = document.createElement("tr");
+    [index + 1, row.date, row.time, row.studentId, row.studentName, row.teacherName || "-", row.status || "REGISTRADO"].forEach((value) => {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.append(td);
+    });
+    tbody.append(tr);
+  });
+  table.append(thead, tbody);
+  content.append(header, table);
+  launchStudentPrint(content);
+};
+
+window.clearAttendanceHistory = () => window.showConfirmMsg(
+  "Vaciar asistencias",
+  "¿Eliminar definitivamente todas las asistencias del plantel? Los alumnos y usuarios se conservarán.",
+  async () => {
+    await api.clearAttendance({schoolKey});
+    latestAttendanceReport = [];
+    renderAttendanceReport([]);
+  },
+);
+
 window.initScanner = async () => {
   if (isScannerTransitioning || isScannerRunning || !loggedTeacher) return;
   isScannerTransitioning = true;
@@ -1866,37 +2222,53 @@ window.stopScanner = async () => {
   }
 };
 
-window.toggleCamera = () => isScannerRunning ? window.stopScanner() : window.initScanner();
+window.toggleCamera = async () => {
+  const context = await unlockAudio();
+  if (!context || context.state !== "running") {
+    setScannerStatus("Toque nuevamente Encender cámara para habilitar el sonido.", "error");
+    return;
+  }
+  return isScannerRunning ? window.stopScanner() : window.initScanner();
+};
 
 window.processAttendance = async (rawId) => {
   if (!loggedTeacher) return;
-  const status = byId("scanner-status");
   const studentId = normalizeCode(rawId, 40);
   if (!/^[A-Z0-9._-]{4,40}$/.test(studentId)) {
-    if (status) status.textContent = "Se detectó un QR, pero su contenido no es válido para un alumno.";
+    setScannerStatus("Se detectó un QR, pero su contenido no es válido para un alumno.", "error");
+    await playScanSound("error");
     return;
   }
   if (attendanceInFlight.has(studentId)) return;
   attendanceInFlight.add(studentId);
-  if (status) status.textContent = `QR detectado: ${studentId}. Validando asistencia…`;
+  setScannerStatus(`QR detectado: ${studentId}. Validando asistencia…`);
   try {
     const response = await api.recordAttendance({schoolKey, studentId});
-    if (status) status.textContent = response.data.created ? `Asistencia registrada: ${studentId}` : `El alumno ${studentId} ya tenía asistencia hoy.`;
+    if (response.data.created) {
+      const attendanceState = normalizeText(response.data.status || "REGISTRADO").toUpperCase();
+      setScannerStatus(`Asistencia registrada: ${studentId} · ${attendanceState}`, "success");
+      await playScanSound("success");
+    } else {
+      setScannerStatus(`El alumno ${studentId} ya tenía asistencia hoy.`, "error");
+      await playScanSound("error");
+    }
   } catch (error) {
     const message = functionError(error);
-    if (status) status.textContent = `QR leído: ${studentId}. ${message}`;
+    setScannerStatus(`QR leído: ${studentId}. ${message}`, "error");
+    await playScanSound("error");
     window.showModalMsg("Asistencia", message);
   } finally {
     setTimeout(() => attendanceInFlight.delete(studentId), 2500);
   }
 };
 
-window.manualAttendance = () => {
+window.manualAttendance = async () => {
   const input = byId("input-manual-id");
   const value = input?.value;
   if (!value) return;
   input.value = "";
-  window.processAttendance(value);
+  await unlockAudio();
+  await window.processAttendance(value);
 };
 
 window.processPasswordChange = async () => {
@@ -1940,14 +2312,15 @@ function listenToAttendanceToday() {
       const description = document.createElement("div");
       const name = document.createElement("p");
       name.className = "font-black uppercase";
-      name.textContent = [log.nombre, log.apellido].map((value) => normalizeText(value)).filter(Boolean).join(" ");
+      name.textContent = [log.apellido, log.materno, log.nombre].map((value) => normalizeText(value)).filter(Boolean).join(" ");
       const time = document.createElement("p");
       time.className = "text-xs text-slate-500";
-      time.textContent = normalizeText(log.hora);
+      time.textContent = `${normalizeText(log.hora)} · ${normalizeText(log.profesorNombre) || "Sin responsable"}`;
       description.append(name, time);
       const state = document.createElement("span");
-      state.className = "text-green-600 font-black uppercase text-xs";
-      state.textContent = "Presente";
+      const attendanceState = normalizeText(log.status || "REGISTRADO").toUpperCase();
+      state.className = `${attendanceState === "RETARDO" ? "text-red-700" : "text-green-700"} font-black uppercase text-xs`;
+      state.textContent = attendanceState;
       item.append(description, state);
       list.append(item);
     }

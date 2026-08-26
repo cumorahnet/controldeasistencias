@@ -1,5 +1,57 @@
 # CHANGELOG
 
+<!-- cdc-session:session-20260826145124-97aed7 -->
+## Sesión 26/08/2026, 11:53 a.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 5 cambio(s): 0 creado(s), 5 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- app.js
+- functions/index.js
+- index.html
+- index.html.backup
+- version.json
+
+### Riesgos
+
+- Se modificó código fuente sin cambios detectados en archivos de prueba. Verifica la cobertura antes de cerrar el trabajo.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20260826020702-f0598e -->
+## Sesión 26/08/2026, 12:03 a.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 5 cambio(s): 0 creado(s), 5 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- app.js
+- functions/index.js
+- index.html
+- index.html.backup
+- version.json
+
+### Riesgos
+
+- Se modificó código fuente sin cambios detectados en archivos de prueba. Verifica la cobertura antes de cerrar el trabajo.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
 <!-- cdc-session:session-20260824163402-410a01 -->
 ## Sesión 24/08/2026, 10:58 p.m.
 

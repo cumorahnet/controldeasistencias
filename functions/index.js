@@ -12,7 +12,7 @@ setGlobalOptions({region: "us-central1", maxInstances: 20});
 
 const db = getFirestore();
 const ROOT = "listadeasistencia";
-const ALLOWED_ROLES = new Set(["docente", "admin_jr", "admin_maestro"]);
+const ALLOWED_ROLES = new Set(["docente", "porteria", "admin_jr", "admin_maestro"]);
 const ADMIN_ROLES = new Set(["admin_jr", "admin_maestro"]);
 
 function publicDataRef() {
@@ -60,6 +60,22 @@ function normalizeGroupName(value) {
   const group = normalizeCode(value, 12).replace(/\s+/g, " ");
   if (!group || !/[A-Z0-9]/.test(group)) throw new HttpsError("invalid-argument", "El grupo no es válido.");
   return group;
+}
+
+function clockMinutes(value) {
+  const match = /^(\d{2}):(\d{2})/.exec(String(value || ""));
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function attendanceStatus(localTime, entryTime, tolerance) {
+  const scannedAt = clockMinutes(localTime);
+  const startsAt = clockMinutes(entryTime);
+  if (scannedAt === null || startsAt === null) return "REGISTRADO";
+  return scannedAt <= startsAt + Math.max(0, Math.min(120, Number(tolerance || 0))) ? "A TIEMPO" : "RETARDO";
 }
 
 function studentInitials(student) {
@@ -209,6 +225,14 @@ async function verifySchoolSecret(schoolKey, suppliedSecret) {
 
 function safeSchoolProfile(snapshot) {
   const data = snapshot.data() || {};
+  const premium = data.isPremium === true;
+  const primaryColor = /^#[0-9a-f]{6}$/i.test(String(data.brandPrimaryColor || "")) ? data.brandPrimaryColor : "#1e293b";
+  const accentColor = /^#[0-9a-f]{6}$/i.test(String(data.brandAccentColor || data.brandColor || ""))
+    ? String(data.brandAccentColor || data.brandColor)
+    : "#3b82f6";
+  const logoDataUrl = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(String(data.logoDataUrl || ""))
+    ? String(data.logoDataUrl)
+    : "";
   return {
     id: snapshot.id,
     name: normalizeText(data.name || snapshot.id),
@@ -218,10 +242,13 @@ function safeSchoolProfile(snapshot) {
     recessReturnTime: String(data.recessReturnTime || ""),
     tolerance: Number(data.tolerance || 0),
     classDuration: Number(data.classDuration || 0),
-    isPremium: data.isPremium === true,
-    allowBranding: data.allowBranding === true,
+    isPremium: premium,
+    allowBranding: premium,
     verificationStatus: new Set(["verified", "unverified", "disputed"]).has(data.verificationStatus) ? data.verificationStatus : "unverified",
-    brandColor: /^#[0-9a-f]{6}$/i.test(String(data.brandColor || "")) ? data.brandColor : "#3b82f6",
+    brandPrimaryColor: primaryColor,
+    brandAccentColor: accentColor,
+    brandColor: accentColor,
+    logoDataUrl: premium ? logoDataUrl : "",
   };
 }
 
@@ -632,8 +659,8 @@ exports.createTeacher = onCall(async (request) => {
 
   if (name.length < 5) throw new HttpsError("invalid-argument", "Capture el nombre completo del docente.");
   if (!ALLOWED_ROLES.has(role)) throw new HttpsError("invalid-argument", "El rol solicitado no es válido.");
-  if (token.role === "admin_jr" && role !== "docente") {
-    throw new HttpsError("permission-denied", "Un administrador junior solo puede crear cuentas docentes.");
+  if (token.role === "admin_jr" && !new Set(["docente", "porteria"]).has(role)) {
+    throw new HttpsError("permission-denied", "Un administrador junior solo puede crear cuentas docentes o de portería.");
   }
 
   const schoolRef = schoolsRef().doc(schoolKey);
@@ -698,6 +725,27 @@ exports.changeTeacherPassword = onCall(async (request) => {
   return {ok: true, token: customToken};
 });
 
+exports.updateOwnSchedule = onCall(async (request) => {
+  const token = await assertRole(request, new Set(["docente", "porteria", "admin_jr", "admin_maestro"]));
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const entryTime = String(request.data?.entryTime || "").slice(0, 5);
+  const recessReturnTime = String(request.data?.recessReturnTime || "").slice(0, 5);
+  const tolerance = Math.max(0, Math.min(120, Number(request.data?.tolerance || 0)));
+  const classDuration = Math.max(1, Math.min(240, Number(request.data?.classDuration || 50)));
+  if (entryTime && clockMinutes(entryTime) === null) throw new HttpsError("invalid-argument", "La hora de entrada no es válida.");
+  if (recessReturnTime && clockMinutes(recessReturnTime) === null) throw new HttpsError("invalid-argument", "La hora de regreso no es válida.");
+  const schedule = {
+    entryTime,
+    recessReturnTime,
+    tolerance,
+    classDuration,
+    scheduleConfigured: true,
+    scheduleUpdatedAt: FieldValue.serverTimestamp(),
+  };
+  await schoolCollection(schoolKey, "maestros").doc(token.teacherId).set(schedule, {merge: true});
+  return {ok: true, schedule: {entryTime, recessReturnTime, tolerance, classDuration, scheduleConfigured: true}};
+});
+
 exports.changeTeacherId = onCall(async () => {
   throw new HttpsError("failed-precondition", "El ID de usuario ya no funciona como contraseña. Utilice el cambio de contraseña.");
 });
@@ -722,7 +770,28 @@ exports.updateSchool = onCall(async (request) => {
   if (contactEmail) profile.contactEmail = contactEmail;
   if (!profile.name) throw new HttpsError("invalid-argument", "El nombre de la escuela es obligatorio.");
   const schoolRef = schoolsRef().doc(schoolKey);
-  if (!(await schoolRef.get()).exists) throw new HttpsError("not-found", "La CCT no está registrada. Créela desde el panel maestro.");
+  const schoolSnapshot = await schoolRef.get();
+  if (!schoolSnapshot.exists) throw new HttpsError("not-found", "La CCT no está registrada. Créela desde el panel maestro.");
+  const brandingRequested = ["brandPrimaryColor", "brandAccentColor", "logoDataUrl"].some((field) => Object.hasOwn(input, field));
+  if (brandingRequested) {
+    if (schoolSnapshot.get("isPremium") !== true) {
+      throw new HttpsError("failed-precondition", "La identidad visual se habilita después de confirmar el pago Premium.");
+    }
+    const primaryColor = String(input.brandPrimaryColor || "");
+    const accentColor = String(input.brandAccentColor || "");
+    const logoDataUrl = String(input.logoDataUrl || "");
+    if (!/^#[0-9a-f]{6}$/i.test(primaryColor) || !/^#[0-9a-f]{6}$/i.test(accentColor)) {
+      throw new HttpsError("invalid-argument", "Los colores institucionales no son válidos.");
+    }
+    if (logoDataUrl && (!/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(logoDataUrl) || logoDataUrl.length > 300000)) {
+      throw new HttpsError("invalid-argument", "El logotipo debe ser PNG, JPG o WebP y pesar menos de 220 KB.");
+    }
+    profile.brandPrimaryColor = primaryColor;
+    profile.brandAccentColor = accentColor;
+    profile.brandColor = accentColor;
+    profile.logoDataUrl = logoDataUrl;
+    profile.allowBranding = true;
+  }
   const batch = db.batch();
   batch.set(schoolRef, profile, {merge: true});
   const newAccessKey = normalizeCode(input.accessKey, 100);
@@ -774,8 +843,8 @@ exports.repairTeacherAccount = onCall(async (request) => {
     if (!current.exists) throw new HttpsError("not-found", "La cuenta ya no existe.");
     const teacher = current.data() || {};
     role = ALLOWED_ROLES.has(teacher.role) ? teacher.role : "docente";
-    if (token.role === "admin_jr" && role !== "docente") {
-      throw new HttpsError("permission-denied", "Un administrador junior solo puede corregir cuentas docentes.");
+    if (token.role === "admin_jr" && !new Set(["docente", "porteria"]).has(role)) {
+      throw new HttpsError("permission-denied", "Un administrador junior solo puede corregir cuentas docentes o de portería.");
     }
     authUid = teacher.authUid || teacherUid(schoolKey, teacherId);
     const repaired = {
@@ -823,8 +892,8 @@ exports.deleteTeacher = onCall(async (request) => {
   const targetRef = schoolCollection(schoolKey, "maestros").doc(teacherId);
   const target = await targetRef.get();
   if (!target.exists) throw new HttpsError("not-found", "El docente ya no existe.");
-  if (token.role === "admin_jr" && target.get("role") !== "docente") {
-    throw new HttpsError("permission-denied", "Un administrador junior solo puede eliminar cuentas docentes.");
+  if (token.role === "admin_jr" && !new Set(["docente", "porteria"]).has(target.get("role"))) {
+    throw new HttpsError("permission-denied", "Un administrador junior solo puede eliminar cuentas docentes o de portería.");
   }
   if (target.get("role") === "admin_maestro") await assertAnotherMasterAdministrator(schoolKey, teacherId);
   const authUid = target.get("authUid") || teacherUid(schoolKey, teacherId);
@@ -837,10 +906,14 @@ exports.deleteTeacher = onCall(async (request) => {
 });
 
 exports.recordAttendance = onCall(async (request) => {
-  const token = await assertRole(request, new Set(["docente", "admin_jr", "admin_maestro"]));
+  const token = await assertRole(request, new Set(["docente", "porteria", "admin_jr", "admin_maestro"]));
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
-  const studentSnapshot = await schoolCollection(schoolKey, "alumnos").doc(studentId).get();
+  const [studentSnapshot, teacherSnapshot, schoolSnapshot] = await Promise.all([
+    schoolCollection(schoolKey, "alumnos").doc(studentId).get(),
+    schoolCollection(schoolKey, "maestros").doc(token.teacherId).get(),
+    schoolsRef().doc(schoolKey).get(),
+  ]);
   if (!studentSnapshot.exists) throw new HttpsError("not-found", "El alumno no está registrado.");
   const student = studentSnapshot.data() || {};
   if (student.active === false || normalizeText(student.status, 20).toLowerCase() === "inactive") {
@@ -849,6 +922,11 @@ exports.recordAttendance = onCall(async (request) => {
   const now = new Date();
   const fecha = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(now);
   const hora = new Intl.DateTimeFormat("es-MX", {timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false}).format(now);
+  const teacher = teacherSnapshot.data() || {};
+  const school = schoolSnapshot.data() || {};
+  const entryTime = String(teacher.entryTime || school.entryTime || "").slice(0, 5);
+  const tolerance = Math.max(0, Math.min(120, Number(teacher.tolerance ?? school.tolerance ?? 0)));
+  const status = attendanceStatus(hora, entryTime, tolerance);
   const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${studentId}`);
   const created = await db.runTransaction(async (transaction) => {
     const existing = await transaction.get(attendanceRef);
@@ -857,16 +935,20 @@ exports.recordAttendance = onCall(async (request) => {
       alumnoId: studentId,
       nombre: normalizeText(student.nombres, 100),
       apellido: normalizeText(student.paterno, 80),
+      materno: normalizeText(student.materno, 80),
       studentIdRevision: normalizeText(student.studentIdRevision, 40),
       profesorId: token.teacherId,
       profesorNombre: normalizeText(token.name, 100),
       fecha,
       hora,
+      status,
+      entryTimeApplied: entryTime,
+      toleranceApplied: tolerance,
       timestamp: FieldValue.serverTimestamp(),
     });
     return true;
   });
-  return {created, fecha, hora};
+  return {created, fecha, hora, status};
 });
 
 exports.deleteStudent = onCall(async (request) => {
@@ -928,7 +1010,7 @@ exports.renumberStudentGroup = onCall({timeoutSeconds: 540, memory: "512MiB"}, a
   const desiredStudents = groupStudents.map((student, index) => ({
     ...student,
     list: String(index + 1).padStart(2, "0"),
-    newId: buildStudentId(level, group, index + 1, student.data),
+    newId: student.data.manualId === true ? student.id : buildStudentId(level, group, index + 1, student.data),
   }));
   const revision = createHash("sha256").update(desiredStudents.map((student) => [
     student.newId,
@@ -1044,13 +1126,57 @@ exports.clearStudents = onCall(async (request) => {
   return {ok: true};
 });
 
+exports.listAttendanceReport = onCall(async (request) => {
+  const token = await assertRole(request, ADMIN_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const from = normalizeText(request.data?.from, 10);
+  const to = normalizeText(request.data?.to, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+    throw new HttpsError("invalid-argument", "Seleccione un rango de fechas válido.");
+  }
+  const fromDate = Date.parse(`${from}T00:00:00Z`);
+  const toDate = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(fromDate) || !Number.isFinite(toDate) || toDate - fromDate > 366 * 86400000) {
+    throw new HttpsError("invalid-argument", "El reporte no puede abarcar más de 366 días.");
+  }
+  const snapshot = await schoolCollection(schoolKey, "asistencias")
+      .where("fecha", ">=", from)
+      .where("fecha", "<=", to)
+      .orderBy("fecha")
+      .limit(5000)
+      .get();
+  const rows = snapshot.docs.map((document) => {
+    const data = document.data() || {};
+    return {
+      studentId: normalizeCode(data.alumnoId, 40),
+      studentName: [normalizeText(data.apellido, 80), normalizeText(data.materno, 80), normalizeText(data.nombre, 100)].filter(Boolean).join(" "),
+      teacherName: normalizeText(data.profesorNombre, 100),
+      date: normalizeText(data.fecha, 10),
+      time: normalizeText(data.hora, 8),
+      status: normalizeText(data.status || "REGISTRADO", 20).toUpperCase(),
+    };
+  }).sort((first, second) => first.date.localeCompare(second.date) || first.time.localeCompare(second.time));
+  return {rows, truncated: snapshot.size === 5000};
+});
+
+exports.clearAttendance = onCall(async (request) => {
+  const token = await assertRole(request, new Set(["admin_maestro"]));
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  await deleteCollection(schoolCollection(schoolKey, "asistencias"));
+  return {ok: true};
+});
+
 exports.toggleSchoolFlag = onCall(async (request) => {
   const token = await assertRole(request, new Set());
   if (token.role !== "super") throw new HttpsError("permission-denied", "Esta operación requiere el rol maestro global.");
   const schoolKey = normalizeCode(request.data?.schoolKey, 40);
   const field = String(request.data?.field || "");
   if (!new Set(["isPremium", "allowBranding"]).has(field)) throw new HttpsError("invalid-argument", "Campo no permitido.");
-  await schoolsRef().doc(schoolKey).update({[field]: request.data?.value === true});
+  const enabled = request.data?.value === true;
+  const updates = field === "isPremium"
+    ? {isPremium: enabled, allowBranding: enabled, premiumUpdatedAt: FieldValue.serverTimestamp(), premiumUpdatedBy: token.sub}
+    : {[field]: enabled};
+  await schoolsRef().doc(schoolKey).update(updates);
   return {ok: true};
 });
 
