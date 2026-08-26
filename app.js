@@ -95,6 +95,22 @@ function compareStudentsByName(first, second) {
   }
   return normalizeText(first?.lista).localeCompare(normalizeText(second?.lista), "es", {numeric: true});
 }
+function studentListNumber(student) {
+  const value = String(student?.lista ?? "").trim();
+  if (!/^\d+$/.test(value)) return null;
+  const listNumber = Number(value);
+  return Number.isSafeInteger(listNumber) && listNumber > 0 ? listNumber : null;
+}
+function compareStudentsByList(first, second) {
+  const firstListNumber = studentListNumber(first);
+  const secondListNumber = studentListNumber(second);
+  if (firstListNumber !== null && secondListNumber !== null) {
+    return firstListNumber - secondListNumber || compareStudentsByName(first, second);
+  }
+  if (firstListNumber !== null) return -1;
+  if (secondListNumber !== null) return 1;
+  return compareStudentsByName(first, second);
+}
 const validPassword = (value) => String(value || "").length >= 8 && String(value || "").length <= 72 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(value)) && /\d/.test(String(value));
 const isAdmin = () => ["admin_maestro", "admin_jr", "super"].includes(loggedTeacher?.role);
 const isMaster = () => ["admin_maestro", "super"].includes(loggedTeacher?.role);
@@ -433,9 +449,9 @@ function studentDisplayName(student) {
 }
 
 function assignDisplayListNumbers(students) {
-  return [...students].sort(compareStudentsByName).map((student, index) => ({
+  return [...students].sort(compareStudentsByList).map((student) => ({
     ...student,
-    displayListNumber: String(index + 1).padStart(2, "0"),
+    displayListNumber: studentListNumber(student)?.toString().padStart(2, "0") || "",
   }));
 }
 
@@ -481,7 +497,7 @@ function printGroupRoster(levelLabel, groupLabel, students) {
   }
   head.append(headerRow);
   const body = document.createElement("tbody");
-  [...students].sort(compareStudentsByName).forEach((student) => {
+  [...students].sort(compareStudentsByList).forEach((student) => {
     const row = document.createElement("tr");
     for (const value of [student.displayListNumber || "", studentDisplayName(student)]) {
       const cell = document.createElement("td");
@@ -501,7 +517,7 @@ function printStudentQrs(levelLabel, groupLabel, students) {
   const grid = document.createElement("div");
   grid.className = `student-qr-grid${students.length === 1 ? " student-qr-single" : ""}`;
   const qrTargets = [];
-  for (const student of [...students].sort(compareStudentsByName)) {
+  for (const student of [...students].sort(compareStudentsByList)) {
     const card = document.createElement("article");
     card.className = "student-qr-card";
     const name = document.createElement("h2");
@@ -564,7 +580,7 @@ function createStudentTable(levelLabel, groupLabel, students) {
   head.append(headerRow);
   const body = document.createElement("tbody");
   body.className = "divide-y divide-slate-100 text-[11px] font-bold uppercase";
-  for (const student of [...students].sort(compareStudentsByName)) {
+  for (const student of [...students].sort(compareStudentsByList)) {
     const row = document.createElement("tr");
     row.append(createCell(student.displayListNumber || "", "p-3 font-black text-center"));
     const fullName = studentDisplayName(student);
@@ -1422,15 +1438,12 @@ window.addStudent = async () => {
       .filter((student) => normalizeSchoolLevel(student.level || student.nivel) === level && normalizeGroupName(student.grupo) === group);
     if (groupStudents.length >= 99) return window.showModalMsg("Datos", "Un grupo no puede contener más de 99 alumnos.");
     const usedIds = new Set(groupSnapshot.docs.map((entry) => entry.id));
-    let listNumber = groupStudents.length + 1;
-    let list = String(listNumber).padStart(2, "0");
-    let id = buildStudentId(level, group, list, {paterno, nombres: names});
-    while (usedIds.has(id) && listNumber < 99) {
-      listNumber += 1;
-      list = String(listNumber).padStart(2, "0");
-      id = buildStudentId(level, group, list, {paterno, nombres: names});
-    }
-    if (usedIds.has(id)) return window.showModalMsg("Datos", "No hay un número de lista disponible para este grupo.");
+    const lastListNumber = groupStudents.reduce((highest, student) => Math.max(highest, studentListNumber(student) || 0), 0);
+    const listNumber = lastListNumber + 1;
+    if (listNumber > 99) return window.showModalMsg("Datos", "No hay un número de lista disponible para este grupo.");
+    const list = String(listNumber).padStart(2, "0");
+    const id = buildStudentId(level, group, list, {paterno, nombres: names});
+    if (usedIds.has(id)) return window.showModalMsg("Datos", "No fue posible asignar el siguiente número de lista. Recargue la página e inténtelo nuevamente.");
     const ref = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, id);
     await setDoc(ref, {
       paterno,
