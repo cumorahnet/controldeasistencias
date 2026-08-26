@@ -116,10 +116,19 @@ function installQrPrintCutStyles() {
       .qr-print-code img {
         width: 59mm !important;
         height: 59mm !important;
+        box-sizing: border-box !important;
+        padding: 7mm !important;
+        background: #ffffff !important;
         image-rendering: pixelated;
       }
       .qr-print-code .qr-center-id {
-        z-index: 1;
+        display: none !important;
+      }
+      .qr-print-id {
+        margin-top: 0.5mm !important;
+        font-size: 6pt !important;
+        font-weight: 800 !important;
+        line-height: 1 !important;
       }
     }
   `;
@@ -580,7 +589,10 @@ function printStudentQrs(levelLabel, groupLabel, students) {
     name.textContent = studentDisplayName(student);
     const qr = document.createElement("div");
     qr.className = "qr-print-code";
-    card.append(name, qr);
+    const qrId = document.createElement("p");
+    qrId.className = "qr-print-id";
+    qrId.textContent = student.id;
+    card.append(name, qr, qrId);
     grid.append(card);
     qrTargets.push([qr, student.id]);
   }
@@ -1858,15 +1870,22 @@ window.toggleCamera = () => isScannerRunning ? window.stopScanner() : window.ini
 
 window.processAttendance = async (rawId) => {
   if (!loggedTeacher) return;
+  const status = byId("scanner-status");
   const studentId = normalizeCode(rawId, 40);
-  if (!/^[A-Z0-9._-]{4,40}$/.test(studentId) || attendanceInFlight.has(studentId)) return;
+  if (!/^[A-Z0-9._-]{4,40}$/.test(studentId)) {
+    if (status) status.textContent = "Se detectó un QR, pero su contenido no es válido para un alumno.";
+    return;
+  }
+  if (attendanceInFlight.has(studentId)) return;
   attendanceInFlight.add(studentId);
+  if (status) status.textContent = `QR detectado: ${studentId}. Validando asistencia…`;
   try {
     const response = await api.recordAttendance({schoolKey, studentId});
-    const status = byId("scanner-status");
     if (status) status.textContent = response.data.created ? `Asistencia registrada: ${studentId}` : `El alumno ${studentId} ya tenía asistencia hoy.`;
   } catch (error) {
-    window.showModalMsg("Asistencia", functionError(error));
+    const message = functionError(error);
+    if (status) status.textContent = `QR leído: ${studentId}. ${message}`;
+    window.showModalMsg("Asistencia", message);
   } finally {
     setTimeout(() => attendanceInFlight.delete(studentId), 2500);
   }
