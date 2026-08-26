@@ -593,6 +593,7 @@ function createStudentTable(levelLabel, groupLabel, students) {
     row.append(createCell(student.displayListNumber || "", "p-3 font-black text-center"));
     const fullName = studentDisplayName(student);
     const inactive = isStudentInactive(student);
+    const activeAfterAction = inactive;
     row.append(createCell(fullName, `text-left px-2${inactive ? " student-inactive-name" : ""}`));
     const qrCell = document.createElement("td");
     qrCell.className = "text-center";
@@ -607,10 +608,12 @@ function createStudentTable(levelLabel, groupLabel, students) {
     row.append(qrCell);
     const actionCell = document.createElement("td");
     actionCell.className = "text-center";
+    // El siguiente estado activo coincide con el estado inactivo actual:
+    // un alumno activo pasa a false y uno inactivo vuelve a true.
     actionCell.append(createIconButton(
       inactive ? `Reactivar a ${fullName}` : `Dar de baja a ${fullName}`,
       inactive ? "fas fa-rotate-left" : "fas fa-user-slash",
-      () => window.setStudentActive(student.id, !inactive),
+      () => window.setStudentActive(student.id, activeAfterAction),
       inactive
         ? "text-green-700 p-2 rounded-lg hover:bg-green-50 focus-visible:ring-2 focus-visible:ring-green-600"
         : "text-red-600 p-2 rounded-lg hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-600",
