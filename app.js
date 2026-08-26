@@ -80,6 +80,38 @@ let studentRegistrationInFlight = false;
 const attendanceInFlight = new Set();
 
 const byId = (id) => document.getElementById(id);
+
+function installQrPrintCutStyles() {
+  if (byId("qr-print-cut-styles")) return;
+  const style = document.createElement("style");
+  style.id = "qr-print-cut-styles";
+  style.textContent = `
+    @media print {
+      /* 50.6 mm menos dos líneas de 0.3 mm deja 50 mm interiores:
+         el QR de 44 mm queda separado exactamente 3 mm por lado. */
+      .qr-print-code {
+        width: 50.6mm !important;
+        height: 50.6mm !important;
+        box-sizing: border-box !important;
+        border: 0.3mm solid #111827 !important;
+        background: none !important;
+        overflow: visible !important;
+      }
+      .qr-print-code canvas,
+      .qr-print-code img {
+        width: 44mm !important;
+        height: 44mm !important;
+      }
+      .qr-print-code .qr-center-id {
+        z-index: 1;
+      }
+    }
+  `;
+  document.head.append(style);
+}
+
+installQrPrintCutStyles();
+
 const normalizeCode = (value, max = 80) => String(value || "").trim().toUpperCase().slice(0, max);
 const normalizeText = (value, max = 160) => String(value || "").trim().replace(/\s+/g, " ").slice(0, max);
 const normalizeSchoolLevel = (value) => {
