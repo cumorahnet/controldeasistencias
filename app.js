@@ -56,6 +56,7 @@ const api = Object.fromEntries([
   "deleteTeacher",
   "recordAttendance",
   "deleteStudent",
+  "setStudentActive",
   "renumberStudentGroup",
   "clearStudents",
   "toggleSchoolFlag",
@@ -449,6 +450,10 @@ function studentDisplayName(student) {
   return [student?.paterno, student?.materno, student?.nombres].map((value) => normalizeText(value)).filter(Boolean).join(" ");
 }
 
+function isStudentInactive(student) {
+  return student?.active === false || normalizeText(student?.status).toLowerCase() === "inactive";
+}
+
 function assignDisplayListNumbers(students) {
   return [...students].sort(compareStudentsByList).map((student) => ({
     ...student,
@@ -500,11 +505,12 @@ function printGroupRoster(levelLabel, groupLabel, students) {
   const body = document.createElement("tbody");
   [...students].sort(compareStudentsByList).forEach((student) => {
     const row = document.createElement("tr");
-    for (const value of [student.displayListNumber || "", studentDisplayName(student)]) {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      row.append(cell);
-    }
+    const listCell = document.createElement("td");
+    listCell.textContent = student.displayListNumber || "";
+    const nameCell = document.createElement("td");
+    nameCell.textContent = studentDisplayName(student);
+    if (isStudentInactive(student)) nameCell.classList.add("student-inactive-name");
+    row.append(listCell, nameCell);
     body.append(row);
   });
   table.append(head, body);
@@ -519,6 +525,7 @@ function printStudentQrs(levelLabel, groupLabel, students) {
   grid.className = `student-qr-grid${students.length === 1 ? " student-qr-single" : ""}`;
   const qrTargets = [];
   for (const student of [...students].sort(compareStudentsByList)) {
+    if (isStudentInactive(student)) continue;
     const card = document.createElement("article");
     card.className = "student-qr-card";
     const name = document.createElement("h2");
@@ -585,22 +592,28 @@ function createStudentTable(levelLabel, groupLabel, students) {
     const row = document.createElement("tr");
     row.append(createCell(student.displayListNumber || "", "p-3 font-black text-center"));
     const fullName = studentDisplayName(student);
-    row.append(createCell(fullName, "text-left px-2"));
+    const inactive = isStudentInactive(student);
+    row.append(createCell(fullName, `text-left px-2${inactive ? " student-inactive-name" : ""}`));
     const qrCell = document.createElement("td");
     qrCell.className = "text-center";
-    qrCell.append(createIconButton(
-      `Imprimir QR de ${fullName}`,
-      "fas fa-qrcode",
-      () => printStudentQrs(levelLabel, groupLabel, [student]),
-      "theme-accent-text p-2 rounded-lg hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500",
-    ));
+    if (!inactive) {
+      qrCell.append(createIconButton(
+        `Imprimir QR de ${fullName}`,
+        "fas fa-qrcode",
+        () => printStudentQrs(levelLabel, groupLabel, [student]),
+        "theme-accent-text p-2 rounded-lg hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500",
+      ));
+    }
     row.append(qrCell);
     const actionCell = document.createElement("td");
     actionCell.className = "text-center";
     actionCell.append(createIconButton(
-      `Eliminar a ${fullName}`,
-      "fas fa-trash",
-      () => window.deleteStudent(student.id),
+      inactive ? `Reactivar a ${fullName}` : `Dar de baja a ${fullName}`,
+      inactive ? "fas fa-rotate-left" : "fas fa-user-slash",
+      () => window.setStudentActive(student.id, !inactive),
+      inactive
+        ? "text-green-700 p-2 rounded-lg hover:bg-green-50 focus-visible:ring-2 focus-visible:ring-green-600"
+        : "text-red-600 p-2 rounded-lg hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-600",
     ));
     row.append(actionCell);
     body.append(row);
@@ -612,6 +625,7 @@ function createStudentTable(levelLabel, groupLabel, students) {
 
 function createGroupView(level, levelLabel, group, groupLabel, students) {
   const numberedStudents = assignDisplayListNumbers(students);
+  const activeStudents = numberedStudents.filter((student) => !isStudentInactive(student));
   const view = document.createElement("div");
   const toolbar = document.createElement("div");
   toolbar.className = "p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50";
@@ -622,13 +636,13 @@ function createGroupView(level, levelLabel, group, groupLabel, students) {
   heading.textContent = `${levelLabel} · ${groupLabel}`;
   const count = document.createElement("p");
   count.className = "mt-1 text-[9px] font-bold uppercase text-slate-500";
-  count.textContent = `${numberedStudents.length} ${numberedStudents.length === 1 ? "alumno" : "alumnos"}`;
+  count.textContent = `${activeStudents.length} activos de ${numberedStudents.length} ${numberedStudents.length === 1 ? "alumno" : "alumnos"}`;
   title.append(heading, count);
   const actions = document.createElement("div");
   actions.className = "flex flex-wrap justify-center gap-2";
   actions.append(
     createPrintActionButton("Imprimir lista", "fas fa-print", () => printGroupRoster(levelLabel, groupLabel, numberedStudents)),
-    createPrintActionButton("Imprimir QR", "fas fa-qrcode", () => printStudentQrs(levelLabel, groupLabel, numberedStudents), true),
+    createPrintActionButton("Imprimir QR", "fas fa-qrcode", () => printStudentQrs(levelLabel, groupLabel, activeStudents), true),
   );
   toolbar.append(title, actions);
   view.append(toolbar, createStudentTable(levelLabel, groupLabel, numberedStudents));
@@ -1498,17 +1512,13 @@ window.clearAllStudents = () => window.showConfirmMsg("Limpieza", "¿Borrar todo
   await loadStudents();
 });
 
-window.deleteStudent = (id) => window.showConfirmMsg(
-  "Eliminar",
-  `¿Eliminar al alumno ${id}? Los demás números de lista y sus QR se conservarán sin cambios.`,
+window.setStudentActive = (id, active) => window.showConfirmMsg(
+  active ? "Reactivar alumno" : "Dar de baja",
+  active
+    ? `¿Reactivar al alumno ${id}? Su mismo número de lista y QR volverán a funcionar.`
+    : `¿Dar de baja al alumno ${id}? Conservará su número de lista, pero su QR dejará de registrar asistencia.`,
   async () => {
-    try {
-      await api.deleteStudent({schoolKey, studentId: id});
-    } catch (error) {
-      const studentRef = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, id);
-      const studentSnapshot = await getDoc(studentRef);
-      if (studentSnapshot.exists()) throw error;
-    }
+    await api.setStudentActive({schoolKey, studentId: id, active});
     await loadStudents();
   },
 );

@@ -842,11 +842,14 @@ exports.recordAttendance = onCall(async (request) => {
   const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
   const studentSnapshot = await schoolCollection(schoolKey, "alumnos").doc(studentId).get();
   if (!studentSnapshot.exists) throw new HttpsError("not-found", "El alumno no está registrado.");
+  const student = studentSnapshot.data() || {};
+  if (student.active === false || normalizeText(student.status, 20).toLowerCase() === "inactive") {
+    throw new HttpsError("failed-precondition", "El alumno está dado de baja y su QR no puede registrar asistencia.");
+  }
   const now = new Date();
   const fecha = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(now);
   const hora = new Intl.DateTimeFormat("es-MX", {timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false}).format(now);
   const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${studentId}`);
-  const student = studentSnapshot.data() || {};
   const created = await db.runTransaction(async (transaction) => {
     const existing = await transaction.get(attendanceRef);
     if (existing.exists) return false;
@@ -870,8 +873,33 @@ exports.deleteStudent = onCall(async (request) => {
   const token = await assertRole(request, ADMIN_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
-  await schoolCollection(schoolKey, "alumnos").doc(studentId).delete();
-  return {ok: true};
+  const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
+  const student = await studentRef.get();
+  if (!student.exists) throw new HttpsError("not-found", "El alumno ya no existe.");
+  await studentRef.update({
+    active: false,
+    status: "inactive",
+    statusUpdatedAt: FieldValue.serverTimestamp(),
+    statusUpdatedBy: token.teacherId || token.role,
+  });
+  return {ok: true, active: false};
+});
+
+exports.setStudentActive = onCall(async (request) => {
+  const token = await assertRole(request, ADMIN_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
+  const active = request.data?.active === true;
+  const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
+  const student = await studentRef.get();
+  if (!student.exists) throw new HttpsError("not-found", "El alumno ya no existe.");
+  await studentRef.update({
+    active,
+    status: active ? "active" : "inactive",
+    statusUpdatedAt: FieldValue.serverTimestamp(),
+    statusUpdatedBy: token.teacherId || token.role,
+  });
+  return {ok: true, active};
 });
 
 exports.renumberStudentGroup = onCall({timeoutSeconds: 540, memory: "512MiB"}, async (request) => {

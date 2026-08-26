@@ -17,6 +17,7 @@
         .theme-border { border-color: var(--primary-color); }
         .theme-accent { background-color: var(--accent-color); }
         .theme-accent-text { color: var(--accent-color); }
+        .student-inactive-name { color: #b91c1c !important; text-decoration-line: line-through; text-decoration-color: #dc2626; text-decoration-thickness: 2px; }
         .setup-step { display: none; }
         .setup-step.active { display: block; animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -144,7 +145,7 @@
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
-                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.15.0</p>
+                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.16.0</p>
                 <div class="flex items-center justify-center gap-2">
                     <span id="conn-dot" aria-hidden="true" class="status-dot bg-red-500"></span>
                     <p id="conn-text" role="status" aria-live="polite" class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Iniciando...</p>
@@ -607,6 +608,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.15.0"></script>
+    <script type="module" src="./app.js?v=36.16.0"></script>
 </body>
 </html>
