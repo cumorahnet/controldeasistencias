@@ -1,8 +1,9 @@
-const CACHE_NAME = "control-asistencia-36.28.0";
+const CACHE_NAME = "control-asistencia-36.29.0";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/app.js",
+  "/pwa-install.js",
   "/manifest.webmanifest",
   "/icons/app-icon-192.png",
   "/icons/app-icon-512.png",

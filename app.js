@@ -91,42 +91,6 @@ let schoolSelectionLoadVersion = 0;
 let globalSchoolsLoadVersion = 0;
 
 const byId = (id) => document.getElementById(id);
-let deferredInstallPrompt = null;
-
-function isInstalledApp() {
-  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
-}
-
-window.addEventListener("beforeinstallprompt", (event) => {
-  event.preventDefault();
-  if (isInstalledApp()) return;
-  deferredInstallPrompt = event;
-  byId("btn-install-pwa")?.classList.replace("hidden", "flex");
-});
-
-window.addEventListener("appinstalled", () => {
-  deferredInstallPrompt = null;
-  byId("btn-install-pwa")?.classList.replace("flex", "hidden");
-});
-
-byId("btn-install-pwa")?.addEventListener("click", async () => {
-  const promptEvent = deferredInstallPrompt;
-  if (!promptEvent) return;
-  deferredInstallPrompt = null;
-  byId("btn-install-pwa")?.classList.replace("flex", "hidden");
-  try {
-    await promptEvent.prompt();
-    await promptEvent.userChoice;
-  } catch {
-    // Chrome volverá a emitir beforeinstallprompt cuando permita otro intento.
-  }
-});
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js", {scope: "./"}).catch(() => {});
-  });
-}
 
 function primeAudioContext(context) {
   const oscillator = context.createOscillator();
