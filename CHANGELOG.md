@@ -1,5 +1,38 @@
 # CHANGELOG
 
+<!-- cdc-session:session-20260827044714-5a7858 -->
+## Sesión 26/08/2026, 11:32 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 11 cambio(s): 4 creado(s), 7 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- CHANGELOG.md
+- app.js
+- functions/attendance-utils.js
+- functions/index.js
+- functions/package.json
+- functions/tests/attendance-utils.test.js
+- index.html
+- pwa-install.js
+- sw.js
+- tests/pwa-install.test.cjs
+- version.json
+
+### Riesgos
+
+- Se modificaron archivos de configuración o infraestructura (functions/package.json). Valida compatibilidad y despliegue.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+- Cambió la definición de dependencias; valida instalación y seguridad.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
 ## 36.30.0 - 26/08/2026
 
 - Los docentes deben configurar la hora y tolerancia de al menos un grupo al iniciar sesión; cada grupo requiere su propio horario antes de registrar asistencias.

@@ -12,7 +12,7 @@
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
-    <script src="./pwa-install.js?v=36.30.0"></script>
+    <script src="./pwa-install.js?v=4"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -109,9 +109,9 @@
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 font-sans text-xs">
 
-    <button type="button" id="btn-install-pwa" aria-label="Instalar Control de Asistencia" aria-hidden="true" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[450] hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-6 py-3 text-xs font-black uppercase text-white shadow-2xl active:scale-95">
-        <i aria-hidden="true" class="fas fa-download"></i>
-        Instalar app
+    <button type="button" id="btn-install-pwa" aria-label="Instalar app" aria-hidden="true" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[450] hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-6 py-3 text-xs font-black uppercase text-white shadow-2xl active:scale-95 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">
+        <i aria-hidden="true" class="fas fa-mobile-screen-button"></i>
+        <span id="install-pwa-label">Instalar app</span>
     </button>
 
     <!-- MODALES -->
@@ -123,8 +123,8 @@
                 <p id="install-app-message" aria-live="polite" class="text-sm text-slate-600 font-medium"></p>
             </div>
             <div class="flex flex-col gap-2">
-                <button type="button" id="btn-install-app" class="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-xs uppercase shadow-lg">Instalar aplicación</button>
-                <button type="button" id="btn-install-later" class="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold text-xs uppercase">Ahora no</button>
+                <button type="button" id="btn-install-app" class="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-xs uppercase shadow-lg focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">Instalar aplicación</button>
+                <button type="button" id="btn-install-later" class="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold text-xs uppercase focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-700">Ahora no</button>
             </div>
         </div>
     </div>

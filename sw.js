@@ -1,4 +1,4 @@
-const CACHE_NAME = "control-asistencia-36.30.0";
+const CACHE_NAME = "control-asistencia-36.30.0-pwa-v4";
 const APP_SHELL = [
   "/",
   "/index.html",

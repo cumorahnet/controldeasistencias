@@ -1,31 +1,32 @@
 (function configurePwaInstallation() {
   "use strict";
 
-  const INSTALL_FLOW_VERSION = 3;
-  const INSTALL_STATUS_KEY = `control-asistencia-install-v${INSTALL_FLOW_VERSION}`;
+  const INSTALL_FLOW_VERSION = 4;
+  const INSTALL_SEEN_KEY = `control-asistencia-pwa-install-seen-v${INSTALL_FLOW_VERSION}`;
+  const INSTALL_STATUS_KEY = `control-asistencia-pwa-install-status-v${INSTALL_FLOW_VERSION}`;
   const STATUS_ACCEPTED = "accepted";
   const STATUS_DISMISSED = "dismissed";
   const STATUS_INSTALLED = "installed";
+  const STATUS_INSTRUCTIONS_SHOWN = "instructions-shown";
   const FALLBACK_DELAY_MS = 1500;
 
   let deferredInstallPrompt = null;
   let fallbackTimer = null;
-  let installRequestInProgress = false;
   let domIsReady = false;
 
   const byId = (id) => document.getElementById(id);
 
-  function readInstallStatus() {
+  function readStorage(key) {
     try {
-      return window.localStorage.getItem(INSTALL_STATUS_KEY) || "";
+      return window.localStorage.getItem(key) || "";
     } catch {
       return "";
     }
   }
 
-  function writeInstallStatus(status) {
+  function writeStorage(key, value) {
     try {
-      window.localStorage.setItem(INSTALL_STATUS_KEY, status);
+      window.localStorage.setItem(key, value);
     } catch {
       // El modo privado puede impedir la persistencia; el flujo sigue disponible.
     }
@@ -45,8 +46,28 @@
     return /Android/i.test(window.navigator.userAgent);
   }
 
+  function isMobileDevice() {
+    if (typeof window.navigator.userAgentData?.mobile === "boolean") {
+      return window.navigator.userAgentData.mobile || isIos();
+    }
+    return isIos() || isAndroid() || /Mobile|IEMobile|Opera Mini/i.test(window.navigator.userAgent);
+  }
+
   function isWebView() {
     return /; wv\)|\bWebView\b|FBAN|FBAV|Instagram/i.test(window.navigator.userAgent);
+  }
+
+  function getInstallState() {
+    const status = readStorage(INSTALL_STATUS_KEY);
+    return {
+      installed: isInstalledApp(),
+      nativeAvailable: deferredInstallPrompt !== null,
+      iosInstructions: isIos(),
+      mobile: isMobileDevice(),
+      firstVisitPending: readStorage(INSTALL_SEEN_KEY) !== "seen",
+      dismissed: status === STATUS_DISMISSED,
+      status,
+    };
   }
 
   function setElementVisible(element, visible) {
@@ -55,19 +76,45 @@
     element.setAttribute("aria-hidden", visible ? "false" : "true");
   }
 
-  function setRetryButtonVisible(visible) {
+  function setInstallAction({visible, label = "Instalar app"}) {
     const button = byId("btn-install-pwa");
     if (!button) return;
     button.classList.toggle("hidden", !visible);
     button.classList.toggle("flex", visible);
     button.setAttribute("aria-hidden", visible ? "false" : "true");
+    button.setAttribute("aria-label", label);
+    const labelElement = byId("install-pwa-label");
+    if (labelElement) labelElement.textContent = label;
+  }
+
+  function refreshInstallAction() {
+    const state = getInstallState();
+    if (state.installed) {
+      setInstallAction({visible: false});
+      return;
+    }
+    if (state.nativeAvailable) {
+      setInstallAction({visible: true, label: "Instalar app"});
+      return;
+    }
+    if (state.mobile) {
+      setInstallAction({
+        visible: true,
+        label: isWebView() ? "Abrir en navegador" : "Cómo instalar",
+      });
+      return;
+    }
+    setInstallAction({visible: false});
   }
 
   function closeInstallModal() {
     const modal = byId("install-app-modal");
     const shouldRestoreFocus = modal?.contains(document.activeElement);
     setElementVisible(modal, false);
-    if (shouldRestoreFocus && !isInstalledApp()) byId("btn-install-pwa")?.focus();
+    const installAction = byId("btn-install-pwa");
+    if (shouldRestoreFocus && !isInstalledApp() && !installAction?.classList.contains("hidden")) {
+      installAction.focus();
+    }
   }
 
   function showInstallModal({title, message, primaryLabel, primaryAction, secondaryLabel = "Cerrar", secondaryAction = "close"}) {
@@ -76,7 +123,7 @@
     const messageElement = byId("install-app-message");
     const primaryButton = byId("btn-install-app");
     const secondaryButton = byId("btn-install-later");
-    if (!modal || !titleElement || !messageElement || !primaryButton || !secondaryButton) return;
+    if (!modal || !titleElement || !messageElement || !primaryButton || !secondaryButton) return false;
 
     titleElement.textContent = title;
     messageElement.textContent = message;
@@ -88,6 +135,7 @@
     secondaryButton.classList.toggle("hidden", !secondaryLabel);
     setElementVisible(modal, true);
     window.setTimeout(() => primaryButton.focus(), 0);
+    return true;
   }
 
   function manualInstallMessage() {
@@ -115,31 +163,51 @@
   }
 
   function showInstallInvitation() {
-    if (isInstalledApp() || readInstallStatus()) return;
-    if (deferredInstallPrompt) {
-      showInstallModal({
-        title: "Crear acceso directo",
-        message: "Instale Control de Asistencia para abrirlo desde su pantalla de inicio con su propio icono.",
-        primaryLabel: "Instalar aplicación",
+    const state = getInstallState();
+    if (state.installed || !state.mobile || !state.firstVisitPending) return false;
+
+    const shown = state.nativeAvailable
+      ? showInstallModal({
+        title: "Instala Control de Asistencia",
+        message: "Ábrelo desde tu pantalla de inicio con su propio icono y accede más rápido a tus listas.",
+        primaryLabel: "Instalar app",
         primaryAction: "native-install",
         secondaryLabel: "Ahora no",
         secondaryAction: "dismiss",
+      })
+      : showInstallModal({
+        title: "Agrega Control de Asistencia",
+        message: `${manualInstallMessage()} Así podrás abrirlo directamente desde tu pantalla de inicio.`,
+        primaryLabel: state.iosInstructions ? "Ver instrucciones" : "Cómo instalar",
+        primaryAction: "manual-instructions",
+        secondaryLabel: "Ahora no",
+        secondaryAction: "dismiss",
       });
-      return;
+
+    if (shown) writeStorage(INSTALL_SEEN_KEY, "seen");
+    return shown;
+  }
+
+  function upgradeVisibleInvitationToNativeInstall() {
+    const modal = byId("install-app-modal");
+    const primaryButton = byId("btn-install-app");
+    if (!modal || modal.classList.contains("hidden") || primaryButton?.dataset.action !== "manual-instructions") {
+      return false;
     }
-    showInstallModal({
-      title: "Crear acceso directo",
-      message: manualInstallMessage(),
-      primaryLabel: "Ver cómo instalar",
-      primaryAction: "manual-instructions",
+    return showInstallModal({
+      title: "Instala Control de Asistencia",
+      message: "Ábrelo desde tu pantalla de inicio con su propio icono y accede más rápido a tus listas.",
+      primaryLabel: "Instalar app",
+      primaryAction: "native-install",
       secondaryLabel: "Ahora no",
       secondaryAction: "dismiss",
     });
   }
 
   function scheduleFirstVisitInvitation() {
-    if (isInstalledApp() || readInstallStatus() || fallbackTimer) return;
-    if (deferredInstallPrompt || isIos() || isWebView()) {
+    const state = getInstallState();
+    if (state.installed || !state.mobile || !state.firstVisitPending || fallbackTimer) return;
+    if (state.nativeAvailable || state.iosInstructions || isWebView()) {
       showInstallInvitation();
       return;
     }
@@ -151,9 +219,12 @@
 
   function markInstalled() {
     deferredInstallPrompt = null;
-    installRequestInProgress = false;
-    writeInstallStatus(STATUS_INSTALLED);
-    setRetryButtonVisible(false);
+    if (fallbackTimer) {
+      window.clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+    writeStorage(INSTALL_STATUS_KEY, STATUS_INSTALLED);
+    setInstallAction({visible: false});
   }
 
   async function requestNativeInstall() {
@@ -164,31 +235,28 @@
     }
 
     deferredInstallPrompt = null;
-    installRequestInProgress = true;
     closeInstallModal();
-    setRetryButtonVisible(false);
+    setInstallAction({visible: false});
 
     try {
       await promptEvent.prompt();
       const choice = await promptEvent.userChoice;
-      installRequestInProgress = false;
-      if (readInstallStatus() === STATUS_INSTALLED) return;
+      if (readStorage(INSTALL_STATUS_KEY) === STATUS_INSTALLED) return;
       if (choice?.outcome === "accepted") {
-        writeInstallStatus(STATUS_ACCEPTED);
-        setRetryButtonVisible(true);
+        writeStorage(INSTALL_STATUS_KEY, STATUS_ACCEPTED);
         showInstallModal({
           title: "Instalación solicitada",
-          message: "El navegador aceptó la solicitud. El acceso aparecerá cuando el sistema termine de instalar la aplicación.",
+          message: "El navegador aceptó la solicitud. El icono aparecerá cuando el sistema termine de instalar la aplicación.",
           primaryLabel: "Entendido",
           primaryAction: "close",
           secondaryLabel: "",
         });
         return;
       }
-      writeInstallStatus(STATUS_DISMISSED);
-      setRetryButtonVisible(true);
+      writeStorage(INSTALL_STATUS_KEY, STATUS_DISMISSED);
+      refreshInstallAction();
     } catch {
-      installRequestInProgress = false;
+      refreshInstallAction();
       showManualInstructions();
     }
   }
@@ -204,14 +272,14 @@
       return;
     }
     if (action === "manual-complete") {
-      writeInstallStatus(STATUS_DISMISSED);
+      writeStorage(INSTALL_STATUS_KEY, STATUS_INSTRUCTIONS_SHOWN);
     }
     closeInstallModal();
   }
 
   function handleSecondaryAction(event) {
     if (event.currentTarget.dataset.action === "dismiss") {
-      writeInstallStatus(STATUS_DISMISSED);
+      writeStorage(INSTALL_STATUS_KEY, STATUS_DISMISSED);
     }
     closeInstallModal();
   }
@@ -220,16 +288,17 @@
     domIsReady = true;
     if (isInstalledApp()) {
       markInstalled();
+      closeInstallModal();
       return;
     }
 
-    setRetryButtonVisible(true);
+    refreshInstallAction();
     byId("btn-install-pwa")?.addEventListener("click", () => {
       if (deferredInstallPrompt) {
         showInstallModal({
-          title: "Crear acceso directo",
-          message: "Instale Control de Asistencia para abrirlo desde su pantalla de inicio con su propio icono.",
-          primaryLabel: "Instalar aplicación",
+          title: "Instala Control de Asistencia",
+          message: "Ábrelo desde tu pantalla de inicio con su propio icono y accede más rápido a tus listas.",
+          primaryLabel: "Instalar app",
           primaryAction: "native-install",
           secondaryLabel: "Cerrar",
           secondaryAction: "close",
@@ -252,23 +321,13 @@
       fallbackTimer = null;
     }
     if (!domIsReady) return;
-    setRetryButtonVisible(true);
-    if (!readInstallStatus()) showInstallInvitation();
+    refreshInstallAction();
+    if (!showInstallInvitation()) upgradeVisibleInvitationToNativeInstall();
   });
 
   window.addEventListener("appinstalled", () => {
-    const wasRequestedByUser = installRequestInProgress;
     markInstalled();
     closeInstallModal();
-    if (wasRequestedByUser) {
-      showInstallModal({
-        title: "Aplicación instalada",
-        message: "Control de Asistencia ya está disponible desde el icono de inicio.",
-        primaryLabel: "Entendido",
-        primaryAction: "close",
-        secondaryLabel: "",
-      });
-    }
   });
 
   if (document.readyState === "loading") {
