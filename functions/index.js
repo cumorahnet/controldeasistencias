@@ -76,7 +76,7 @@ function clockMinutes(value) {
 function attendanceStatus(localTime, entryTime, tolerance) {
   const scannedAt = clockMinutes(localTime);
   const startsAt = clockMinutes(entryTime);
-  if (scannedAt === null || startsAt === null) return "REGISTRADO";
+  if (scannedAt === null || startsAt === null) return "A TIEMPO";
   return scannedAt <= startsAt + Math.max(0, Math.min(120, Number(tolerance || 0))) ? "A TIEMPO" : "RETARDO";
 }
 
@@ -1200,7 +1200,7 @@ exports.listAttendanceReport = onCall(async (request) => {
       teacherName: normalizeText(data.profesorNombre, 100),
       date: normalizeText(data.fecha, 10),
       time: normalizeText(data.hora, 8),
-      status: normalizeText(data.status || "REGISTRADO", 20).toUpperCase(),
+      status: normalizeText(data.status, 20).toUpperCase() === "RETARDO" ? "RETARDO" : "A TIEMPO",
     };
   }).sort((first, second) => first.date.localeCompare(second.date) || first.time.localeCompare(second.time));
   return {rows, truncated: snapshot.size === 5000};

@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 36.23.0 - 26/08/2026
+
+- La lista del pase de asistencia muestra la fecha actual completa, la hora de inicio del escáner y la hora exacta de cada registro.
+- Los estados visibles y los nuevos registros se limitan a A TIEMPO o RETARDO.
+- El mensaje de confirmación del escáner incluye la hora registrada.
+
 ## 36.22.0 - 26/08/2026
 
 - Los avisos sonoros de asistencia correcta y lectura rechazada tienen mayor volumen y duración.

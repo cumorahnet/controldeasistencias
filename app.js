@@ -265,6 +265,20 @@ function compareStudentsByList(first, second) {
 const validPassword = (value) => String(value || "").length >= 8 && String(value || "").length <= 72 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(value)) && /\d/.test(String(value));
 const isAdmin = () => ["admin_maestro", "director", "admin_jr", "super"].includes(loggedTeacher?.role);
 const isMaster = () => ["admin_maestro", "director", "super"].includes(loggedTeacher?.role);
+const normalizedAttendanceStatus = (value) => normalizeText(value).toUpperCase() === "RETARDO" ? "RETARDO" : "A TIEMPO";
+
+function showScannerStartTime(value = null) {
+  const label = byId("scanner-start-label");
+  if (!label) return;
+  const time = value && new Intl.DateTimeFormat("es-MX", {
+    timeZone: "America/Mexico_City",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(value);
+  label.textContent = `INICIO DE ESCANEO: ${time || "SIN INICIAR"}`;
+}
 
 function functionError(error, fallback = "No fue posible completar la operación.") {
   const friendlyMessages = {
@@ -2145,7 +2159,7 @@ function renderAttendanceReport(rows, truncated = false) {
   body.replaceChildren();
   rows.forEach((row, index) => {
     const tr = document.createElement("tr");
-    const status = normalizeText(row.status || "REGISTRADO").toUpperCase();
+    const status = normalizedAttendanceStatus(row.status);
     tr.append(
       createCell(String(index + 1), "p-3 text-center"),
       createCell(row.date, "p-3 text-center"),
@@ -2210,7 +2224,7 @@ window.printAttendanceReport = () => {
   const tbody = document.createElement("tbody");
   latestAttendanceReport.forEach((row, index) => {
     const tr = document.createElement("tr");
-    [index + 1, row.date, row.time, row.studentId, row.studentName, row.teacherName || "-", row.status || "REGISTRADO"].forEach((value) => {
+    [index + 1, row.date, row.time, row.studentId, row.studentName, row.teacherName || "-", normalizedAttendanceStatus(row.status)].forEach((value) => {
       const td = document.createElement("td");
       td.textContent = value;
       tr.append(td);
@@ -2235,10 +2249,12 @@ window.clearAttendanceHistory = () => window.showConfirmMsg(
 window.initScanner = async () => {
   if (isScannerTransitioning || isScannerRunning || !loggedTeacher) return;
   isScannerTransitioning = true;
+  showScannerStartTime();
   try {
     if (!html5QrScanner) html5QrScanner = new Html5Qrcode("qr-reader");
     await html5QrScanner.start({facingMode: "environment"}, {fps: 8, qrbox: 250}, (text) => window.processAttendance(text));
     isScannerRunning = true;
+    showScannerStartTime(new Date());
     byId("btn-camera").textContent = "Apagar cámara";
     byId("btn-camera").setAttribute("aria-pressed", "true");
   } catch (error) {
@@ -2285,8 +2301,8 @@ window.processAttendance = async (rawId) => {
   try {
     const response = await api.recordAttendance({schoolKey, studentId});
     if (response.data.created) {
-      const attendanceState = normalizeText(response.data.status || "REGISTRADO").toUpperCase();
-      setScannerStatus(`Asistencia registrada: ${studentId} · ${attendanceState}`, "success");
+      const attendanceState = normalizedAttendanceStatus(response.data.status);
+      setScannerStatus(`Asistencia registrada: ${studentId} · ${response.data.hora} · ${attendanceState}`, "success");
       await playScanSound("success");
     } else {
       setScannerStatus(`El alumno ${studentId} ya tenía asistencia hoy.`, "error");
@@ -2336,14 +2352,22 @@ function attendanceTimestamp(value) {
 
 function listenToAttendanceToday() {
   unsubscribeAttendance?.();
-  const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
+  const now = new Date();
+  const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(now);
+  const visibleDate = new Intl.DateTimeFormat("es-MX", {
+    timeZone: "America/Mexico_City",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(now).toUpperCase();
+  if (byId("attendance-date-label")) byId("attendance-date-label").textContent = visibleDate;
   const attendanceQuery = query(
     collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_asistencias`),
     where("fecha", "==", today),
   );
   unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
     const logs = snapshot.docs.map((entry) => entry.data()).sort((a, b) => attendanceTimestamp(b.timestamp) - attendanceTimestamp(a.timestamp));
-    byId("scan-count").textContent = `${logs.length} HOY`;
+    byId("scan-count").textContent = `${logs.length} ${logs.length === 1 ? "ASISTENCIA" : "ASISTENCIAS"}`;
     const list = byId("recent-logs");
     list.replaceChildren();
     for (const log of logs.slice(0, 10)) {
@@ -2355,10 +2379,10 @@ function listenToAttendanceToday() {
       name.textContent = [log.apellido, log.materno, log.nombre].map((value) => normalizeText(value)).filter(Boolean).join(" ");
       const time = document.createElement("p");
       time.className = "text-xs text-slate-500";
-      time.textContent = `${normalizeText(log.hora)} · ${normalizeText(log.profesorNombre) || "Sin responsable"}`;
+      time.textContent = `Hora de escaneo: ${normalizeText(log.hora)} · ${normalizeText(log.profesorNombre) || "Sin responsable"}`;
       description.append(name, time);
       const state = document.createElement("span");
-      const attendanceState = normalizeText(log.status || "REGISTRADO").toUpperCase();
+      const attendanceState = normalizedAttendanceStatus(log.status);
       state.className = `${attendanceState === "RETARDO" ? "text-red-700" : "text-green-700"} font-black uppercase text-xs`;
       state.textContent = attendanceState;
       item.append(description, state);
