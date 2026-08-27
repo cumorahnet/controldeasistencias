@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 36.27.0 - 26/08/2026
+
+- La instalación de la PWA sólo se confirma al recibir el resultado de Android o la confirmación explícita del usuario.
+- Las instalaciones canceladas, rechazadas o inconclusas ya no se marcan como atendidas y pueden intentarse de nuevo.
+- El aviso explica cómo llevar el icono desde el cajón de aplicaciones hasta la pantalla de inicio.
+
 ## 36.26.0 - 26/08/2026
 
 - Se evita que cargas simultáneas dupliquen los planteles en los directorios del superusuario.

@@ -91,8 +91,12 @@ let schoolSelectionLoadVersion = 0;
 let globalSchoolsLoadVersion = 0;
 
 const byId = (id) => document.getElementById(id);
-const INSTALL_PROMPT_STORAGE_KEY = "control-asistencia-install-prompt-v1";
+const INSTALL_PROMPT_STORAGE_KEY = "control-asistencia-install-prompt-v2";
+const INSTALL_STATUS_DISMISSED = "dismissed";
+const INSTALL_STATUS_INSTALLED = "installed";
 let deferredInstallPrompt = null;
+let installConfirmationTimer = null;
+let installWasConfirmed = false;
 
 function isInstalledApp() {
   return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
@@ -104,63 +108,206 @@ function isMobileBrowser() {
 
 function installPromptWasHandled() {
   try {
-    return localStorage.getItem(INSTALL_PROMPT_STORAGE_KEY) === "handled";
+    const status = localStorage.getItem(INSTALL_PROMPT_STORAGE_KEY);
+    return status === INSTALL_STATUS_DISMISSED || status === INSTALL_STATUS_INSTALLED;
   } catch {
     return false;
   }
 }
 
-function rememberInstallPrompt() {
+function rememberInstallPrompt(status) {
   try {
-    localStorage.setItem(INSTALL_PROMPT_STORAGE_KEY, "handled");
+    localStorage.setItem(INSTALL_PROMPT_STORAGE_KEY, status);
   } catch {
     // El almacenamiento privado puede no estar disponible; la instalación sigue funcionando.
   }
 }
 
-function closeInstallPrompt(remember = true) {
+function clearInstallConfirmationTimer() {
+  if (!installConfirmationTimer) return;
+  window.clearTimeout(installConfirmationTimer);
+  installConfirmationTimer = null;
+}
+
+function closeInstallPrompt(status = "") {
+  clearInstallConfirmationTimer();
   byId("install-app-modal")?.classList.add("hidden");
-  if (remember) rememberInstallPrompt();
+  if (status) rememberInstallPrompt(status);
+}
+
+function showInstallPromptState({title, message, primaryLabel, primaryMode, primaryDisabled = false, secondaryLabel = "Cerrar", secondaryAction = "close"}) {
+  const modal = byId("install-app-modal");
+  const titleElement = byId("install-app-title");
+  const messageElement = byId("install-app-message");
+  const installButton = byId("btn-install-app");
+  const secondaryButton = byId("btn-install-later");
+  if (!modal || !titleElement || !messageElement || !installButton || !secondaryButton) return;
+
+  titleElement.textContent = title;
+  messageElement.textContent = message;
+  installButton.textContent = primaryLabel;
+  installButton.dataset.mode = primaryMode;
+  installButton.disabled = primaryDisabled;
+  installButton.classList.toggle("opacity-60", primaryDisabled);
+  installButton.classList.toggle("cursor-wait", primaryDisabled);
+  secondaryButton.textContent = secondaryLabel;
+  secondaryButton.dataset.action = secondaryAction;
+  secondaryButton.classList.toggle("hidden", !secondaryLabel);
+  modal.classList.remove("hidden");
+  window.setTimeout(() => (primaryDisabled ? secondaryButton : installButton).focus(), 0);
+}
+
+function showManualInstallInstructions(allowDismiss = false) {
+  const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const message = isiOS
+    ? "En Safari, toque Compartir y después Agregar a pantalla de inicio. Si abrió esta liga en otro navegador, ábrala primero en Safari."
+    : "Abra el menú ⋮ del navegador y elija Instalar aplicación o Agregar a pantalla principal.";
+  showInstallPromptState({
+    title: "Crear acceso directo",
+    message,
+    primaryLabel: "Ya la instalé",
+    primaryMode: "manual-confirm",
+    secondaryLabel: allowDismiss ? "Ahora no" : "Cerrar",
+    secondaryAction: allowDismiss ? "dismiss" : "close"
+  });
+}
+
+function showManualInstallConfirmation() {
+  showInstallPromptState({
+    title: "Confirmar instalación",
+    message: "¿Control de Asistencia ya aparece en la pantalla de inicio o en el cajón de aplicaciones? En la instalación manual, el navegador no permite comprobarlo automáticamente.",
+    primaryLabel: "Sí, ya aparece",
+    primaryMode: "confirm-installed",
+    secondaryLabel: "Volver a los pasos",
+    secondaryAction: "instructions"
+  });
+}
+
+function showInstalledConfirmation() {
+  installWasConfirmed = true;
+  deferredInstallPrompt = null;
+  clearInstallConfirmationTimer();
+  rememberInstallPrompt(INSTALL_STATUS_INSTALLED);
+  showInstallPromptState({
+    title: "Aplicación instalada",
+    message: "La instalación terminó correctamente. Si Android no puso el icono en la pantalla de inicio, abra el cajón de aplicaciones, busque Control de Asistencia, mantenga pulsado su icono y arrástrelo a la pantalla de inicio.",
+    primaryLabel: "Entendido",
+    primaryMode: "close",
+    secondaryLabel: ""
+  });
+}
+
+function showUnconfirmedInstallation() {
+  showInstallPromptState({
+    title: "Comprueba la instalación",
+    message: "Android aceptó la solicitud, pero el navegador no confirmó que la instalación terminara. Busque Control de Asistencia en el cajón de aplicaciones. Si aparece, mantenga pulsado el icono para arrastrarlo a la pantalla de inicio.",
+    primaryLabel: "Sí, ya aparece",
+    primaryMode: "confirm-installed",
+    secondaryLabel: "Cerrar",
+    secondaryAction: "close"
+  });
 }
 
 function configureInstallPrompt() {
-  if (!isMobileBrowser() || isInstalledApp() || installPromptWasHandled()) return;
-  const modal = byId("install-app-modal");
-  const message = byId("install-app-message");
-  const installButton = byId("btn-install-app");
-  if (!modal || !message || !installButton) return;
-
-  const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  if (deferredInstallPrompt) {
-    message.textContent = "Instale Control de Asistencia para abrirlo desde la pantalla de inicio de su celular.";
-    installButton.textContent = "Instalar aplicación";
-    installButton.dataset.mode = "native";
-  } else if (isiOS) {
-    message.textContent = "En Safari, toque Compartir y después Agregar a pantalla de inicio. Si abrió esta liga en otro navegador, ábrala primero en Safari.";
-    installButton.textContent = "Entendido";
-    installButton.dataset.mode = "manual";
-  } else {
-    message.textContent = "Abra el menú ⋮ del navegador y elija Instalar aplicación o Agregar a pantalla principal.";
-    installButton.textContent = "Entendido";
-    installButton.dataset.mode = "manual";
+  if (!isMobileBrowser() || installPromptWasHandled()) return;
+  if (isInstalledApp()) {
+    rememberInstallPrompt(INSTALL_STATUS_INSTALLED);
+    return;
   }
-  modal.classList.remove("hidden");
-  window.setTimeout(() => installButton.focus(), 0);
+
+  if (deferredInstallPrompt) {
+    showInstallPromptState({
+      title: "Instalar aplicación",
+      message: "Instale Control de Asistencia para abrirlo desde su celular como una aplicación.",
+      primaryLabel: "Instalar aplicación",
+      primaryMode: "native",
+      secondaryLabel: "Ahora no",
+      secondaryAction: "dismiss"
+    });
+  } else {
+    showManualInstallInstructions(true);
+  }
 }
 
 async function handleInstallRequest() {
   const installButton = byId("btn-install-app");
-  if (!deferredInstallPrompt || installButton?.dataset.mode !== "native") {
+  const mode = installButton?.dataset.mode;
+  if (mode === "close") {
     closeInstallPrompt();
     return;
   }
+  if (mode === "manual-confirm") {
+    showManualInstallConfirmation();
+    return;
+  }
+  if (mode === "manual-instructions") {
+    showManualInstallInstructions();
+    return;
+  }
+  if (mode === "confirm-installed") {
+    showInstalledConfirmation();
+    return;
+  }
+  if (!deferredInstallPrompt || mode !== "native") {
+    showManualInstallInstructions();
+    return;
+  }
+
   const promptEvent = deferredInstallPrompt;
   deferredInstallPrompt = null;
+  installWasConfirmed = false;
+  showInstallPromptState({
+    title: "Instalando aplicación",
+    message: "Responda al aviso de Android para continuar.",
+    primaryLabel: "Esperando respuesta",
+    primaryMode: "waiting",
+    primaryDisabled: true,
+    secondaryLabel: "Cerrar",
+    secondaryAction: "close"
+  });
+
   try {
     await promptEvent.prompt();
-    await promptEvent.userChoice.catch(() => null);
-  } finally {
-    closeInstallPrompt();
+    const choice = await promptEvent.userChoice;
+    if (installWasConfirmed) return;
+    if (isInstalledApp()) {
+      showInstalledConfirmation();
+      return;
+    }
+    if (choice?.outcome !== "accepted") {
+      showInstallPromptState({
+        title: "Instalación cancelada",
+        message: "Android no instaló la aplicación. Puede volver a intentarlo desde el menú del navegador; este aviso no se marcará como atendido.",
+        primaryLabel: "Ver los pasos",
+        primaryMode: "manual-instructions",
+        secondaryLabel: "Cerrar",
+        secondaryAction: "close"
+      });
+      return;
+    }
+
+    showInstallPromptState({
+      title: "Finalizando instalación",
+      message: "Android aceptó la solicitud. Esperamos la confirmación de que la instalación terminó.",
+      primaryLabel: "Comprobando",
+      primaryMode: "waiting",
+      primaryDisabled: true,
+      secondaryLabel: "Cerrar",
+      secondaryAction: "close"
+    });
+    installConfirmationTimer = window.setTimeout(() => {
+      installConfirmationTimer = null;
+      if (!installWasConfirmed) showUnconfirmedInstallation();
+    }, 10000);
+  } catch {
+    showInstallPromptState({
+      title: "No se pudo instalar",
+      message: "El navegador no pudo abrir o completar la instalación. El aviso no se marcará como atendido; puede intentarlo desde el menú del navegador.",
+      primaryLabel: "Ver los pasos",
+      primaryMode: "manual-instructions",
+      secondaryLabel: "Cerrar",
+      secondaryAction: "close"
+    });
   }
 }
 
@@ -171,12 +318,18 @@ window.addEventListener("beforeinstallprompt", (event) => {
 });
 
 window.addEventListener("appinstalled", () => {
-  deferredInstallPrompt = null;
-  closeInstallPrompt();
+  showInstalledConfirmation();
 });
 
 byId("btn-install-app")?.addEventListener("click", () => void handleInstallRequest());
-byId("btn-install-later")?.addEventListener("click", () => closeInstallPrompt());
+byId("btn-install-later")?.addEventListener("click", (event) => {
+  const action = event.currentTarget.dataset.action;
+  if (action === "instructions") {
+    showManualInstallInstructions();
+    return;
+  }
+  closeInstallPrompt(action === "dismiss" ? INSTALL_STATUS_DISMISSED : "");
+});
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
