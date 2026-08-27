@@ -132,15 +132,15 @@ async function playScanSound(kind) {
     if (!context || context.state !== "running") return;
     const now = context.currentTime;
     const tones = kind === "success"
-      ? [{frequency: 880, start: 0, duration: 0.12}, {frequency: 1175, start: 0.13, duration: 0.13}]
-      : [{frequency: 150, start: 0, duration: 0.18}, {frequency: 110, start: 0.2, duration: 0.28}];
+      ? [{frequency: 880, start: 0, duration: 0.16}, {frequency: 1175, start: 0.17, duration: 0.18}]
+      : [{frequency: 150, start: 0, duration: 0.24}, {frequency: 110, start: 0.25, duration: 0.34}];
     for (const tone of tones) {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.type = kind === "success" ? "sine" : "square";
       oscillator.frequency.setValueAtTime(tone.frequency, now + tone.start);
       gain.gain.setValueAtTime(0.0001, now + tone.start);
-      gain.gain.exponentialRampToValueAtTime(kind === "success" ? 0.35 : 0.22, now + tone.start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(kind === "success" ? 0.65 : 0.5, now + tone.start + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + tone.start + tone.duration);
       oscillator.connect(gain);
       gain.connect(context.destination);
@@ -215,13 +215,12 @@ function installQrPrintCutStyles() {
         image-rendering: pixelated;
       }
       .qr-print-code .qr-center-id {
-        display: none !important;
-      }
-      .qr-print-id {
-        margin-top: 0.5mm !important;
+        display: block !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        padding: 1.8mm 2.2mm !important;
+        background: #ffffff !important;
         font-size: 6pt !important;
-        font-weight: 800 !important;
-        line-height: 1 !important;
       }
     }
   `;
@@ -264,8 +263,8 @@ function compareStudentsByList(first, second) {
   return compareStudentsByName(first, second);
 }
 const validPassword = (value) => String(value || "").length >= 8 && String(value || "").length <= 72 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(value)) && /\d/.test(String(value));
-const isAdmin = () => ["admin_maestro", "admin_jr", "super"].includes(loggedTeacher?.role);
-const isMaster = () => ["admin_maestro", "super"].includes(loggedTeacher?.role);
+const isAdmin = () => ["admin_maestro", "director", "admin_jr", "super"].includes(loggedTeacher?.role);
+const isMaster = () => ["admin_maestro", "director", "super"].includes(loggedTeacher?.role);
 
 function functionError(error, fallback = "No fue posible completar la operación.") {
   const friendlyMessages = {
@@ -534,7 +533,7 @@ async function loadTeachers(useCache = false) {
         const select = document.createElement("select");
         select.className = "role-select";
         select.setAttribute("aria-label", `Rol de ${normalizeText(teacher.nombre)}`);
-        for (const [value, label] of [["docente", "DOC"], ["porteria", "PORTERÍA"], ["admin_jr", "JR"], ["admin_maestro", "MASTER"]]) {
+        for (const [value, label] of [["docente", "DOC"], ["porteria", "PORTERÍA"], ["admin_jr", "JR"], ["director", "DIRECTOR"], ["admin_maestro", "MASTER"]]) {
           const option = new Option(label, value, false, teacher.role === value);
           select.add(option);
         }
@@ -714,10 +713,7 @@ function printStudentQrs(levelLabel, groupLabel, students) {
     name.textContent = studentDisplayName(student);
     const qr = document.createElement("div");
     qr.className = "qr-print-code";
-    const qrId = document.createElement("p");
-    qrId.className = "qr-print-id";
-    qrId.textContent = student.id;
-    card.append(name, qr, qrId);
+    card.append(name, qr);
     grid.append(card);
     qrTargets.push([qr, student.id]);
   }
@@ -850,6 +846,7 @@ async function loadStudents(useCache = false) {
       const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
       studentCatalogCache = snapshot.docs.map((entry) => ({...entry.data(), id: entry.id}));
     }
+    populateScheduleGroupOptions();
     const term = normalizeText(byId("student-search")?.value).toUpperCase();
     const students = studentCatalogCache.filter((student) => !term
       || normalizeCode(student.id, 40).includes(term)
@@ -961,19 +958,73 @@ async function loadStudents(useCache = false) {
 
 window.filterStudentCatalog = () => loadStudents(true);
 
-function effectiveSchedule() {
+function scheduleGroupKey(level, group) {
+  return `${encodeURIComponent(normalizeSchoolLevel(level))}|${encodeURIComponent(normalizeGroupName(group))}`;
+}
+
+function selectedScheduleGroup() {
+  const value = String(byId("schedule-group")?.value || "");
+  const separator = value.indexOf("|");
+  if (separator < 0) return null;
+  try {
+    return {
+      level: normalizeSchoolLevel(decodeURIComponent(value.slice(0, separator))),
+      group: normalizeGroupName(decodeURIComponent(value.slice(separator + 1))),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function populateScheduleGroupOptions() {
+  const select = byId("schedule-group");
+  if (!select) return;
+  const previous = select.value;
+  const groups = new Map();
+  for (const student of studentCatalogCache) {
+    const level = normalizeSchoolLevel(student.level || student.nivel);
+    const group = normalizeGroupName(student.grupo);
+    if (!level || !group) continue;
+    groups.set(scheduleGroupKey(level, group), {level, group});
+  }
+  const options = [...groups.entries()].sort(([, first], [, second]) => {
+    const levelOrder = (STUDENT_LEVEL_ORDER.get(first.level) ?? 99) - (STUDENT_LEVEL_ORDER.get(second.level) ?? 99);
+    return levelOrder || first.group.localeCompare(second.group, "es", {numeric: true, sensitivity: "base"});
+  });
+  select.replaceChildren();
+  if (!options.length) {
+    select.add(new Option("No hay grupos registrados", ""));
+    select.disabled = true;
+    populateScheduleForm();
+    return;
+  }
+  select.disabled = false;
+  for (const [value, item] of options) {
+    select.add(new Option(`${STUDENT_LEVEL_LABELS[item.level] || item.level} · Grupo ${item.group}`, value));
+  }
+  if (options.some(([value]) => value === previous)) select.value = previous;
+  populateScheduleForm();
+}
+
+window.selectScheduleGroup = () => populateScheduleForm();
+
+function effectiveSchedule(level, group) {
   const teacher = loggedTeacher || {};
   const school = currentSchool || {};
+  const groupSchedule = (Array.isArray(teacher.groupSchedules) ? teacher.groupSchedules : []).find((item) =>
+    normalizeSchoolLevel(item?.level) === level && normalizeGroupName(item?.group) === group);
   return {
-    entryTime: String(teacher.entryTime || school.entryTime || "").slice(0, 5),
-    recessReturnTime: String(teacher.recessReturnTime || school.recessReturnTime || "").slice(0, 5),
-    tolerance: Number(teacher.tolerance ?? school.tolerance ?? 0),
-    classDuration: Number(teacher.classDuration ?? school.classDuration ?? 50),
+    entryTime: String(groupSchedule?.entryTime || teacher.entryTime || school.entryTime || "").slice(0, 5),
+    recessReturnTime: String(groupSchedule?.recessReturnTime || teacher.recessReturnTime || school.recessReturnTime || "").slice(0, 5),
+    tolerance: Number(groupSchedule?.tolerance ?? teacher.tolerance ?? school.tolerance ?? 0),
+    classDuration: Number(groupSchedule?.classDuration ?? teacher.classDuration ?? school.classDuration ?? 50),
+    configuredForGroup: Boolean(groupSchedule),
   };
 }
 
 function populateScheduleForm() {
-  const schedule = effectiveSchedule();
+  const selection = selectedScheduleGroup();
+  const schedule = effectiveSchedule(selection?.level, selection?.group);
   const fields = {
     "schedule-entry-time": schedule.entryTime,
     "schedule-recess-return": schedule.recessReturnTime,
@@ -982,15 +1033,20 @@ function populateScheduleForm() {
   };
   for (const [id, value] of Object.entries(fields)) if (byId(id)) byId(id).value = value ?? "";
   const label = byId("current-schedule-label");
-  if (label) label.textContent = schedule.entryTime
-    ? `Entrada ${schedule.entryTime} · tolerancia ${schedule.tolerance} min`
-    : "Sin horario de entrada configurado";
+  if (!label) return;
+  if (!selection) label.textContent = "Sin grupos registrados";
+  else if (schedule.entryTime) label.textContent = `${selection.level} · Grupo ${selection.group} · Entrada ${schedule.entryTime} · tolerancia ${schedule.tolerance} min${schedule.configuredForGroup ? "" : " · horario general"}`;
+  else label.textContent = `${selection.level} · Grupo ${selection.group} · sin horario configurado`;
 }
 
 window.saveOwnSchedule = async () => {
   if (!loggedTeacher || loggedTeacher.role === "super") return;
+  const selection = selectedScheduleGroup();
+  if (!selection) return window.showModalMsg("Horario", "Primero registre alumnos en un grupo para poder asignarle un horario.");
   const schedule = {
     schoolKey,
+    level: selection.level,
+    group: selection.group,
     entryTime: byId("schedule-entry-time")?.value || "",
     recessReturnTime: byId("schedule-recess-return")?.value || "",
     tolerance: byId("schedule-tolerance")?.value || 0,
@@ -998,9 +1054,12 @@ window.saveOwnSchedule = async () => {
   };
   try {
     const response = await api.updateOwnSchedule(schedule);
-    loggedTeacher = {...loggedTeacher, ...response.data.schedule};
+    const saved = response.data.schedule;
+    const groupSchedules = (Array.isArray(loggedTeacher.groupSchedules) ? loggedTeacher.groupSchedules : []).filter((item) =>
+      normalizeSchoolLevel(item?.level) !== saved.level || normalizeGroupName(item?.group) !== saved.group);
+    loggedTeacher = {...loggedTeacher, groupSchedules: [...groupSchedules, saved]};
     populateScheduleForm();
-    window.showModalMsg("Horario", "El horario personal fue guardado.");
+    window.showModalMsg("Horario", `El horario de ${saved.level} · Grupo ${saved.group} fue guardado.`);
   } catch (error) {
     window.showModalMsg("Horario", functionError(error));
   }
@@ -1021,7 +1080,6 @@ async function enterApp() {
   window.safeToggle("maint-cat-institucion", !isMaster());
   if (superUser) await window.switchTab("global");
   else {
-    populateScheduleForm();
     await loadStudents();
     listenToAttendanceToday();
     await window.switchTab("scanner");

@@ -45,7 +45,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return role() in ['admin_jr', 'admin_maestro'] && hasCurrentTeacherSession();
+      return role() in ['admin_jr', 'admin_maestro', 'director'] && hasCurrentTeacherSession();
     }
 
     function belongsToSchool(collectionId, suffix) {

@@ -29,7 +29,7 @@
         .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; transition: background 0.3s; }
         .cat-active { border-bottom: 3px solid var(--accent-color) !important; color: var(--accent-color) !important; font-weight: 900; }
         .print-only { display: none; }
-        .qr-center-id { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border: 1px solid #000; border-radius: 0.2rem; color: #000; font-size: 0.65rem; font-weight: 900; line-height: 1; padding: 0.35rem; white-space: nowrap; pointer-events: none; }
+        .qr-center-id { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border: 0; border-radius: 0; color: #000; font-size: 0.65rem; font-weight: 900; line-height: 1; padding: 0.45rem 0.55rem; white-space: nowrap; pointer-events: none; }
         @media print {
             @page { size: A4; margin: 10mm; }
             body { background: #fff !important; }
@@ -45,7 +45,7 @@
             .student-qr-card p { font-size: 7.5pt; font-weight: 700; margin-top: 1mm; text-transform: uppercase; }
             .qr-print-code { position: relative; display: flex; align-items: center; justify-content: center; width: 49mm; height: 49mm; margin: 1mm auto 0; background: linear-gradient(#cbd5e1, #cbd5e1) left top / 5mm 0.25mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) left top / 0.25mm 5mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) right top / 5mm 0.25mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) right top / 0.25mm 5mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) left bottom / 5mm 0.25mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) left bottom / 0.25mm 5mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) right bottom / 5mm 0.25mm no-repeat, linear-gradient(#cbd5e1, #cbd5e1) right bottom / 0.25mm 5mm no-repeat; }
             .qr-print-code canvas, .qr-print-code img { height: 44mm !important; width: 44mm !important; }
-            .qr-center-id { border-radius: 1mm; font-size: 6pt; padding: 1.2mm; }
+            .qr-center-id { border: 0; border-radius: 0; font-size: 6pt; padding: 1.8mm 2.2mm; }
             .student-roster { border-collapse: collapse; width: 100%; }
             .student-roster thead { display: table-header-group; }
             .student-roster tr { break-inside: avoid; }
@@ -253,6 +253,11 @@
                     <p id="scanner-status" role="status" aria-live="polite" class="min-h-5 text-sm font-bold text-slate-600"></p>
                     <details class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
                         <summary class="cursor-pointer text-center text-[10px] font-black uppercase text-slate-700">Mi horario</summary>
+                        <label class="mt-4 block text-[9px] font-black uppercase text-slate-600">Grupo
+                            <select id="schedule-group" onchange="window.selectScheduleGroup()" class="mt-1 w-full rounded-xl border bg-white p-2 font-bold normal-case">
+                                <option value="">Cargando grupos…</option>
+                            </select>
+                        </label>
                         <div class="mt-4 grid grid-cols-2 gap-3">
                             <label class="text-[9px] font-black uppercase text-slate-600">Entrada<input id="schedule-entry-time" type="time" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
                             <label class="text-[9px] font-black uppercase text-slate-600">Regreso del receso<input id="schedule-recess-return" type="time" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
@@ -380,6 +385,7 @@
                                     <option value="docente">Docente</option>
                                     <option value="porteria">Portería / Entrada</option>
                                     <option value="admin_jr">Administrador JR</option>
+                                    <option value="director">Director</option>
                                     <option value="admin_maestro">Administrador maestro</option>
                                 </select>
                             </div>
@@ -669,6 +675,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.21.0"></script>
+    <script type="module" src="./app.js?v=36.22.0"></script>
 </body>
 </html>

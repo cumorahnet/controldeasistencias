@@ -12,8 +12,10 @@ setGlobalOptions({region: "us-central1", maxInstances: 20});
 
 const db = getFirestore();
 const ROOT = "listadeasistencia";
-const ALLOWED_ROLES = new Set(["docente", "porteria", "admin_jr", "admin_maestro"]);
-const ADMIN_ROLES = new Set(["admin_jr", "admin_maestro"]);
+const MASTER_ROLES = new Set(["admin_maestro", "director"]);
+const ALLOWED_ROLES = new Set(["docente", "porteria", "admin_jr", ...MASTER_ROLES]);
+const ADMIN_ROLES = new Set(["admin_jr", ...MASTER_ROLES]);
+const ATTENDANCE_ROLES = new Set(["docente", "porteria", ...ADMIN_ROLES]);
 
 function publicDataRef() {
   return db.collection("artifacts").doc(ROOT).collection("public").doc("data");
@@ -334,9 +336,9 @@ async function deleteAuthUsers(authUids) {
 }
 
 async function assertAnotherMasterAdministrator(schoolKey, excludedTeacherId) {
-  const snapshot = await schoolCollection(schoolKey, "maestros").where("role", "==", "admin_maestro").limit(5).get();
+  const snapshot = await schoolCollection(schoolKey, "maestros").where("role", "in", [...MASTER_ROLES]).limit(10).get();
   if (!snapshot.docs.some((document) => document.id !== excludedTeacherId && document.get("status") !== "disabled")) {
-    throw new HttpsError("failed-precondition", "Cada plantel debe conservar al menos un administrador maestro activo.");
+    throw new HttpsError("failed-precondition", "Cada plantel debe conservar al menos un administrador maestro o director activo.");
   }
 }
 
@@ -627,7 +629,7 @@ exports.loginTeacher = onCall(async (request) => {
   }
   await clearFailedAttempts(request, "teacher_password_failures", rateScope);
   const authUid = teacher.authUid || credentialSnapshot.get("authUid") || teacherUid(schoolKey, teacherId);
-  const isInitialAdministrator = teacher.role === "admin_maestro" && normalizeCode(schoolSnapshot.get("initialAdminId"), 160) === teacherId;
+  const isInitialAdministrator = MASTER_ROLES.has(teacher.role) && normalizeCode(schoolSnapshot.get("initialAdminId"), 160) === teacherId;
   const passwordChangeRequired = isInitialAdministrator ? false : credentialSnapshot.get("mustChange") === true || teacher.passwordChangeRequired === true;
   const sessionData = {};
   if (teacher.authUid !== authUid) sessionData.authUid = authUid;
@@ -740,8 +742,10 @@ exports.changeTeacherPassword = onCall(async (request) => {
 });
 
 exports.updateOwnSchedule = onCall(async (request) => {
-  const token = await assertRole(request, new Set(["docente", "porteria", "admin_jr", "admin_maestro"]));
+  const token = await assertRole(request, ATTENDANCE_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const level = normalizeSchoolLevel(request.data?.level);
+  const group = normalizeGroupName(request.data?.group);
   const entryTime = String(request.data?.entryTime || "").slice(0, 5);
   const recessReturnTime = String(request.data?.recessReturnTime || "").slice(0, 5);
   const tolerance = Math.max(0, Math.min(120, Number(request.data?.tolerance || 0)));
@@ -749,15 +753,33 @@ exports.updateOwnSchedule = onCall(async (request) => {
   if (entryTime && clockMinutes(entryTime) === null) throw new HttpsError("invalid-argument", "La hora de entrada no es válida.");
   if (recessReturnTime && clockMinutes(recessReturnTime) === null) throw new HttpsError("invalid-argument", "La hora de regreso no es válida.");
   const schedule = {
+    level,
+    group,
     entryTime,
     recessReturnTime,
     tolerance,
     classDuration,
     scheduleConfigured: true,
-    scheduleUpdatedAt: FieldValue.serverTimestamp(),
   };
-  await schoolCollection(schoolKey, "maestros").doc(token.teacherId).set(schedule, {merge: true});
-  return {ok: true, schedule: {entryTime, recessReturnTime, tolerance, classDuration, scheduleConfigured: true}};
+  const teacherRef = schoolCollection(schoolKey, "maestros").doc(token.teacherId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(teacherRef);
+    if (!snapshot.exists) throw new HttpsError("not-found", "La cuenta ya no existe.");
+    const currentSchedules = Array.isArray(snapshot.get("groupSchedules")) ? snapshot.get("groupSchedules") : [];
+    const groupSchedules = currentSchedules.filter((item) => {
+      try {
+        return normalizeSchoolLevel(item?.level) !== level || normalizeGroupName(item?.group) !== group;
+      } catch {
+        return false;
+      }
+    });
+    groupSchedules.push(schedule);
+    transaction.set(teacherRef, {
+      groupSchedules: groupSchedules.slice(-200),
+      scheduleUpdatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+  });
+  return {ok: true, schedule};
 });
 
 exports.changeTeacherId = onCall(async () => {
@@ -765,7 +787,7 @@ exports.changeTeacherId = onCall(async () => {
 });
 
 exports.updateSchool = onCall(async (request) => {
-  const token = await assertRole(request, new Set(["admin_maestro"]));
+  const token = await assertRole(request, MASTER_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const input = request.data?.profile || {};
   const profile = {
@@ -818,7 +840,7 @@ exports.updateSchool = onCall(async (request) => {
 });
 
 exports.updateTeacherRole = onCall(async (request) => {
-  const token = await assertRole(request, new Set(["admin_maestro"]));
+  const token = await assertRole(request, MASTER_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const teacherId = requireIdentifier(request.data?.teacherId, "ID docente");
   const role = String(request.data?.role || "");
@@ -829,7 +851,7 @@ exports.updateTeacherRole = onCall(async (request) => {
   const targetRef = schoolCollection(schoolKey, "maestros").doc(teacherId);
   const target = await targetRef.get();
   if (!target.exists) throw new HttpsError("not-found", "La cuenta ya no existe.");
-  if (target.get("role") === "admin_maestro" && role !== "admin_maestro") {
+  if (MASTER_ROLES.has(target.get("role")) && !MASTER_ROLES.has(role)) {
     await assertAnotherMasterAdministrator(schoolKey, teacherId);
   }
   await targetRef.update({role, updatedAt: FieldValue.serverTimestamp(), updatedBy: token.teacherId || token.role});
@@ -909,7 +931,7 @@ exports.deleteTeacher = onCall(async (request) => {
   if (token.role === "admin_jr" && !new Set(["docente", "porteria"]).has(target.get("role"))) {
     throw new HttpsError("permission-denied", "Un administrador junior solo puede eliminar cuentas docentes o de portería.");
   }
-  if (target.get("role") === "admin_maestro") await assertAnotherMasterAdministrator(schoolKey, teacherId);
+  if (MASTER_ROLES.has(target.get("role"))) await assertAnotherMasterAdministrator(schoolKey, teacherId);
   const authUid = target.get("authUid") || teacherUid(schoolKey, teacherId);
   const batch = db.batch();
   batch.delete(targetRef);
@@ -920,7 +942,7 @@ exports.deleteTeacher = onCall(async (request) => {
 });
 
 exports.recordAttendance = onCall(async (request) => {
-  const token = await assertRole(request, new Set(["docente", "porteria", "admin_jr", "admin_maestro"]));
+  const token = await assertRole(request, ATTENDANCE_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
   const [studentSnapshot, teacherSnapshot, schoolSnapshot] = await Promise.all([
@@ -938,8 +960,17 @@ exports.recordAttendance = onCall(async (request) => {
   const hora = new Intl.DateTimeFormat("es-MX", {timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false}).format(now);
   const teacher = teacherSnapshot.data() || {};
   const school = schoolSnapshot.data() || {};
-  const entryTime = String(teacher.entryTime || school.entryTime || "").slice(0, 5);
-  const tolerance = Math.max(0, Math.min(120, Number(teacher.tolerance ?? school.tolerance ?? 0)));
+  const studentLevel = normalizeSchoolLevel(student.level || student.nivel);
+  const studentGroup = normalizeGroupName(student.grupo);
+  const groupSchedule = (Array.isArray(teacher.groupSchedules) ? teacher.groupSchedules : []).find((item) => {
+    try {
+      return normalizeSchoolLevel(item?.level) === studentLevel && normalizeGroupName(item?.group) === studentGroup;
+    } catch {
+      return false;
+    }
+  });
+  const entryTime = String(groupSchedule?.entryTime || teacher.entryTime || school.entryTime || "").slice(0, 5);
+  const tolerance = Math.max(0, Math.min(120, Number(groupSchedule?.tolerance ?? teacher.tolerance ?? school.tolerance ?? 0)));
   const status = attendanceStatus(hora, entryTime, tolerance);
   const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${studentId}`);
   const created = await db.runTransaction(async (transaction) => {
@@ -956,6 +987,8 @@ exports.recordAttendance = onCall(async (request) => {
       fecha,
       hora,
       status,
+      scheduleLevel: studentLevel,
+      scheduleGroup: studentGroup,
       entryTimeApplied: entryTime,
       toleranceApplied: tolerance,
       timestamp: FieldValue.serverTimestamp(),
@@ -1174,7 +1207,7 @@ exports.listAttendanceReport = onCall(async (request) => {
 });
 
 exports.clearAttendance = onCall(async (request) => {
-  const token = await assertRole(request, new Set(["admin_maestro"]));
+  const token = await assertRole(request, MASTER_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   await deleteCollection(schoolCollection(schoolKey, "asistencias"));
   return {ok: true};

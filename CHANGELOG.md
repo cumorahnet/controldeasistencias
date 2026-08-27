@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 36.22.0 - 26/08/2026
+
+- Los avisos sonoros de asistencia correcta y lectura rechazada tienen mayor volumen y duración.
+- Cada docente puede guardar un horario diferente por nivel y grupo; el escaneo aplica el correspondiente al alumno.
+- Se agregó el rol Director con los mismos privilegios que Administrador maestro.
+- Los QR vuelven a mostrar el ID del alumno en el centro, sin marco y con separación blanca.
+
 ## 36.21.0 - 26/08/2026
 
 - La carga masiva genera identificadores QR legibles desde el primer guardado.
