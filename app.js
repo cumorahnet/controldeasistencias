@@ -1628,28 +1628,6 @@ function studentIdentityKey(student) {
   return [student?.paterno, student?.materno, student?.nombres].map(normalizedHeader).join("|");
 }
 
-function studentIdentityHash(value) {
-  let hash = 2166136261;
-  for (const character of value) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36).toUpperCase().padStart(7, "0");
-}
-
-function buildImportedStudentId(level, group, student, usedIds) {
-  const prefix = `${normalizeSchoolLevel(level)}${normalizeGroupName(group).replace(/[^A-Z0-9]/g, "")}`;
-  const base = `${prefix}-${studentIdentityHash(studentIdentityKey(student))}`.slice(0, 40);
-  let id = base;
-  let suffix = 2;
-  while (usedIds.has(id)) {
-    const ending = `-${suffix}`;
-    id = `${base.slice(0, 40 - ending.length)}${ending}`;
-    suffix += 1;
-  }
-  return id;
-}
-
 async function existingStudentIdentityIndex(level, group) {
   const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
   const usedIds = new Set(snapshot.docs.map((entry) => entry.id));
@@ -1720,7 +1698,11 @@ window.handleBatchImport = async (event) => {
     parsedStudents.forEach((parsedStudent, index) => {
       const identity = studentIdentityKey(parsedStudent);
       const existingIds = idsByIdentity.get(identity) || [];
-      const id = existingIds.shift() || buildImportedStudentId(level, group, parsedStudent, usedIds);
+      const existingId = existingIds.shift();
+      const id = existingId || buildStudentId(level, group, index + 1, parsedStudent);
+      if (!existingId && usedIds.has(id)) {
+        throw new Error(`No se puede generar ${id}: otro alumno ya utiliza ese identificador.`);
+      }
       usedIds.add(id);
       const list = String(index + 1).padStart(2, "0");
       students.push({

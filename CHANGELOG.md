@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 36.21.0 - 26/08/2026
+
+- La carga masiva genera identificadores QR legibles desde el primer guardado.
+- La eliminación de un plantel revoca sesiones y elimina las cuentas de Authentication asociadas.
+- La limpieza total también elimina credenciales, solicitudes y desafíos privados del plantel.
+
 <!-- cdc-session:session-20260826145124-97aed7 -->
 ## Sesión 26/08/2026, 11:53 a.m.
 

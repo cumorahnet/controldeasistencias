@@ -319,6 +319,20 @@ async function revokeTeacherSessions(authUid) {
   }
 }
 
+async function deleteAuthUsers(authUids) {
+  const uniqueUids = [...new Set(authUids.filter(Boolean))];
+  for (let offset = 0; offset < uniqueUids.length; offset += 100) {
+    const chunk = uniqueUids.slice(offset, offset + 100);
+    await Promise.all(chunk.map(async (authUid) => {
+      try {
+        await getAuth().deleteUser(authUid);
+      } catch (error) {
+        if (error?.code !== "auth/user-not-found") throw error;
+      }
+    }));
+  }
+}
+
 async function assertAnotherMasterAdministrator(schoolKey, excludedTeacherId) {
   const snapshot = await schoolCollection(schoolKey, "maestros").where("role", "==", "admin_maestro").limit(5).get();
   if (!snapshot.docs.some((document) => document.id !== excludedTeacherId && document.get("status") !== "disabled")) {
@@ -1305,15 +1319,33 @@ exports.deleteSchool = onCall(async (request) => {
   const token = await assertRole(request, new Set());
   if (token.role !== "super") throw new HttpsError("permission-denied", "Esta operación requiere el rol maestro global.");
   const schoolKey = normalizeCode(request.data?.schoolKey, 40);
+  if (!/^[A-Z0-9-]{5,40}$/.test(schoolKey)) throw new HttpsError("invalid-argument", "La CCT no tiene un formato válido.");
+  const schoolRef = schoolsRef().doc(schoolKey);
+  const [schoolSnapshot, teachersSnapshot] = await Promise.all([
+    schoolRef.get(),
+    schoolCollection(schoolKey, "maestros").get(),
+  ]);
+  if (schoolSnapshot.exists) {
+    await schoolRef.set({
+      status: "deleting",
+      deletionStartedAt: FieldValue.serverTimestamp(),
+      deletionStartedBy: token.sub,
+    }, {merge: true});
+  }
+  const authUids = teachersSnapshot.docs.map((teacher) => teacher.get("authUid")).filter(Boolean);
+  await Promise.all(authUids.map((authUid) => revokeTeacherSessions(authUid)));
+  await deleteAuthUsers(authUids);
   await Promise.all([
     deleteCollection(schoolCollection(schoolKey, "alumnos")),
     deleteCollection(schoolCollection(schoolKey, "maestros")),
     deleteCollection(schoolCollection(schoolKey, "asistencias")),
     deleteCollection(privateDataRef().collection("teacher_credentials").where("schoolKey", "==", schoolKey)),
+    deleteCollection(privateDataRef().collection("login_challenges").where("schoolKey", "==", schoolKey)),
   ]);
   await Promise.all([
-    schoolsRef().doc(schoolKey).delete(),
+    schoolRef.delete(),
     privateDataRef().collection("school_secrets").doc(schoolKey).delete(),
+    schoolRegistrationRequestsRef().doc(schoolKey).delete(),
   ]);
-  return {ok: true};
+  return {ok: true, deletedAuthUsers: authUids.length};
 });
