@@ -84,11 +84,109 @@ let audioContext = null;
 let audioUnlockPromise = null;
 let studentCatalogCache = [];
 let teacherCatalogCache = [];
-let latestAttendanceReport = [];
+let latestAttendanceReport = null;
 let pendingLogoDataUrl = "";
 const attendanceInFlight = new Set();
+let schoolSelectionLoadVersion = 0;
+let globalSchoolsLoadVersion = 0;
 
 const byId = (id) => document.getElementById(id);
+const INSTALL_PROMPT_STORAGE_KEY = "control-asistencia-install-prompt-v1";
+let deferredInstallPrompt = null;
+
+function isInstalledApp() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function isMobileBrowser() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+function installPromptWasHandled() {
+  try {
+    return localStorage.getItem(INSTALL_PROMPT_STORAGE_KEY) === "handled";
+  } catch {
+    return false;
+  }
+}
+
+function rememberInstallPrompt() {
+  try {
+    localStorage.setItem(INSTALL_PROMPT_STORAGE_KEY, "handled");
+  } catch {
+    // El almacenamiento privado puede no estar disponible; la instalación sigue funcionando.
+  }
+}
+
+function closeInstallPrompt(remember = true) {
+  byId("install-app-modal")?.classList.add("hidden");
+  if (remember) rememberInstallPrompt();
+}
+
+function configureInstallPrompt() {
+  if (!isMobileBrowser() || isInstalledApp() || installPromptWasHandled()) return;
+  const modal = byId("install-app-modal");
+  const message = byId("install-app-message");
+  const installButton = byId("btn-install-app");
+  if (!modal || !message || !installButton) return;
+
+  const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (deferredInstallPrompt) {
+    message.textContent = "Instale Control de Asistencia para abrirlo desde la pantalla de inicio de su celular.";
+    installButton.textContent = "Instalar aplicación";
+    installButton.dataset.mode = "native";
+  } else if (isiOS) {
+    message.textContent = "En Safari, toque Compartir y después Agregar a pantalla de inicio. Si abrió esta liga en otro navegador, ábrala primero en Safari.";
+    installButton.textContent = "Entendido";
+    installButton.dataset.mode = "manual";
+  } else {
+    message.textContent = "Abra el menú ⋮ del navegador y elija Instalar aplicación o Agregar a pantalla principal.";
+    installButton.textContent = "Entendido";
+    installButton.dataset.mode = "manual";
+  }
+  modal.classList.remove("hidden");
+  window.setTimeout(() => installButton.focus(), 0);
+}
+
+async function handleInstallRequest() {
+  const installButton = byId("btn-install-app");
+  if (!deferredInstallPrompt || installButton?.dataset.mode !== "native") {
+    closeInstallPrompt();
+    return;
+  }
+  const promptEvent = deferredInstallPrompt;
+  deferredInstallPrompt = null;
+  try {
+    await promptEvent.prompt();
+    await promptEvent.userChoice.catch(() => null);
+  } finally {
+    closeInstallPrompt();
+  }
+}
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  configureInstallPrompt();
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  closeInstallPrompt();
+});
+
+byId("btn-install-app")?.addEventListener("click", () => void handleInstallRequest());
+byId("btn-install-later")?.addEventListener("click", () => closeInstallPrompt());
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js", {scope: "./"}).catch(() => {});
+  });
+}
+
+if (isMobileBrowser() && !isInstalledApp() && !installPromptWasHandled()) {
+  window.setTimeout(configureInstallPrompt, 1200);
+}
 
 function primeAudioContext(context) {
   const oscillator = context.createOscillator();
@@ -131,21 +229,48 @@ async function playScanSound(kind) {
     const context = await unlockAudio();
     if (!context || context.state !== "running") return;
     const now = context.currentTime;
-    const tones = kind === "success"
-      ? [{frequency: 880, start: 0, duration: 0.16}, {frequency: 1175, start: 0.17, duration: 0.18}]
-      : [{frequency: 150, start: 0, duration: 0.24}, {frequency: 110, start: 0.25, duration: 0.34}];
+    const patterns = {
+      scan: [
+        {frequency: 1047, start: 0, duration: 0.13},
+        {frequency: 1397, start: 0.14, duration: 0.16},
+      ],
+      success: [
+        {frequency: 784, start: 0, duration: 0.2},
+        {frequency: 1047, start: 0.21, duration: 0.22},
+        {frequency: 1319, start: 0.44, duration: 0.34},
+      ],
+      error: [
+        {frequency: 196, start: 0, duration: 0.32},
+        {frequency: 147, start: 0.34, duration: 0.38},
+        {frequency: 98, start: 0.74, duration: 0.48},
+      ],
+    };
+    const tones = patterns[kind] || patterns.error;
+    const compressor = context.createDynamicsCompressor();
+    compressor.threshold.setValueAtTime(-18, now);
+    compressor.knee.setValueAtTime(6, now);
+    compressor.ratio.setValueAtTime(16, now);
+    compressor.attack.setValueAtTime(0.002, now);
+    compressor.release.setValueAtTime(0.18, now);
+    const masterGain = context.createGain();
+    masterGain.gain.setValueAtTime(1, now);
+    masterGain.connect(compressor);
+    compressor.connect(context.destination);
     for (const tone of tones) {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = kind === "success" ? "sine" : "square";
-      oscillator.frequency.setValueAtTime(tone.frequency, now + tone.start);
-      gain.gain.setValueAtTime(0.0001, now + tone.start);
-      gain.gain.exponentialRampToValueAtTime(kind === "success" ? 0.65 : 0.5, now + tone.start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + tone.start + tone.duration);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(now + tone.start);
-      oscillator.stop(now + tone.start + tone.duration);
+      const frequencies = kind === "error" ? [tone.frequency, tone.frequency * 1.5] : [tone.frequency, tone.frequency * 2];
+      frequencies.forEach((frequency, layer) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = kind === "error" ? "square" : layer === 0 ? "square" : "sine";
+        oscillator.frequency.setValueAtTime(frequency, now + tone.start);
+        gain.gain.setValueAtTime(0.0001, now + tone.start);
+        gain.gain.exponentialRampToValueAtTime(layer === 0 ? 1 : 0.55, now + tone.start + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + tone.start + tone.duration);
+        oscillator.connect(gain);
+        gain.connect(masterGain);
+        oscillator.start(now + tone.start);
+        oscillator.stop(now + tone.start + tone.duration);
+      });
     }
   } catch {
     // El audio es auxiliar y nunca debe alterar el resultado de la asistencia.
@@ -438,17 +563,23 @@ window.applySchoolBranding = (data = {}) => {
   document.documentElement.style.setProperty("--primary-color", primaryColor);
   document.documentElement.style.setProperty("--accent-color", accentColor);
   const logoDataUrl = premium && /^data:image\/(?:png|jpeg|webp);base64,/i.test(String(data.logoDataUrl || "")) ? data.logoDataUrl : "";
+  const logoBackgroundMode = data.brandLogoBackgroundMode === "color" ? "color" : "transparent";
+  const logoBackgroundColor = /^#[0-9a-f]{6}$/i.test(String(data.brandLogoBackgroundColor || ""))
+    ? data.brandLogoBackgroundColor
+    : "#ffffff";
   for (const id of ["login-logo-placeholder", "header-logo-container"]) {
     const container = byId(id);
     if (!container) continue;
     container.replaceChildren();
     if (logoDataUrl) {
+      container.style.backgroundColor = logoBackgroundMode === "color" ? logoBackgroundColor : "transparent";
       const logo = document.createElement("img");
       logo.src = logoDataUrl;
       logo.alt = typeof data.name === "string" ? `Logotipo de ${data.name}` : "Logotipo institucional";
       logo.className = "logo-img";
       container.append(logo);
     } else {
+      container.style.removeProperty("background-color");
       const icon = document.createElement("i");
       icon.className = id === "header-logo-container" ? "fas fa-graduation-cap text-xl" : "fas fa-university text-5xl text-slate-200";
       icon.setAttribute("aria-hidden", "true");
@@ -493,6 +624,8 @@ window.resetGateway = () => {
 window.logout = async () => {
   unsubscribeAttendance?.();
   unsubscribeAttendance = null;
+  schoolSelectionLoadVersion += 1;
+  globalSchoolsLoadVersion += 1;
   if (isScannerRunning) await window.stopScanner();
   loggedTeacher = null;
   attendanceInFlight.clear();
@@ -1123,10 +1256,12 @@ async function switchTab(tab) {
 
 window.loadSchoolsForSelection = async () => {
   if (loggedTeacher?.role !== "super") return;
+  const loadVersion = ++schoolSelectionLoadVersion;
   const list = byId("school-selection-list");
   list.replaceChildren();
   try {
     const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios"));
+    if (loadVersion !== schoolSelectionLoadVersion) return;
     for (const entry of snapshot.docs) {
       const data = entry.data();
       const button = document.createElement("button");
@@ -1147,6 +1282,7 @@ window.loadSchoolsForSelection = async () => {
       list.append(button);
     }
   } catch (error) {
+    if (loadVersion !== schoolSelectionLoadVersion) return;
     window.showModalMsg("Error", functionError(error, "No fue posible cargar las instituciones."));
   }
 };
@@ -1386,6 +1522,7 @@ window.switchMaintCategory = async (category) => {
     if (byId("report-date-from") && !byId("report-date-from").value) byId("report-date-from").value = today;
     if (byId("report-date-to") && !byId("report-date-to").value) byId("report-date-to").value = today;
     window.safeToggle("btn-clear-attendance", !isMaster());
+    await loadReportGroupOptions();
     return;
   }
   const snapshot = await getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios", schoolKey));
@@ -1402,6 +1539,8 @@ window.switchMaintCategory = async (category) => {
     "edit-school-contact-email": data.contactEmail,
     "edit-brand-primary": data.brandPrimaryColor || "#1e293b",
     "edit-brand-accent": data.brandAccentColor || data.brandColor || DEFAULT_ACCENT,
+    "edit-logo-background-mode": data.brandLogoBackgroundMode === "color" ? "color" : "transparent",
+    "edit-logo-background-color": /^#[0-9a-f]{6}$/i.test(String(data.brandLogoBackgroundColor || "")) ? data.brandLogoBackgroundColor : "#ffffff",
   };
   for (const [id, value] of Object.entries(fields)) if (byId(id)) byId(id).value = value ?? "";
   pendingLogoDataUrl = String(data.logoDataUrl || "");
@@ -1409,8 +1548,9 @@ window.switchMaintCategory = async (category) => {
   if (logoPreview) {
     if (pendingLogoDataUrl) logoPreview.src = pendingLogoDataUrl;
     else logoPreview.removeAttribute("src");
-    logoPreview.classList.toggle("hidden", !pendingLogoDataUrl);
   }
+  byId("brand-logo-preview-frame")?.classList.toggle("hidden", !pendingLogoDataUrl);
+  window.updateLogoBackgroundPreview();
   window.safeToggle("premium-badge-local", data.isPremium !== true);
   window.safeToggle("invite-branding-panel", data.isPremium === true);
   window.safeToggle("premium-branding-panel", data.isPremium !== true);
@@ -1450,8 +1590,9 @@ window.handleLogoUpload = async (event) => {
     const preview = byId("brand-logo-preview");
     if (preview) {
       preview.src = pendingLogoDataUrl;
-      preview.classList.remove("hidden");
     }
+    byId("brand-logo-preview-frame")?.classList.remove("hidden");
+    window.updateLogoBackgroundPreview();
   } catch (error) {
     event.target.value = "";
     window.showModalMsg("Logotipo", functionError(error));
@@ -1465,8 +1606,17 @@ window.removeBrandLogo = () => {
   const preview = byId("brand-logo-preview");
   if (preview) {
     preview.removeAttribute("src");
-    preview.classList.add("hidden");
   }
+  byId("brand-logo-preview-frame")?.classList.add("hidden");
+};
+
+window.updateLogoBackgroundPreview = () => {
+  const frame = byId("brand-logo-preview-frame");
+  const colorInput = byId("edit-logo-background-color");
+  const mode = byId("edit-logo-background-mode")?.value === "color" ? "color" : "transparent";
+  const color = /^#[0-9a-f]{6}$/i.test(String(colorInput?.value || "")) ? colorInput.value : "#ffffff";
+  if (frame) frame.style.backgroundColor = mode === "color" ? color : "transparent";
+  if (colorInput) colorInput.disabled = mode !== "color";
 };
 
 window.updateSchoolGlobalData = async () => {
@@ -1483,6 +1633,8 @@ window.updateSchoolGlobalData = async () => {
   if (currentSchool?.isPremium === true || byId("premium-branding-panel")?.classList.contains("hidden") === false) {
     profile.brandPrimaryColor = byId("edit-brand-primary")?.value || "#1e293b";
     profile.brandAccentColor = byId("edit-brand-accent")?.value || DEFAULT_ACCENT;
+    profile.brandLogoBackgroundMode = byId("edit-logo-background-mode")?.value === "color" ? "color" : "transparent";
+    profile.brandLogoBackgroundColor = byId("edit-logo-background-color")?.value || "#ffffff";
     profile.logoDataUrl = pendingLogoDataUrl;
   }
   try {
@@ -2063,10 +2215,12 @@ window.createSchool = async () => {
 
 window.loadAllSchools = async () => {
   if (loggedTeacher?.role !== "super") return;
+  const loadVersion = ++globalSchoolsLoadVersion;
   const body = byId("global-schools-body");
   body.replaceChildren();
   try {
     const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios"));
+    if (loadVersion !== globalSchoolsLoadVersion) return;
     for (const entry of snapshot.docs) {
       const school = entry.data();
       const row = document.createElement("tr");
@@ -2120,6 +2274,7 @@ window.loadAllSchools = async () => {
       body.append(row);
     }
   } catch (error) {
+    if (loadVersion !== globalSchoolsLoadVersion) return;
     window.showModalMsg("Error", functionError(error));
   }
 };
@@ -2152,46 +2307,241 @@ window.deleteSchoolGlobal = (id) => window.showConfirmMsg("Eliminar escuela", `�
   await window.loadAllSchools();
 });
 
-function renderAttendanceReport(rows, truncated = false) {
-  const body = byId("attendance-report-body");
-  const summary = byId("attendance-report-summary");
-  if (!body || !summary) return;
-  body.replaceChildren();
-  rows.forEach((row, index) => {
-    const tr = document.createElement("tr");
-    const status = normalizedAttendanceStatus(row.status);
-    tr.append(
-      createCell(String(index + 1), "p-3 text-center"),
-      createCell(row.date, "p-3 text-center"),
-      createCell(row.time, "p-3 text-center"),
-      createCell(row.studentId, "p-3 text-center font-mono"),
-      createCell(row.studentName, "p-3 text-left"),
-      createCell(row.teacherName || "-", "p-3 text-left"),
-      createCell(status, `p-3 text-center font-black ${status === "RETARDO" ? "text-red-700" : status === "A TIEMPO" ? "text-green-700" : "text-slate-600"}`),
-    );
-    body.append(tr);
-  });
-  if (!rows.length) {
-    const tr = document.createElement("tr");
-    const cell = createCell("No hay asistencias en el rango seleccionado.", "p-10 text-center text-slate-500 italic");
-    cell.colSpan = 7;
-    tr.append(cell);
-    body.append(tr);
+function reportGroupFromStudent(student) {
+  const level = normalizeSchoolLevel(student?.level || student?.nivel);
+  const group = normalizeGroupName(student?.grupo);
+  if (!level || !group) return null;
+  return {
+    key: scheduleGroupKey(level, group),
+    level,
+    group,
+    label: `${STUDENT_LEVEL_LABELS[level] || level} · Grupo ${group}`,
+  };
+}
+
+async function loadReportGroupOptions() {
+  const container = byId("report-group-options");
+  if (!container || !schoolKey || schoolKey === "SISTEMA") return;
+  const priorSelection = new Set([...container.querySelectorAll("input[type='checkbox']:checked")].map((input) => input.value));
+  const preserveSelection = container.dataset.schoolKey === schoolKey && container.querySelector("input[type='checkbox']") !== null;
+  container.replaceChildren();
+  const loading = document.createElement("p");
+  loading.className = "text-xs text-slate-500";
+  loading.textContent = "Cargando grupos…";
+  container.append(loading);
+  try {
+    const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
+    studentCatalogCache = snapshot.docs.map((entry) => ({...entry.data(), id: entry.id}));
+    populateScheduleGroupOptions();
+    const groups = new Map();
+    for (const student of studentCatalogCache) {
+      const details = reportGroupFromStudent(student);
+      if (details) groups.set(details.key, details);
+    }
+    const orderedGroups = [...groups.values()].sort((first, second) => {
+      const levelOrder = (STUDENT_LEVEL_ORDER.get(first.level) ?? 99) - (STUDENT_LEVEL_ORDER.get(second.level) ?? 99);
+      return levelOrder || first.group.localeCompare(second.group, "es", {numeric: true, sensitivity: "base"});
+    });
+    container.replaceChildren();
+    container.dataset.schoolKey = schoolKey;
+    orderedGroups.forEach((details, index) => {
+      const label = document.createElement("label");
+      label.className = "flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[9px] font-black uppercase text-slate-700";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = details.key;
+      checkbox.checked = preserveSelection ? priorSelection.has(details.key) : true;
+      checkbox.id = `report-group-${index}`;
+      checkbox.dataset.level = details.level;
+      checkbox.dataset.group = details.group;
+      checkbox.dataset.label = details.label;
+      checkbox.className = "h-4 w-4 accent-orange-500";
+      label.append(checkbox, document.createTextNode(details.label));
+      container.append(label);
+    });
+    if (!orderedGroups.length) {
+      const empty = document.createElement("p");
+      empty.className = "text-xs text-slate-500";
+      empty.textContent = "No hay grupos con alumnos registrados.";
+      container.append(empty);
+    }
+  } catch (error) {
+    container.replaceChildren();
+    const failed = document.createElement("p");
+    failed.className = "text-xs font-bold text-red-700";
+    failed.textContent = "No fue posible cargar los grupos.";
+    container.append(failed);
+    window.showModalMsg("Reporte", functionError(error));
   }
-  summary.textContent = `${rows.length} ${rows.length === 1 ? "registro" : "registros"}${truncated ? " · resultado limitado a 5000" : ""}`;
-  window.safeToggle("btn-print-attendance", rows.length === 0);
+}
+
+window.toggleAllReportGroups = (checked) => {
+  byId("report-group-options")?.querySelectorAll("input[type='checkbox']").forEach((input) => { input.checked = checked; });
+};
+
+function selectedReportGroups() {
+  return [...(byId("report-group-options")?.querySelectorAll("input[type='checkbox']:checked") || [])].map((input) => ({
+    key: input.value,
+    level: input.dataset.level || "",
+    group: input.dataset.group || "",
+    label: input.dataset.label || input.value,
+  }));
+}
+
+function attendanceReportDates(from, to) {
+  const dates = [];
+  const cursor = new Date(`${from}T12:00:00Z`);
+  const last = new Date(`${to}T12:00:00Z`);
+  while (cursor <= last && dates.length <= 366) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function visibleReportDate(value, includeYear = false) {
+  return new Intl.DateTimeFormat("es-MX", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "2-digit",
+    ...(includeYear ? {year: "numeric"} : {}),
+  }).format(new Date(`${value}T12:00:00Z`));
+}
+
+function createAttendanceReportHeader(report, sectionLabel = "") {
+  const header = document.createElement("header");
+  header.className = "attendance-report-header";
+  const logoFrame = document.createElement("div");
+  logoFrame.className = "attendance-report-logo-frame";
+  const schoolLogo = currentSchool?.isPremium === true && /^data:image\/(?:png|jpeg|webp);base64,/i.test(String(currentSchool.logoDataUrl || ""))
+    ? currentSchool.logoDataUrl
+    : "./icons/app-icon-192.png";
+  const usesCustomLogo = schoolLogo !== "./icons/app-icon-192.png";
+  if (usesCustomLogo && currentSchool?.brandLogoBackgroundMode === "color" && /^#[0-9a-f]{6}$/i.test(String(currentSchool.brandLogoBackgroundColor || ""))) {
+    logoFrame.style.backgroundColor = currentSchool.brandLogoBackgroundColor;
+  } else {
+    logoFrame.style.backgroundColor = "transparent";
+  }
+  const logo = document.createElement("img");
+  logo.className = "attendance-report-logo";
+  logo.src = schoolLogo;
+  logo.alt = usesCustomLogo ? `Logotipo de ${schoolName}` : "Logotipo predeterminado de Control de Asistencia";
+  logoFrame.append(logo);
+  const details = document.createElement("div");
+  const title = document.createElement("h1");
+  title.className = "text-base font-black uppercase text-slate-900";
+  title.textContent = schoolName || "Control de asistencia";
+  const groups = document.createElement("p");
+  groups.className = "mt-1 text-[9px] font-black uppercase text-slate-700";
+  groups.textContent = `Grupos: ${report.groups.map((group) => group.label).join(" · ")}`;
+  const period = document.createElement("p");
+  period.className = "mt-1 text-[9px] font-bold uppercase text-slate-600";
+  period.textContent = `Periodo: ${visibleReportDate(report.from, true)} a ${visibleReportDate(report.to, true)} · CCT: ${schoolKey}${sectionLabel ? ` · ${sectionLabel}` : ""}`;
+  details.append(title, groups, period);
+  header.append(logoFrame, details);
+  return header;
+}
+
+function createAttendanceMatrixTable(report, dates = report.dates) {
+  const attendanceByStudentAndDate = new Map(report.rows.map((row) => [`${row.studentId}|${row.date}`, row]));
+  const table = document.createElement("table");
+  table.className = "attendance-report-grid";
+  const thead = document.createElement("thead");
+  const headingRow = document.createElement("tr");
+  const numberHeading = document.createElement("th");
+  numberHeading.className = "attendance-number-cell";
+  numberHeading.textContent = "#";
+  const nameHeading = document.createElement("th");
+  nameHeading.className = "attendance-name-cell";
+  nameHeading.textContent = "Nombre del alumno";
+  headingRow.append(numberHeading, nameHeading);
+  dates.forEach((date) => {
+    const dateHeading = document.createElement("th");
+    dateHeading.className = "attendance-date-cell";
+    dateHeading.title = visibleReportDate(date, true);
+    const label = document.createElement("span");
+    label.className = "attendance-date-label";
+    label.textContent = visibleReportDate(date);
+    dateHeading.append(label);
+    headingRow.append(dateHeading);
+  });
+  thead.append(headingRow);
+  const tbody = document.createElement("tbody");
+  report.students.forEach((student, index) => {
+    const row = document.createElement("tr");
+    row.append(
+      createCell(String(index + 1), "attendance-number-cell"),
+      createCell(student.name, "attendance-name-cell"),
+    );
+    dates.forEach((date) => {
+      const attendance = attendanceByStudentAndDate.get(`${student.id}|${date}`);
+      const cell = createCell(attendance ? "●" : "/", `attendance-mark-cell ${attendance ? "text-green-800" : "text-slate-500"}`);
+      cell.title = attendance
+        ? `${visibleReportDate(date, true)} · ${normalizedAttendanceStatus(attendance.status)} · ${attendance.time || "Sin hora"}`
+        : `${visibleReportDate(date, true)} · Falta`;
+      cell.setAttribute("aria-label", cell.title);
+      row.append(cell);
+    });
+    tbody.append(row);
+  });
+  table.append(thead, tbody);
+  return table;
+}
+
+function renderAttendanceReport(report) {
+  const preview = byId("attendance-report-preview");
+  const summary = byId("attendance-report-summary");
+  if (!preview || !summary) return;
+  preview.replaceChildren();
+  if (!report) {
+    const prompt = document.createElement("p");
+    prompt.className = "p-10 text-center text-slate-500 italic";
+    prompt.textContent = "Seleccione grupos, indique el rango y consulte el reporte.";
+    preview.append(prompt);
+    summary.textContent = "0 registros";
+    window.safeToggle("btn-print-attendance", true);
+    return;
+  }
+  preview.append(createAttendanceReportHeader(report));
+  const scroller = document.createElement("div");
+  scroller.className = "overflow-x-auto";
+  scroller.append(createAttendanceMatrixTable(report));
+  const legend = document.createElement("p");
+  legend.className = "p-3 text-right text-[9px] font-black uppercase text-slate-600";
+  legend.textContent = "● Asistencia · / Falta";
+  preview.append(scroller, legend);
+  summary.textContent = `${report.students.length} ${report.students.length === 1 ? "alumno" : "alumnos"} · ${report.dates.length} ${report.dates.length === 1 ? "fecha" : "fechas"} · ${report.groups.length} ${report.groups.length === 1 ? "grupo" : "grupos"}${report.truncated ? " · historial limitado a 5000 registros" : ""}`;
+  window.safeToggle("btn-print-attendance", report.students.length === 0 || report.dates.length === 0);
 }
 
 window.loadAttendanceReport = async () => {
   const from = byId("report-date-from")?.value || "";
   const to = byId("report-date-to")?.value || "";
   if (!from || !to || from > to) return window.showModalMsg("Reporte", "Seleccione un rango de fechas válido.");
+  const groups = selectedReportGroups();
+  if (!groups.length) return window.showModalMsg("Reporte", "Seleccione al menos un grupo para generar el reporte.");
+  const selectedGroupKeys = new Set(groups.map((group) => group.key));
+  const students = studentCatalogCache
+    .filter((student) => !isStudentInactive(student) && selectedGroupKeys.has(reportGroupFromStudent(student)?.key))
+    .map((student) => ({id: normalizeCode(student.id, 40), name: studentDisplayName(student)}))
+    .filter((student) => student.id && student.name)
+    .sort((first, second) => first.name.localeCompare(second.name, "es", {sensitivity: "base"}));
+  if (!students.length) return window.showModalMsg("Reporte", "Los grupos seleccionados no tienen alumnos activos.");
   const button = byId("btn-load-attendance");
   if (button) button.disabled = true;
   try {
     const response = await api.listAttendanceReport({schoolKey, from, to});
-    latestAttendanceReport = response.data.rows || [];
-    renderAttendanceReport(latestAttendanceReport, response.data.truncated === true);
+    const selectedStudentIds = new Set(students.map((student) => student.id));
+    latestAttendanceReport = {
+      from,
+      to,
+      groups,
+      students,
+      dates: attendanceReportDates(from, to),
+      rows: (response.data.rows || []).filter((row) => selectedStudentIds.has(row.studentId)),
+      truncated: response.data.truncated === true,
+    };
+    renderAttendanceReport(latestAttendanceReport);
   } catch (error) {
     window.showModalMsg("Reporte", functionError(error));
   } finally {
@@ -2200,39 +2550,29 @@ window.loadAttendanceReport = async () => {
 };
 
 window.printAttendanceReport = () => {
-  if (!latestAttendanceReport.length) return window.showModalMsg("Impresión", "Primero genere un reporte con registros.");
+  if (!latestAttendanceReport?.students?.length || !latestAttendanceReport?.dates?.length) {
+    return window.showModalMsg("Impresión", "Primero genere un reporte de asistencia.");
+  }
   const content = document.createElement("div");
-  const header = document.createElement("header");
-  header.className = "student-print-header";
-  const title = document.createElement("h1");
-  title.textContent = schoolName || "Control de asistencia";
-  const range = document.createElement("p");
-  range.textContent = `Reporte de asistencias · ${byId("report-date-from").value} a ${byId("report-date-to").value}`;
-  const cct = document.createElement("p");
-  cct.textContent = `CCT: ${schoolKey}`;
-  header.append(title, range, cct);
-  const table = document.createElement("table");
-  table.className = "student-roster attendance-report-print";
-  const thead = document.createElement("thead");
-  const headerRow = document.createElement("tr");
-  ["#", "Fecha", "Hora", "ID", "Alumno", "Registró", "Estado"].forEach((label) => {
-    const th = document.createElement("th");
-    th.textContent = label;
-    headerRow.append(th);
+  content.className = "attendance-report-document";
+  const dateChunks = [];
+  for (let index = 0; index < latestAttendanceReport.dates.length; index += 31) {
+    dateChunks.push(latestAttendanceReport.dates.slice(index, index + 31));
+  }
+  dateChunks.forEach((dates, index) => {
+    const section = document.createElement("section");
+    section.className = "attendance-print-section";
+    const sectionLabel = dateChunks.length > 1 ? `Bloque ${index + 1} de ${dateChunks.length}` : "";
+    section.append(
+      createAttendanceReportHeader(latestAttendanceReport, sectionLabel),
+      createAttendanceMatrixTable(latestAttendanceReport, dates),
+    );
+    const legend = document.createElement("p");
+    legend.className = "mt-2 text-right text-[8px] font-black uppercase";
+    legend.textContent = "● Asistencia · / Falta";
+    section.append(legend);
+    content.append(section);
   });
-  thead.append(headerRow);
-  const tbody = document.createElement("tbody");
-  latestAttendanceReport.forEach((row, index) => {
-    const tr = document.createElement("tr");
-    [index + 1, row.date, row.time, row.studentId, row.studentName, row.teacherName || "-", normalizedAttendanceStatus(row.status)].forEach((value) => {
-      const td = document.createElement("td");
-      td.textContent = value;
-      tr.append(td);
-    });
-    tbody.append(tr);
-  });
-  table.append(thead, tbody);
-  content.append(header, table);
   launchStudentPrint(content);
 };
 
@@ -2241,8 +2581,8 @@ window.clearAttendanceHistory = () => window.showConfirmMsg(
   "¿Eliminar definitivamente todas las asistencias del plantel? Los alumnos y usuarios se conservarán.",
   async () => {
     await api.clearAttendance({schoolKey});
-    latestAttendanceReport = [];
-    renderAttendanceReport([]);
+    latestAttendanceReport = null;
+    renderAttendanceReport(null);
   },
 );
 
@@ -2257,6 +2597,8 @@ window.initScanner = async () => {
     showScannerStartTime(new Date());
     byId("btn-camera").textContent = "Apagar cámara";
     byId("btn-camera").setAttribute("aria-pressed", "true");
+    setScannerStatus("Escáner activo. Avisos al máximo; verifique que el volumen multimedia del celular esté alto.", "success");
+    await playScanSound("scan");
   } catch (error) {
     byId("btn-camera").textContent = "Encender cámara";
     window.showModalMsg("Cámara", "No se pudo iniciar la cámara. Revise el permiso del navegador o use la captura manual.");
@@ -2298,6 +2640,7 @@ window.processAttendance = async (rawId) => {
   if (attendanceInFlight.has(studentId)) return;
   attendanceInFlight.add(studentId);
   setScannerStatus(`QR detectado: ${studentId}. Validando asistencia…`);
+  await playScanSound("scan");
   try {
     const response = await api.recordAttendance({schoolKey, studentId});
     if (response.data.created) {

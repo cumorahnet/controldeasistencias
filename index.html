@@ -3,7 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Asistencia">
     <title>Control de Asistencia</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -30,8 +38,20 @@
         .cat-active { border-bottom: 3px solid var(--accent-color) !important; color: var(--accent-color) !important; font-weight: 900; }
         .print-only { display: none; }
         .qr-center-id { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border: 0; border-radius: 0; color: #000; font-size: 0.65rem; font-weight: 900; line-height: 1; padding: 0.45rem 0.55rem; white-space: nowrap; pointer-events: none; }
+        .attendance-report-header { display: flex; align-items: center; gap: 1rem; border-bottom: 2px solid #0f172a; padding: 0.75rem; text-align: left; }
+        .attendance-report-logo-frame { width: 4.5rem; height: 4.5rem; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0.75rem; }
+        .attendance-report-logo { width: 100%; height: 100%; object-fit: contain; }
+        .attendance-report-grid { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+        .attendance-report-grid th, .attendance-report-grid td { border: 1px solid #64748b; }
+        .attendance-report-grid th { background: #e2e8f0; }
+        .attendance-number-cell { width: 2.5rem; padding: 0.4rem; text-align: center; }
+        .attendance-name-cell { min-width: 16rem; padding: 0.4rem 0.6rem; text-align: left; }
+        .attendance-date-cell { width: 2rem; min-width: 2rem; height: 5.5rem; padding: 0.25rem; text-align: center; vertical-align: bottom; }
+        .attendance-date-label { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+        .attendance-mark-cell { height: 2rem; padding: 0.2rem; text-align: center; font-size: 1rem; font-weight: 900; }
         @media print {
             @page { size: A4; margin: 10mm; }
+            @page attendance-report { size: A4 landscape; margin: 7mm; }
             body { background: #fff !important; }
             .no-print { display: none !important; }
             .print-only { display: block !important; }
@@ -51,9 +71,25 @@
             .student-roster tr { break-inside: avoid; }
             .student-roster th, .student-roster td { border: 1px solid #94a3b8; font-size: 8.5pt; padding: 2.5mm; text-align: left; text-transform: uppercase; }
             .student-roster th { background: #e2e8f0 !important; font-weight: 900; }
+            .attendance-report-document { page: attendance-report; }
+            .attendance-print-section { break-after: page; }
+            .attendance-print-section:last-child { break-after: auto; }
+            .attendance-report-header { gap: 4mm; margin-bottom: 3mm; padding: 0 0 3mm; }
+            .attendance-report-logo-frame { width: 20mm; height: 20mm; border-radius: 2mm; }
+            .attendance-report-header h1 { font-size: 13pt; font-weight: 900; text-transform: uppercase; }
+            .attendance-report-header p { margin-top: 0.8mm; font-size: 7pt; font-weight: 700; text-transform: uppercase; }
+            .attendance-report-grid { width: 100%; table-layout: fixed; font-size: 6.5pt; }
+            .attendance-report-grid thead { display: table-header-group; }
+            .attendance-report-grid tr { break-inside: avoid; }
+            .attendance-report-grid th, .attendance-report-grid td { border: 0.25mm solid #334155; }
+            .attendance-number-cell { width: 8mm; padding: 1mm; }
+            .attendance-name-cell { width: 62mm; min-width: 62mm; padding: 1mm 1.5mm; }
+            .attendance-date-cell { width: 5.5mm; min-width: 5.5mm; height: 18mm; padding: 0.5mm; }
+            .attendance-mark-cell { width: 5.5mm; height: 5.5mm; padding: 0; font-size: 8pt; }
         }
         .logo-container { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 1rem; }
         .logo-img { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .logo-preview-frame { min-height: 8rem; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px dashed #94a3b8; border-radius: 1rem; }
         .pass-container { position: relative; width: 100%; }
         .toggle-eye { position: absolute; right: 1.25rem; top: 50%; transform: translateY(-50%); cursor: pointer; color: #94a3b8; font-size: 1.1rem; padding: 0.5rem; z-index: 10; }
         /* Barra de Progreso */
@@ -73,6 +109,20 @@
 <body class="bg-slate-100 min-h-screen text-slate-800 font-sans text-xs">
 
     <!-- MODALES -->
+    <div id="install-app-modal" role="dialog" aria-modal="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-center justify-center p-4 text-center">
+        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-8 space-y-5 border-t-8 border-orange-500">
+            <img src="./icons/app-icon-192.png" alt="" class="w-24 h-24 mx-auto rounded-[1.6rem] shadow-lg">
+            <div class="space-y-2">
+                <h2 id="install-app-title" class="text-xl font-black text-slate-800 uppercase">Crear acceso directo</h2>
+                <p id="install-app-message" class="text-sm text-slate-600 font-medium">Instale Control de Asistencia para abrirlo desde la pantalla de inicio de su celular.</p>
+            </div>
+            <div class="flex flex-col gap-2">
+                <button type="button" id="btn-install-app" class="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-xs uppercase shadow-lg">Instalar aplicación</button>
+                <button type="button" id="btn-install-later" class="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold text-xs uppercase">Ahora no</button>
+            </div>
+        </div>
+    </div>
+
     <div id="custom-modal" role="dialog" aria-modal="true" aria-labelledby="modal-msg-title" aria-describedby="modal-msg-body" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[900] hidden flex items-center justify-center p-4 text-center">
         <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-10 space-y-4 border-t-8 theme-border">
             <h3 id="modal-msg-title" class="text-lg font-black theme-text uppercase tracking-tight">Aviso</h3>
@@ -145,7 +195,7 @@
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
-                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.19.0</p>
+                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.26.0</p>
                 <div class="flex items-center justify-center gap-2">
                     <span id="conn-dot" aria-hidden="true" class="status-dot bg-red-500"></span>
                     <p id="conn-text" role="status" aria-live="polite" class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Iniciando...</p>
@@ -428,19 +478,21 @@
                 <!-- REPORTES -->
                 <div id="div-mantenimiento-reportes" class="hidden space-y-6">
                     <div class="rounded-[3rem] border border-slate-200 bg-white p-8 shadow-xl">
-                        <div class="flex flex-col gap-4 border-b pb-5 md:flex-row md:items-end">
+                        <div class="flex flex-col gap-4 border-b pb-5 md:flex-row md:flex-wrap md:items-end">
                             <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Desde<input id="report-date-from" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
                             <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Hasta<input id="report-date-to" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
                             <button id="btn-load-attendance" type="button" onclick="window.loadAttendanceReport()" class="rounded-2xl theme-accent px-7 py-3 font-black uppercase text-white disabled:opacity-50">Consultar</button>
                             <button id="btn-print-attendance" type="button" onclick="window.printAttendanceReport()" class="hidden rounded-2xl bg-slate-800 px-7 py-3 font-black uppercase text-white"><i class="fas fa-print mr-2"></i>Imprimir</button>
+                            <div class="basis-full rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                    <p class="text-[9px] font-black uppercase text-slate-600">Grupos que aparecerán en el reporte</p>
+                                    <div class="flex gap-2"><button type="button" onclick="window.toggleAllReportGroups(true)" class="rounded-lg border bg-white px-3 py-1 text-[8px] font-black uppercase text-slate-600">Todos</button><button type="button" onclick="window.toggleAllReportGroups(false)" class="rounded-lg border bg-white px-3 py-1 text-[8px] font-black uppercase text-slate-600">Ninguno</button></div>
+                                </div>
+                                <div id="report-group-options" class="grid grid-cols-1 gap-2 text-left sm:grid-cols-2 lg:grid-cols-3"><p class="text-xs text-slate-500">Cargando grupos…</p></div>
+                            </div>
                         </div>
                         <p id="attendance-report-summary" class="my-4 text-right text-[10px] font-black uppercase text-slate-500">0 registros</p>
-                        <div class="overflow-x-auto rounded-2xl border border-slate-100">
-                            <table class="w-full border-collapse text-[10px] font-bold uppercase">
-                                <thead class="bg-slate-50"><tr><th class="p-3">#</th><th>Fecha</th><th>Hora</th><th>ID</th><th>Alumno</th><th>Registró</th><th>Estado</th></tr></thead>
-                                <tbody id="attendance-report-body" class="divide-y"><tr><td colspan="7" class="p-10 text-center text-slate-500 italic">Seleccione un rango y consulte el reporte.</td></tr></tbody>
-                            </table>
-                        </div>
+                        <div id="attendance-report-preview" class="rounded-2xl border border-slate-100"><p class="p-10 text-center text-slate-500 italic">Seleccione grupos, indique el rango y consulte el reporte.</p></div>
                         <button id="btn-clear-attendance" type="button" onclick="window.clearAttendanceHistory()" class="mt-6 rounded-xl border border-red-300 px-5 py-3 text-[9px] font-black uppercase text-red-700">Vaciar historial de asistencias</button>
                     </div>
                 </div>
@@ -489,7 +541,11 @@
                                         <label class="text-[8px] font-black uppercase text-slate-600">Color principal<input id="edit-brand-primary" type="color" value="#1e293b" class="mt-1 h-12 w-full rounded-xl border bg-white"></label>
                                         <label class="text-[8px] font-black uppercase text-slate-600">Color de acento<input id="edit-brand-accent" type="color" value="#3b82f6" class="mt-1 h-12 w-full rounded-xl border bg-white"></label>
                                     </div>
-                                    <img id="brand-logo-preview" alt="Vista previa del logotipo" class="mx-auto hidden max-h-28 max-w-full rounded-xl bg-white p-2">
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <label class="text-[8px] font-black uppercase text-slate-600">Fondo del logotipo<select id="edit-logo-background-mode" onchange="window.updateLogoBackgroundPreview()" class="mt-1 h-12 w-full rounded-xl border bg-white px-2 text-center font-bold"><option value="transparent">Transparente</option><option value="color">Color personalizado</option></select></label>
+                                        <label class="text-[8px] font-black uppercase text-slate-600">Color del fondo<input id="edit-logo-background-color" type="color" value="#ffffff" oninput="window.updateLogoBackgroundPreview()" class="mt-1 h-12 w-full rounded-xl border bg-white"></label>
+                                    </div>
+                                    <div id="brand-logo-preview-frame" class="logo-preview-frame hidden p-3"><img id="brand-logo-preview" alt="Vista previa del logotipo" class="max-h-28 max-w-full"></div>
                                     <input id="edit-brand-logo" type="file" accept="image/png,image/jpeg,image/webp" onchange="window.handleLogoUpload(event)" class="w-full text-[9px]">
                                     <button type="button" onclick="window.removeBrandLogo()" class="rounded-xl border border-slate-300 px-4 py-2 text-[8px] font-black uppercase text-slate-600">Quitar logotipo</button>
                                 </div>
@@ -675,6 +731,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.23.0"></script>
+    <script type="module" src="./app.js?v=36.26.0"></script>
 </body>
 </html>

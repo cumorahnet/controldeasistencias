@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## 36.26.0 - 26/08/2026
+
+- Se evita que cargas simultáneas dupliquen los planteles en los directorios del superusuario.
+
+## 36.25.0 - 26/08/2026
+
+- El escáner emite avisos más fuertes, largos y diferenciados al detectar, aceptar o rechazar un QR.
+- El fondo del área del logotipo puede guardarse transparente o con un color personalizado.
+- Los reportes de asistencia incluyen el logotipo institucional o el predeterminado.
+- El reporte permite seleccionar uno, varios o todos los grupos y presenta alumnos en orden alfabético, fechas verticales, punto para asistencia y diagonal para falta dentro de una cuadrícula.
+
+## 36.24.0 - 26/08/2026
+
+- La aplicación se puede instalar desde el navegador como acceso directo con icono propio.
+- En el primer ingreso desde un celular se muestra el flujo de instalación compatible con Android y las instrucciones para iPhone/iPad.
+- Al abrirse desde el acceso directo, la aplicación usa una ventana independiente sin la barra del navegador.
+
 ## 36.23.0 - 26/08/2026
 
 - La lista del pase de asistencia muestra la fecha actual completa, la hora de inicio del escáner y la hora exacta de cada registro.

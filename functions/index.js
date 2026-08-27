@@ -250,6 +250,8 @@ function safeSchoolProfile(snapshot) {
     brandPrimaryColor: primaryColor,
     brandAccentColor: accentColor,
     brandColor: accentColor,
+    brandLogoBackgroundMode: data.brandLogoBackgroundMode === "color" ? "color" : "transparent",
+    brandLogoBackgroundColor: /^#[0-9a-f]{6}$/i.test(String(data.brandLogoBackgroundColor || "")) ? data.brandLogoBackgroundColor : "#ffffff",
     logoDataUrl: premium ? logoDataUrl : "",
   };
 }
@@ -808,15 +810,17 @@ exports.updateSchool = onCall(async (request) => {
   const schoolRef = schoolsRef().doc(schoolKey);
   const schoolSnapshot = await schoolRef.get();
   if (!schoolSnapshot.exists) throw new HttpsError("not-found", "La CCT no está registrada. Créela desde el panel maestro.");
-  const brandingRequested = ["brandPrimaryColor", "brandAccentColor", "logoDataUrl"].some((field) => Object.hasOwn(input, field));
+  const brandingRequested = ["brandPrimaryColor", "brandAccentColor", "brandLogoBackgroundMode", "brandLogoBackgroundColor", "logoDataUrl"].some((field) => Object.hasOwn(input, field));
   if (brandingRequested) {
     if (schoolSnapshot.get("isPremium") !== true) {
       throw new HttpsError("failed-precondition", "La identidad visual se habilita después de confirmar el pago Premium.");
     }
     const primaryColor = String(input.brandPrimaryColor || "");
     const accentColor = String(input.brandAccentColor || "");
+    const logoBackgroundMode = input.brandLogoBackgroundMode === "color" ? "color" : "transparent";
+    const logoBackgroundColor = String(input.brandLogoBackgroundColor || "");
     const logoDataUrl = String(input.logoDataUrl || "");
-    if (!/^#[0-9a-f]{6}$/i.test(primaryColor) || !/^#[0-9a-f]{6}$/i.test(accentColor)) {
+    if (!/^#[0-9a-f]{6}$/i.test(primaryColor) || !/^#[0-9a-f]{6}$/i.test(accentColor) || !/^#[0-9a-f]{6}$/i.test(logoBackgroundColor)) {
       throw new HttpsError("invalid-argument", "Los colores institucionales no son válidos.");
     }
     if (logoDataUrl && (!/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(logoDataUrl) || logoDataUrl.length > 300000)) {
@@ -825,6 +829,8 @@ exports.updateSchool = onCall(async (request) => {
     profile.brandPrimaryColor = primaryColor;
     profile.brandAccentColor = accentColor;
     profile.brandColor = accentColor;
+    profile.brandLogoBackgroundMode = logoBackgroundMode;
+    profile.brandLogoBackgroundColor = logoBackgroundColor;
     profile.logoDataUrl = logoDataUrl;
     profile.allowBranding = true;
   }
