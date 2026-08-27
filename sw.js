@@ -1,15 +1,18 @@
-const CACHE_NAME = "control-asistencia-36.31.0-pwa-v5";
+const CACHE_NAME = "control-asistencia-36.32.0-pwa-v6";
+const APP_BASE_URL = new URL("./", self.location.href);
+const appUrl = (path) => new URL(path, APP_BASE_URL).href;
 const APP_SHELL = [
-  "/",
-  "/index.html",
-  "/app.js",
-  "/pwa-install.js",
-  "/manifest.webmanifest",
-  "/icons/app-icon-192.png",
-  "/icons/app-icon-512.png",
-  "/icons/app-icon-maskable-512.png",
-  "/icons/apple-touch-icon.png",
-];
+  "./",
+  "index.html",
+  "app.js",
+  "pwa-install.js",
+  "manifest.webmanifest",
+  "icons/app-icon-192.png",
+  "icons/app-icon-512.png",
+  "icons/app-icon-maskable-512.png",
+  "icons/apple-touch-icon.png",
+].map(appUrl);
+const OFFLINE_DOCUMENT = appUrl("index.html");
 
 self.addEventListener("install", (event) => {
   event.waitUntil(Promise.all([
@@ -38,7 +41,7 @@ self.addEventListener("fetch", (event) => {
       return response;
     } catch {
       return (await caches.match(event.request))
-        || (event.request.mode === "navigate" ? caches.match("/index.html") : Response.error());
+        || (event.request.mode === "navigate" ? caches.match(OFFLINE_DOCUMENT) : Response.error());
     }
   })());
 });

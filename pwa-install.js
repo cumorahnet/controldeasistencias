@@ -1,7 +1,7 @@
 (function initializePwaInstallExperience() {
   "use strict";
 
-  const EXPERIENCE_VERSION = 5;
+  const EXPERIENCE_VERSION = 6;
   const SEEN_KEY = `control-asistencia-pwa-install-seen-v${EXPERIENCE_VERSION}`;
   const STATUS_KEY = `control-asistencia-pwa-install-status-v${EXPERIENCE_VERSION}`;
   const FIRST_VISIT_DELAY_MS = 2000;
@@ -79,35 +79,40 @@
     };
   }
 
+  function actionButtons() {
+    return [...document.querySelectorAll("[data-pwa-install-action]")];
+  }
+
   function setVisible(element, visible) {
     if (!element) return;
     element.classList.toggle("hidden", !visible);
     element.setAttribute("aria-hidden", visible ? "false" : "true");
   }
 
-  function setInstallAction(visible, label = "Instalar app") {
-    const button = byId("btn-install-pwa");
-    if (!button) return;
-    button.classList.toggle("hidden", !visible);
-    button.classList.toggle("flex", visible);
-    button.setAttribute("aria-hidden", visible ? "false" : "true");
-    button.setAttribute("aria-label", label);
-    const labelElement = byId("install-pwa-label");
-    if (labelElement) labelElement.textContent = label;
+  function setInstallActions(visible, label = "Instalar app", highlight = false) {
+    actionButtons().forEach((button) => {
+      button.classList.toggle("hidden", !visible);
+      button.classList.toggle("inline-flex", visible);
+      button.classList.toggle("animate-pulse", visible && highlight);
+      button.setAttribute("aria-hidden", visible ? "false" : "true");
+      button.setAttribute("aria-label", label);
+      const labelElement = button.querySelector("[data-pwa-install-label]");
+      if (labelElement) labelElement.textContent = label;
+    });
   }
 
-  function refreshInstallAction() {
+  function refreshInstallActions(options = {}) {
     const state = installState();
     if (state.installed) {
-      setInstallAction(false);
+      setInstallActions(false);
     } else if (state.nativeAvailable) {
-      setInstallAction(true, "Instalar app");
+      setInstallActions(true, "Instalar app", options.highlight === true);
     } else if (state.mobile && isEmbeddedBrowser()) {
-      setInstallAction(true, "Abrir en navegador");
+      setInstallActions(true, "Abrir en navegador");
     } else if (state.iosInstructions) {
-      setInstallAction(true, "Agregar al inicio");
+      setInstallActions(true, "Agregar al inicio");
     } else {
-      setInstallAction(false);
+      setInstallActions(false);
     }
   }
 
@@ -161,8 +166,7 @@
     const restoreFocus = modal?.contains(document.activeElement);
     setVisible(modal, false);
     activeView = VIEW.hidden;
-    const action = byId("btn-install-pwa");
-    if (restoreFocus && !action?.classList.contains("hidden")) action.focus();
+    if (restoreFocus) actionButtons().find((button) => !button.classList.contains("hidden"))?.focus();
   }
 
   function nativeOffer(firstVisit = false) {
@@ -287,7 +291,7 @@
       firstVisitTimer = null;
     }
     writeStorage(STATUS_KEY, STATUS.installed);
-    setInstallAction(false);
+    setInstallActions(false);
     closeSheet();
   }
 
@@ -300,21 +304,17 @@
 
     deferredPrompt = null;
     closeSheet();
-    setInstallAction(false);
+    setInstallActions(false);
 
     try {
       await promptEvent.prompt();
       const choice = await promptEvent.userChoice;
       if (readStorage(STATUS_KEY) === STATUS.installed) return;
-      if (choice?.outcome === "accepted") {
-        writeStorage(STATUS_KEY, STATUS.accepted);
-      } else {
-        writeStorage(STATUS_KEY, STATUS.dismissed);
-      }
+      writeStorage(STATUS_KEY, choice?.outcome === "accepted" ? STATUS.accepted : STATUS.dismissed);
     } catch {
       manualGuide();
     }
-    refreshInstallAction();
+    refreshInstallActions();
   }
 
   function handlePrimaryAction(event) {
@@ -347,11 +347,12 @@
       return;
     }
 
-    refreshInstallAction();
-    byId("btn-install-pwa")?.addEventListener("click", () => {
+    refreshInstallActions();
+    actionButtons().forEach((button) => button.addEventListener("click", () => {
+      button.classList.toggle("animate-pulse", false);
       if (deferredPrompt) nativeOffer();
       else manualGuide();
-    });
+    }));
     byId("btn-install-app")?.addEventListener("click", handlePrimaryAction);
     byId("btn-install-later")?.addEventListener("click", handleSecondaryAction);
     scheduleFirstVisitExperience();
@@ -367,8 +368,8 @@
     }
     if (!domReady) return;
 
-    refreshInstallAction();
     const state = installState();
+    refreshInstallActions({highlight: state.mobile && state.firstVisitPending});
     if (state.mobile && state.firstVisitPending) {
       showFirstVisitExperience();
     } else if (activeView === VIEW.invitation) {
@@ -386,7 +387,7 @@
 
   if ("serviceWorker" in window.navigator) {
     window.addEventListener("load", () => {
-      window.navigator.serviceWorker.register("./sw.js", {scope: "./"}).catch(() => {});
+      window.navigator.serviceWorker.register("./sw.js?v=36.32.0", {scope: "./"}).catch(() => {});
     }, {once: true});
   }
 }());

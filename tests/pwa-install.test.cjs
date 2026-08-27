@@ -8,8 +8,8 @@ const projectRoot = path.join(__dirname, "..");
 const installScript = fs.readFileSync(path.join(projectRoot, "pwa-install.js"), "utf8");
 const html = fs.readFileSync(path.join(projectRoot, "index.html"), "utf8");
 const serviceWorker = fs.readFileSync(path.join(projectRoot, "sw.js"), "utf8");
-const SEEN_KEY = "control-asistencia-pwa-install-seen-v5";
-const STATUS_KEY = "control-asistencia-pwa-install-status-v5";
+const SEEN_KEY = "control-asistencia-pwa-install-seen-v6";
+const STATUS_KEY = "control-asistencia-pwa-install-status-v6";
 
 function createElement(initialClasses = ["hidden"]) {
   const classes = new Set(initialClasses);
@@ -33,6 +33,9 @@ function createElement(initialClasses = ["hidden"]) {
     },
     contains: () => false,
     focus() {},
+    querySelector(selector) {
+      return selector === "[data-pwa-install-label]" ? this.installLabel || null : null;
+    },
     setAttribute(name, value) {
       this.attributes.set(name, value);
     },
@@ -54,7 +57,7 @@ function createHarness({
 } = {}) {
   const ids = [
     "btn-install-pwa",
-    "install-pwa-label",
+    "btn-install-pwa-header",
     "install-app-modal",
     "install-app-platform",
     "install-app-title",
@@ -68,6 +71,10 @@ function createHarness({
     "btn-install-later",
   ];
   const elements = Object.fromEntries(ids.map((id) => [id, createElement()]));
+  const installButtons = [elements["btn-install-pwa"], elements["btn-install-pwa-header"]];
+  installButtons.forEach((button) => {
+    button.installLabel = createElement([]);
+  });
   const storage = new Map();
   if (seen) storage.set(SEEN_KEY, "seen");
   if (status) storage.set(STATUS_KEY, status);
@@ -80,6 +87,7 @@ function createHarness({
     readyState: "complete",
     addEventListener() {},
     getElementById: (id) => elements[id] || null,
+    querySelectorAll: (selector) => selector === "[data-pwa-install-action]" ? installButtons : [],
   };
   const navigator = {maxTouchPoints, standalone, userAgent};
   if (typeof userAgentDataMobile === "boolean") navigator.userAgentData = {mobile: userAgentDataMobile};
@@ -162,7 +170,7 @@ test("un navegador interno de iOS pide abrir Safari antes de mostrar pasos de in
 
   assert.equal(harness.elements["install-app-platform"].textContent, "Navegador interno");
   assert.equal(harness.elements["install-app-title"].textContent, "Continúa en tu navegador");
-  assert.equal(harness.elements["install-pwa-label"].textContent, "Abrir en navegador");
+  assert.equal(harness.elements["btn-install-pwa"].installLabel.textContent, "Abrir en navegador");
   assert.match(harness.elements["install-step-2"].textContent, /Chrome|Safari/);
 });
 
@@ -210,7 +218,7 @@ test("escritorio no recibe aviso automático y muestra acción solo al ser elegi
   assert.equal(prevented, true);
   assert.equal(harness.elements["install-app-modal"].classList.contains("hidden"), true);
   assert.equal(harness.elements["btn-install-pwa"].classList.contains("hidden"), false);
-  assert.equal(harness.elements["install-pwa-label"].textContent, "Instalar app");
+  assert.equal(harness.elements["btn-install-pwa"].installLabel.textContent, "Instalar app");
 });
 
 test("beforeinstallprompt convierte la primera experiencia móvil en oferta nativa", () => {
@@ -255,7 +263,7 @@ test("un evento tardío tras descartar no repite el aviso y conserva la acción 
 
   assert.equal(harness.elements["install-app-modal"].classList.contains("hidden"), true);
   assert.equal(harness.elements["btn-install-pwa"].classList.contains("hidden"), false);
-  assert.equal(harness.elements["install-pwa-label"].textContent, "Instalar app");
+  assert.equal(harness.elements["btn-install-pwa"].installLabel.textContent, "Instalar app");
 });
 
 test("el diálogo nativo solo se invoca después de tocar Instalar app", async () => {
@@ -322,14 +330,15 @@ test("registra el service worker con ruta y alcance relativos", () => {
   harness.dispatch("load");
 
   assert.equal(harness.serviceWorkerRegistrations.length, 1);
-  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js");
+  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=36.32.0");
   assert.equal(harness.serviceWorkerRegistrations[0].options.scope, "./");
 });
 
-test("la versión 5 no conserva textos ni claves de los intentos anteriores", () => {
-  assert.doesNotMatch(installScript, /control-asistencia-pwa-install-seen-v4/);
+test("la versión 6 no conserva textos ni claves de los intentos anteriores", () => {
+  assert.doesNotMatch(installScript, /control-asistencia-pwa-install-seen-v5/);
   assert.doesNotMatch(installScript, /Crear acceso directo|Abra esta liga|Ver cómo instalar/);
-  assert.match(html, /pwa-install\.js\?v=5/);
+  assert.match(html, /pwa-install\.js\?v=6/);
+  assert.equal((html.match(/data-pwa-install-action/g) || []).length, 2);
   assert.match(html, /id="install-app-benefits"/);
   assert.match(html, /id="install-app-steps"/);
 });
@@ -338,8 +347,8 @@ test("manifiesto, iconos y app shell cumplen los requisitos PWA", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "manifest.webmanifest"), "utf8"));
   assert.equal(manifest.name, "Control de Asistencia");
   assert.equal(manifest.short_name, "Asistencia");
-  assert.equal(manifest.start_url, "/");
-  assert.equal(manifest.scope, "/");
+  assert.equal(manifest.start_url, "./");
+  assert.equal(manifest.scope, "./");
   assert.equal(manifest.display, "standalone");
   assert.ok(manifest.background_color);
   assert.ok(manifest.theme_color);
@@ -350,13 +359,13 @@ test("manifiesto, iconos y app shell cumplen los requisitos PWA", () => {
   for (const requiredSize of [192, 512]) {
     const icon = manifest.icons.find((candidate) => candidate.sizes === `${requiredSize}x${requiredSize}` && candidate.type === "image/png");
     assert.ok(icon, `falta el icono PNG ${requiredSize}x${requiredSize}`);
-    const png = fs.readFileSync(path.join(projectRoot, icon.src.replace(/^\//, "")));
+    const png = fs.readFileSync(path.join(projectRoot, icon.src.replace(/^\.?\//, "")));
     assert.equal(png.subarray(1, 4).toString("ascii"), "PNG");
     assert.equal(png.readUInt32BE(16), requiredSize);
     assert.equal(png.readUInt32BE(20), requiredSize);
   }
 
-  assert.match(serviceWorker, /control-asistencia-36\.31\.0-pwa-v5/);
-  assert.match(serviceWorker, /"\/manifest\.webmanifest"/);
-  assert.match(serviceWorker, /"\/pwa-install\.js"/);
+  assert.match(serviceWorker, /control-asistencia-36\.32\.0-pwa-v6/);
+  assert.match(serviceWorker, /"manifest\.webmanifest"/);
+  assert.match(serviceWorker, /"pwa-install\.js"/);
 });
