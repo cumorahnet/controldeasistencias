@@ -12,7 +12,7 @@
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
-    <script src="./pwa-install.js?v=4"></script>
+    <script src="./pwa-install.js?v=5"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -115,13 +115,26 @@
     </button>
 
     <!-- MODALES -->
-    <div id="install-app-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-center justify-center p-4 text-center">
-        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-8 space-y-5 border-t-8 border-orange-500">
-            <img src="./icons/app-icon-192.png" alt="" class="w-24 h-24 mx-auto rounded-[1.6rem] shadow-lg">
-            <div class="space-y-2">
-                <h2 id="install-app-title" class="text-xl font-black text-slate-800 uppercase">Crear acceso directo</h2>
-                <p id="install-app-message" aria-live="polite" class="text-sm text-slate-600 font-medium"></p>
+    <div id="install-app-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-end sm:items-center justify-center p-3 sm:p-4 text-center">
+        <div class="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl max-w-sm w-full p-7 sm:p-8 space-y-5 border-t-8 border-orange-500">
+            <div class="flex items-center gap-4 text-left">
+                <img src="./icons/app-icon-192.png" alt="" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
+                <div class="min-w-0 space-y-1">
+                    <p id="install-app-platform" class="text-[9px] font-black uppercase tracking-[0.18em] text-orange-600">Acceso desde tu celular</p>
+                    <h2 id="install-app-title" class="text-xl font-black leading-tight text-slate-800">Control de Asistencia</h2>
+                </div>
             </div>
+            <p id="install-app-message" aria-live="polite" class="text-left text-sm leading-relaxed text-slate-600 font-medium"></p>
+            <ul id="install-app-benefits" aria-label="Beneficios de instalar la aplicación" class="hidden grid grid-cols-3 gap-2 text-center">
+                <li class="rounded-2xl bg-orange-50 p-3"><i aria-hidden="true" class="fas fa-bolt mb-2 text-orange-500"></i><span class="block text-[9px] font-black uppercase text-slate-700">Entrada rápida</span></li>
+                <li class="rounded-2xl bg-orange-50 p-3"><i aria-hidden="true" class="fas fa-mobile-screen mb-2 text-orange-500"></i><span class="block text-[9px] font-black uppercase text-slate-700">Pantalla completa</span></li>
+                <li class="rounded-2xl bg-orange-50 p-3"><i aria-hidden="true" class="fas fa-house mb-2 text-orange-500"></i><span class="block text-[9px] font-black uppercase text-slate-700">Icono propio</span></li>
+            </ul>
+            <ol id="install-app-steps" aria-label="Pasos para agregar la aplicación" class="hidden space-y-3 text-left">
+                <li class="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-500 text-[10px] font-black text-white">1</span><span id="install-step-1" class="pt-1 text-xs font-bold leading-relaxed text-slate-700"></span></li>
+                <li class="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-500 text-[10px] font-black text-white">2</span><span id="install-step-2" class="pt-1 text-xs font-bold leading-relaxed text-slate-700"></span></li>
+                <li class="flex items-start gap-3 rounded-2xl bg-slate-50 p-3"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-500 text-[10px] font-black text-white">3</span><span id="install-step-3" class="pt-1 text-xs font-bold leading-relaxed text-slate-700"></span></li>
+            </ol>
             <div class="flex flex-col gap-2">
                 <button type="button" id="btn-install-app" class="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-xs uppercase shadow-lg focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">Instalar aplicación</button>
                 <button type="button" id="btn-install-later" class="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold text-xs uppercase focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-700">Ahora no</button>
@@ -230,7 +243,7 @@
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
-                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.30.0</p>
+                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.31.0</p>
                 <div class="flex items-center justify-center gap-2">
                     <span id="conn-dot" aria-hidden="true" class="status-dot bg-red-500"></span>
                     <p id="conn-text" role="status" aria-live="polite" class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Iniciando...</p>
@@ -762,6 +775,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.30.0"></script>
+    <script type="module" src="./app.js?v=36.31.0"></script>
 </body>
 </html>

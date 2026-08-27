@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 36.31.0 - 27/08/2026
+
+- Se reemplazó por completo la experiencia móvil fallida de acceso directo con un flujo PWA versión 5.
+- Android y navegadores compatibles usan el diálogo nativo únicamente después de tocar **Instalar app**.
+- iPhone y iPad muestran una guía visual propia para **Compartir > Agregar a pantalla de inicio**, sin simular instalación nativa.
+- El primer aviso presenta beneficios, aparece una sola vez y conserva por separado la elegibilidad tardía del navegador.
+- Firebase Hosting excluye ahora los archivos de pruebas del despliegue público.
+
 <!-- cdc-session:session-20260827044714-5a7858 -->
 ## Sesión 26/08/2026, 11:32 p.m.
 
