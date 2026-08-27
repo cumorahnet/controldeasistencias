@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 36.28.0 - 26/08/2026
+
+- La instalación vuelve al flujo directo usado en otras aplicaciones: el botón aparece sólo cuando Chrome confirma que la PWA es instalable y abre inmediatamente el instalador nativo.
+- Se eliminó el modal de instrucciones y confirmaciones intermedias para dejar la instalación en un solo toque.
+
 ## 36.27.0 - 26/08/2026
 
 - La instalación de la PWA sólo se confirma al recibir el resultado de Android o la confirmación explícita del usuario.

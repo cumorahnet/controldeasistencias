@@ -1,4 +1,4 @@
-const CACHE_NAME = "control-asistencia-36.27.0";
+const CACHE_NAME = "control-asistencia-36.28.0";
 const APP_SHELL = [
   "/",
   "/index.html",
