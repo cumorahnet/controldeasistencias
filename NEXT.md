@@ -1,6 +1,6 @@
 # Próximas tareas
 
-> Generado por CDC a partir de la sesión `session-20260826145124-97aed7`.
+> Generado por CDC a partir de la sesión `session-20260826194512-ab8031`.
 
 ## Pendientes
 
@@ -14,5 +14,7 @@
 
 ## Riesgos que deben revisarse
 
+- Se modificaron archivos de configuración o infraestructura (functions/package-lock.json, functions/package.json). Valida compatibilidad y despliegue.
 - Se modificó código fuente sin cambios detectados en archivos de prueba. Verifica la cobertura antes de cerrar el trabajo.
 - El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+- Cambió la definición de dependencias; valida instalación y seguridad.

@@ -12,7 +12,7 @@
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
-    <script src="./pwa-install.js?v=36.29.0"></script>
+    <script src="./pwa-install.js?v=36.30.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -179,6 +179,35 @@
         </div>
     </div>
 
+    <!-- CONFIGURACIÓN DE HORARIO DEL DOCENTE -->
+    <div id="modal-teacher-schedule" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="teacher-schedule-title" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[960] hidden flex items-center justify-center overflow-y-auto p-4 text-center">
+        <div class="bg-white rounded-[3rem] shadow-2xl max-w-lg w-full p-8 md:p-10 space-y-6 border-t-[12px] border-orange-500">
+            <div class="space-y-2">
+                <i class="fas fa-clock text-4xl text-orange-500"></i>
+                <h3 id="teacher-schedule-title" class="text-xl font-black theme-text uppercase">Horario para pasar lista</h3>
+                <p class="text-xs text-slate-600 font-bold">Configure la hora y tolerancia de cada grupo. Estos datos determinan si el registro queda a tiempo o como retardo.</p>
+            </div>
+            <div class="space-y-4 text-left">
+                <label class="block text-[10px] font-black uppercase text-slate-600">Grupo
+                    <select id="schedule-group" onchange="window.selectScheduleGroup()" class="mt-1 w-full rounded-xl border bg-white p-3 font-bold normal-case">
+                        <option value="">Cargando grupos…</option>
+                    </select>
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                    <label class="text-[10px] font-black uppercase text-slate-600">Hora del pase de lista<input id="schedule-entry-time" type="time" required class="mt-1 w-full rounded-xl border bg-white p-3"></label>
+                    <label class="text-[10px] font-black uppercase text-slate-600">Tolerancia (min)<input id="schedule-tolerance" type="number" min="0" max="120" value="10" class="mt-1 w-full rounded-xl border bg-white p-3"></label>
+                    <label class="text-[10px] font-black uppercase text-slate-600">Regreso del receso<input id="schedule-recess-return" type="time" class="mt-1 w-full rounded-xl border bg-white p-3"></label>
+                    <label class="text-[10px] font-black uppercase text-slate-600">Duración del módulo (min)<input id="schedule-class-duration" type="number" min="1" max="240" value="50" class="mt-1 w-full rounded-xl border bg-white p-3"></label>
+                </div>
+                <p id="schedule-setup-status" role="status" aria-live="polite" class="min-h-5 text-center text-xs font-bold text-slate-600"></p>
+            </div>
+            <div class="flex flex-col gap-2">
+                <button id="btn-save-own-schedule" type="button" onclick="window.saveOwnSchedule()" class="w-full theme-primary text-white py-4 rounded-3xl font-black text-xs uppercase shadow-xl disabled:opacity-50">Guardar horario y continuar</button>
+                <button id="btn-close-schedule" type="button" onclick="window.closeScheduleSetup()" class="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold uppercase text-[10px]">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- PASARELA ACCESO -->
     <section id="section-gateway" class="fixed inset-0 bg-slate-900 z-[400] overflow-y-auto p-4 flex flex-col justify-center items-center">
         <div class="bg-white p-8 md:p-12 rounded-[3.5rem] shadow-2xl max-w-lg w-full space-y-8 border-t-[14px] border-orange-500 relative text-center">
@@ -201,7 +230,7 @@
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
-                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.29.0</p>
+                <p class="text-xs text-slate-500 font-bold uppercase -mt-4">VERSION 36.30.0</p>
                 <div class="flex items-center justify-center gap-2">
                     <span id="conn-dot" aria-hidden="true" class="status-dot bg-red-500"></span>
                     <p id="conn-text" role="status" aria-live="polite" class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Iniciando...</p>
@@ -305,23 +334,19 @@
                 <div class="p-8 space-y-6">
                     <div id="qr-reader" aria-label="Lector de código QR" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[350px]"></div>
                     <button type="button" onclick="window.toggleCamera()" id="btn-camera" aria-pressed="false" class="w-full bg-slate-800 text-white font-black py-4 rounded-[2rem] shadow-lg uppercase text-[10px]">Encender cámara</button>
-                    <div class="flex gap-3"><input id="input-manual-id" type="text" aria-label="ID del alumno" autocapitalize="characters" placeholder="ID ALUMNO" class="flex-1 px-5 py-3 border-2 border-slate-100 rounded-3xl uppercase text-sm font-black focus:ring-2 focus:ring-orange-500 shadow-sm text-center"><button type="button" onclick="window.manualAttendance()" class="theme-accent text-white px-8 py-3 rounded-3xl text-xs font-black uppercase shadow-lg">Registrar</button></div>
-                    <p id="scanner-status" role="status" aria-live="polite" class="min-h-5 text-sm font-bold text-slate-600"></p>
-                    <details class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
-                        <summary class="cursor-pointer text-center text-[10px] font-black uppercase text-slate-700">Mi horario</summary>
-                        <label class="mt-4 block text-[9px] font-black uppercase text-slate-600">Grupo
-                            <select id="schedule-group" onchange="window.selectScheduleGroup()" class="mt-1 w-full rounded-xl border bg-white p-2 font-bold normal-case">
-                                <option value="">Cargando grupos…</option>
-                            </select>
-                        </label>
-                        <div class="mt-4 grid grid-cols-2 gap-3">
-                            <label class="text-[9px] font-black uppercase text-slate-600">Entrada<input id="schedule-entry-time" type="time" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
-                            <label class="text-[9px] font-black uppercase text-slate-600">Regreso del receso<input id="schedule-recess-return" type="time" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
-                            <label class="text-[9px] font-black uppercase text-slate-600">Tolerancia (min)<input id="schedule-tolerance" type="number" min="0" max="120" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
-                            <label class="text-[9px] font-black uppercase text-slate-600">Módulo (min)<input id="schedule-class-duration" type="number" min="1" max="240" class="mt-1 w-full rounded-xl border bg-white p-2"></label>
+                    <div class="space-y-2">
+                        <label for="input-manual-student-search" class="block text-[10px] font-black uppercase text-slate-600">Registro manual por nombre</label>
+                        <div class="relative">
+                            <div class="flex gap-3">
+                                <input id="input-manual-student-search" type="search" aria-label="Buscar alumno por nombre" aria-controls="manual-student-results" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="ESCRIBA EL NOMBRE DEL ALUMNO" class="min-w-0 flex-1 px-5 py-3 border-2 border-slate-100 rounded-3xl uppercase text-sm font-black focus:ring-2 focus:ring-orange-500 shadow-sm text-center">
+                                <button type="button" onclick="window.manualAttendance()" class="theme-accent text-white px-6 py-3 rounded-3xl text-xs font-black uppercase shadow-lg">Registrar</button>
+                            </div>
+                            <div id="manual-student-results" role="listbox" aria-label="Resultados de alumnos" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 text-left shadow-2xl"></div>
                         </div>
-                        <button type="button" onclick="window.saveOwnSchedule()" class="mt-4 w-full rounded-xl bg-slate-800 py-3 text-[9px] font-black uppercase text-white">Guardar mi horario</button>
-                    </details>
+                        <p id="manual-student-selection" role="status" aria-live="polite" class="min-h-4 text-[10px] font-bold text-slate-500">Busque y seleccione un alumno.</p>
+                    </div>
+                    <p id="scanner-status" role="status" aria-live="polite" class="min-h-5 text-sm font-bold text-slate-600"></p>
+                    <button type="button" onclick="window.openScheduleSetup(false)" class="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-[10px] font-black uppercase text-slate-700"><i class="fas fa-clock mr-2 text-orange-500"></i>Configurar mis horarios</button>
                     <button onclick="window.logout()" class="w-full bg-red-50 text-red-500 py-3 rounded-2xl font-bold uppercase text-[9px] border border-red-100 active:scale-95 transition-all text-center">Salir del Sistema</button>
                 </div>
             </div>
@@ -737,6 +762,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.29.0"></script>
+    <script type="module" src="./app.js?v=36.30.0"></script>
 </body>
 </html>

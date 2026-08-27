@@ -1,6 +1,7 @@
 "use strict";
 
 const {createHash, randomBytes, scryptSync, timingSafeEqual} = require("node:crypto");
+const {attendanceStatus, clockMinutes, resolveAttendanceSchedule} = require("./attendance-utils");
 const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
 const {FieldPath, FieldValue, Timestamp, getFirestore} = require("firebase-admin/firestore");
@@ -62,22 +63,6 @@ function normalizeGroupName(value) {
   const group = normalizeCode(value, 12).replace(/\s+/g, " ");
   if (!group || !/[A-Z0-9]/.test(group)) throw new HttpsError("invalid-argument", "El grupo no es válido.");
   return group;
-}
-
-function clockMinutes(value) {
-  const match = /^(\d{2}):(\d{2})/.exec(String(value || ""));
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (hours > 23 || minutes > 59) return null;
-  return hours * 60 + minutes;
-}
-
-function attendanceStatus(localTime, entryTime, tolerance) {
-  const scannedAt = clockMinutes(localTime);
-  const startsAt = clockMinutes(entryTime);
-  if (scannedAt === null || startsAt === null) return "A TIEMPO";
-  return scannedAt <= startsAt + Math.max(0, Math.min(120, Number(tolerance || 0))) ? "A TIEMPO" : "RETARDO";
 }
 
 function studentInitials(student) {
@@ -752,6 +737,7 @@ exports.updateOwnSchedule = onCall(async (request) => {
   const recessReturnTime = String(request.data?.recessReturnTime || "").slice(0, 5);
   const tolerance = Math.max(0, Math.min(120, Number(request.data?.tolerance || 0)));
   const classDuration = Math.max(1, Math.min(240, Number(request.data?.classDuration || 50)));
+  if (token.role === "docente" && !entryTime) throw new HttpsError("invalid-argument", "La hora del pase de lista es obligatoria para docentes.");
   if (entryTime && clockMinutes(entryTime) === null) throw new HttpsError("invalid-argument", "La hora de entrada no es válida.");
   if (recessReturnTime && clockMinutes(recessReturnTime) === null) throw new HttpsError("invalid-argument", "La hora de regreso no es válida.");
   const schedule = {
@@ -968,16 +954,14 @@ exports.recordAttendance = onCall(async (request) => {
   const school = schoolSnapshot.data() || {};
   const studentLevel = normalizeSchoolLevel(student.level || student.nivel);
   const studentGroup = normalizeGroupName(student.grupo);
-  const groupSchedule = (Array.isArray(teacher.groupSchedules) ? teacher.groupSchedules : []).find((item) => {
-    try {
-      return normalizeSchoolLevel(item?.level) === studentLevel && normalizeGroupName(item?.group) === studentGroup;
-    } catch {
-      return false;
-    }
-  });
-  const entryTime = String(groupSchedule?.entryTime || teacher.entryTime || school.entryTime || "").slice(0, 5);
-  const tolerance = Math.max(0, Math.min(120, Number(groupSchedule?.tolerance ?? teacher.tolerance ?? school.tolerance ?? 0)));
+  const schedule = resolveAttendanceSchedule({teacher, school, role: token.role, level: studentLevel, group: studentGroup});
+  if (schedule.requiresTeacherSetup) {
+    throw new HttpsError("failed-precondition", `Configure primero la hora de pase de lista para ${studentLevel} · Grupo ${studentGroup}.`);
+  }
+  const entryTime = schedule.entryTime;
+  const tolerance = schedule.tolerance;
   const status = attendanceStatus(hora, entryTime, tolerance);
+  const captureMethod = request.data?.captureMethod === "manual" ? "manual" : "qr";
   const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${studentId}`);
   const created = await db.runTransaction(async (transaction) => {
     const existing = await transaction.get(attendanceRef);
@@ -997,6 +981,7 @@ exports.recordAttendance = onCall(async (request) => {
       scheduleGroup: studentGroup,
       entryTimeApplied: entryTime,
       toleranceApplied: tolerance,
+      captureMethod,
       timestamp: FieldValue.serverTimestamp(),
     });
     return true;

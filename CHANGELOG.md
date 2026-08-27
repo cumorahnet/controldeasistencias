@@ -1,5 +1,57 @@
 # CHANGELOG
 
+## 36.30.0 - 26/08/2026
+
+- Los docentes deben configurar la hora y tolerancia de al menos un grupo al iniciar sesión; cada grupo requiere su propio horario antes de registrar asistencias.
+- El registro manual ahora permite buscar y seleccionar alumnos activos por nombre, conservando el ID únicamente como identificador interno.
+- Los registros guardan si fueron capturados por QR o manualmente.
+
+## 36.29.0 - 26/08/2026
+
+- El flujo de acceso directo ahora captura temprano la instalación PWA, distingue primera visita, rechazo e instalación confirmada, y conserva un botón visible para reintentar.
+- Se agregaron instrucciones específicas para iOS, Android, escritorio y navegadores internos que no exponen el instalador nativo.
+
+<!-- cdc-session:session-20260826194512-ab8031 -->
+## Sesión 26/08/2026, 10:25 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 18 cambio(s): 9 creado(s), 9 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting..cache
+- CHANGELOG.md
+- app.js
+- firebase-debug.log
+- firebase.json
+- firestore.rules
+- functions/index.js
+- functions/package-lock.json
+- functions/package.json
+- icons/app-icon-192.png
+- icons/app-icon-512.png
+- icons/app-icon-maskable-512.png
+- icons/apple-touch-icon.png
+- index.html
+- manifest.webmanifest
+- scripts/generate-pwa-icons.mjs
+- sw.js
+- version.json
+
+### Riesgos
+
+- Se modificaron archivos de configuración o infraestructura (functions/package-lock.json, functions/package.json). Valida compatibilidad y despliegue.
+- Se modificó código fuente sin cambios detectados en archivos de prueba. Verifica la cobertura antes de cerrar el trabajo.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+- Cambió la definición de dependencias; valida instalación y seguridad.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
 ## 36.28.0 - 26/08/2026
 
 - La instalación vuelve al flujo directo usado en otras aplicaciones: el botón aparece sólo cuando Chrome confirma que la PWA es instalable y abre inmediatamente el instalador nativo.

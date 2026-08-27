@@ -80,6 +80,8 @@ let unsubscribeAttendance = null;
 let modalPreviousFocus = null;
 let teacherBeingRepaired = "";
 let studentRegistrationInFlight = false;
+let scheduleSetupRequired = false;
+let selectedManualStudentId = "";
 let audioContext = null;
 let audioUnlockPromise = null;
 let studentCatalogCache = [];
@@ -532,9 +534,15 @@ window.logout = async () => {
   globalSchoolsLoadVersion += 1;
   if (isScannerRunning) await window.stopScanner();
   loggedTeacher = null;
+  scheduleSetupRequired = false;
+  selectedManualStudentId = "";
+  studentCatalogCache = [];
   attendanceInFlight.clear();
+  if (byId("input-manual-student-search")) byId("input-manual-student-search").value = "";
+  hideManualStudentResults();
   document.querySelectorAll("header, main").forEach((element) => element.classList.add("hidden"));
   window.safeToggle("modal-change-password", true);
+  window.safeToggle("modal-teacher-schedule", true);
   window.safeToggle("section-gateway", false);
   window.resetGateway();
   await signOut(auth).catch(() => {});
@@ -685,6 +693,103 @@ function studentDisplayName(student) {
 function isStudentInactive(student) {
   return student?.active === false || normalizeText(student?.status).toLowerCase() === "inactive";
 }
+
+function normalizedStudentSearch(value) {
+  return normalizeText(value, 160)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchingManualStudents(value, limit = 8) {
+  const terms = normalizedStudentSearch(value).split(" ").filter(Boolean);
+  if (!terms.length) return [];
+  return studentCatalogCache
+    .filter((student) => !isStudentInactive(student))
+    .filter((student) => {
+      const name = normalizedStudentSearch(studentDisplayName(student));
+      return terms.every((term) => name.includes(term));
+    })
+    .sort(compareStudentsByName)
+    .slice(0, limit);
+}
+
+function hideManualStudentResults() {
+  const results = byId("manual-student-results");
+  if (!results) return;
+  results.classList.add("hidden");
+  results.replaceChildren();
+  byId("input-manual-student-search")?.setAttribute("aria-expanded", "false");
+}
+
+window.selectManualStudent = (studentId) => {
+  const student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === normalizeCode(studentId, 40));
+  if (!student || isStudentInactive(student)) return;
+  selectedManualStudentId = normalizeCode(student.id, 40);
+  const input = byId("input-manual-student-search");
+  if (input) input.value = studentDisplayName(student);
+  const level = normalizeSchoolLevel(student.level || student.nivel);
+  const group = normalizeGroupName(student.grupo);
+  const list = studentListNumber(student);
+  const detail = [level, group && `Grupo ${group}`, list && `Lista ${list}`].filter(Boolean).join(" · ");
+  if (byId("manual-student-selection")) byId("manual-student-selection").textContent = `Seleccionado: ${studentDisplayName(student)}${detail ? ` · ${detail}` : ""}`;
+  hideManualStudentResults();
+};
+
+window.filterManualStudentSearch = () => {
+  selectedManualStudentId = "";
+  const input = byId("input-manual-student-search");
+  const results = byId("manual-student-results");
+  const selection = byId("manual-student-selection");
+  if (!input || !results) return;
+  const term = normalizedStudentSearch(input.value);
+  results.replaceChildren();
+  if (selection) selection.textContent = "Busque y seleccione un alumno.";
+  if (term.length < 2) {
+    results.classList.add("hidden");
+    input.setAttribute("aria-expanded", "false");
+    return;
+  }
+
+  const students = matchingManualStudents(term);
+  if (!students.length) {
+    const empty = document.createElement("p");
+    empty.className = "p-3 text-center text-xs font-bold text-slate-500";
+    empty.textContent = "No se encontraron alumnos activos con ese nombre.";
+    results.append(empty);
+  } else {
+    for (const student of students) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "option");
+      button.className = "block w-full rounded-xl px-4 py-3 text-left hover:bg-orange-50 focus:bg-orange-50";
+      const name = document.createElement("strong");
+      name.className = "block text-xs uppercase text-slate-800";
+      name.textContent = studentDisplayName(student);
+      const metadata = document.createElement("span");
+      metadata.className = "mt-1 block text-[10px] font-bold uppercase text-slate-500";
+      metadata.textContent = [
+        normalizeSchoolLevel(student.level || student.nivel),
+        normalizeGroupName(student.grupo) && `Grupo ${normalizeGroupName(student.grupo)}`,
+        studentListNumber(student) && `Lista ${studentListNumber(student)}`,
+      ].filter(Boolean).join(" · ");
+      button.append(name, metadata);
+      button.addEventListener("click", () => window.selectManualStudent(student.id));
+      results.append(button);
+    }
+  }
+  results.classList.remove("hidden");
+  input.setAttribute("aria-expanded", "true");
+};
+
+byId("input-manual-student-search")?.addEventListener("input", window.filterManualStudentSearch);
+byId("input-manual-student-search")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  void window.manualAttendance();
+});
 
 function assignDisplayListNumbers(students) {
   return [...students].sort(compareStudentsByList).map((student) => ({
@@ -1027,12 +1132,64 @@ function selectedScheduleGroup() {
   }
 }
 
+function configuredGroupSchedule(level, group) {
+  return (Array.isArray(loggedTeacher?.groupSchedules) ? loggedTeacher.groupSchedules : []).find((item) => (
+    normalizeSchoolLevel(item?.level) === normalizeSchoolLevel(level)
+      && normalizeGroupName(item?.group) === normalizeGroupName(group)
+      && /^\d{2}:\d{2}$/.test(String(item?.entryTime || "").slice(0, 5))
+  ));
+}
+
+function teacherNeedsInitialScheduleSetup() {
+  if (loggedTeacher?.role !== "docente") return false;
+  const activeStudents = studentCatalogCache.filter((student) => !isStudentInactive(student));
+  if (!activeStudents.length) return false;
+  return !activeStudents.some((student) => configuredGroupSchedule(student.level || student.nivel, student.grupo));
+}
+
+function selectStudentScheduleGroup(student) {
+  const select = byId("schedule-group");
+  if (!select || !student) return;
+  const value = scheduleGroupKey(student.level || student.nivel, student.grupo);
+  if ([...select.options].some((option) => option.value === value)) {
+    select.value = value;
+    populateScheduleForm();
+  }
+}
+
+window.openScheduleSetup = (required = false, student = null) => {
+  populateScheduleGroupOptions();
+  scheduleSetupRequired = Boolean(required || teacherNeedsInitialScheduleSetup());
+  selectStudentScheduleGroup(student);
+  const select = byId("schedule-group");
+  if (!select || select.disabled || !select.value) {
+    return window.showModalMsg("Horario", "No hay grupos con alumnos registrados. Solicite al administrador que registre primero a los alumnos.");
+  }
+  const status = byId("schedule-setup-status");
+  if (status) status.textContent = scheduleSetupRequired
+    ? "Debe guardar al menos un horario antes de comenzar el pase de lista."
+    : "Seleccione un grupo para consultar o modificar su horario.";
+  window.safeToggle("btn-close-schedule", scheduleSetupRequired);
+  window.safeToggle("modal-teacher-schedule", false);
+  byId("schedule-entry-time")?.focus();
+};
+
+window.closeScheduleSetup = () => {
+  if (scheduleSetupRequired && teacherNeedsInitialScheduleSetup()) {
+    if (byId("schedule-setup-status")) byId("schedule-setup-status").textContent = "Guarde un horario para continuar.";
+    return;
+  }
+  scheduleSetupRequired = false;
+  window.safeToggle("modal-teacher-schedule", true);
+};
+
 function populateScheduleGroupOptions() {
   const select = byId("schedule-group");
   if (!select) return;
   const previous = select.value;
   const groups = new Map();
   for (const student of studentCatalogCache) {
+    if (isStudentInactive(student)) continue;
     const level = normalizeSchoolLevel(student.level || student.nivel);
     const group = normalizeGroupName(student.grupo);
     if (!level || !group) continue;
@@ -1086,7 +1243,7 @@ function populateScheduleForm() {
   const label = byId("current-schedule-label");
   if (!label) return;
   if (!selection) label.textContent = "Sin grupos registrados";
-  else if (schedule.entryTime) label.textContent = `${selection.level} · Grupo ${selection.group} · Entrada ${schedule.entryTime} · tolerancia ${schedule.tolerance} min${schedule.configuredForGroup ? "" : " · horario general"}`;
+  else if (schedule.entryTime) label.textContent = `${selection.level} · Grupo ${selection.group} · Pase ${schedule.entryTime} · tolerancia ${schedule.tolerance} min${schedule.configuredForGroup ? "" : " · horario general"}`;
   else label.textContent = `${selection.level} · Grupo ${selection.group} · sin horario configurado`;
 }
 
@@ -1103,6 +1260,13 @@ window.saveOwnSchedule = async () => {
     tolerance: byId("schedule-tolerance")?.value || 0,
     classDuration: byId("schedule-class-duration")?.value || 50,
   };
+  if (loggedTeacher.role === "docente" && !schedule.entryTime) {
+    byId("schedule-entry-time")?.focus();
+    if (byId("schedule-setup-status")) byId("schedule-setup-status").textContent = "Capture la hora en la que pasará lista para este grupo.";
+    return;
+  }
+  const button = byId("btn-save-own-schedule");
+  if (button) button.disabled = true;
   try {
     const response = await api.updateOwnSchedule(schedule);
     const saved = response.data.schedule;
@@ -1110,9 +1274,14 @@ window.saveOwnSchedule = async () => {
       normalizeSchoolLevel(item?.level) !== saved.level || normalizeGroupName(item?.group) !== saved.group);
     loggedTeacher = {...loggedTeacher, groupSchedules: [...groupSchedules, saved]};
     populateScheduleForm();
+    scheduleSetupRequired = false;
+    window.safeToggle("modal-teacher-schedule", true);
+    setScannerStatus(`Horario guardado para ${saved.level} · Grupo ${saved.group}. Ya puede registrar asistencias.`, "success");
     window.showModalMsg("Horario", `El horario de ${saved.level} · Grupo ${saved.group} fue guardado.`);
   } catch (error) {
-    window.showModalMsg("Horario", functionError(error));
+    if (byId("schedule-setup-status")) byId("schedule-setup-status").textContent = functionError(error);
+  } finally {
+    if (button) button.disabled = false;
   }
 };
 
@@ -1145,7 +1314,10 @@ async function switchTab(tab) {
   window.safeToggle("section-scanner", tab !== "scanner");
   window.safeToggle("section-admin", tab !== "admin");
   window.safeToggle("section-global", tab !== "global");
-  if (tab === "scanner") await window.initScanner();
+  if (tab === "scanner" && teacherNeedsInitialScheduleSetup()) {
+    if (isScannerRunning) await window.stopScanner();
+    window.openScheduleSetup(true);
+  } else if (tab === "scanner") await window.initScanner();
   else if (isScannerRunning) await window.stopScanner();
   if (tab === "admin" && loggedTeacher.role === "super") {
     window.safeToggle("super-school-selector", false);
@@ -2492,6 +2664,10 @@ window.clearAttendanceHistory = () => window.showConfirmMsg(
 
 window.initScanner = async () => {
   if (isScannerTransitioning || isScannerRunning || !loggedTeacher) return;
+  if (teacherNeedsInitialScheduleSetup()) {
+    window.openScheduleSetup(true);
+    return;
+  }
   isScannerTransitioning = true;
   showScannerStartTime();
   try {
@@ -2533,45 +2709,71 @@ window.toggleCamera = async () => {
   return isScannerRunning ? window.stopScanner() : window.initScanner();
 };
 
-window.processAttendance = async (rawId) => {
-  if (!loggedTeacher) return;
+window.processAttendance = async (rawId, options = {}) => {
+  if (!loggedTeacher) return false;
   const studentId = normalizeCode(rawId, 40);
   if (!/^[A-Z0-9._-]{4,40}$/.test(studentId)) {
     setScannerStatus("Se detectó un QR, pero su contenido no es válido para un alumno.", "error");
     await playScanSound("error");
-    return;
+    return false;
   }
-  if (attendanceInFlight.has(studentId)) return;
+  const student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === studentId);
+  const captureMethod = options.captureMethod === "manual" ? "manual" : "qr";
+  const studentName = studentDisplayName(student) || studentId;
+  if (loggedTeacher.role === "docente" && student && !configuredGroupSchedule(student.level || student.nivel, student.grupo)) {
+    setScannerStatus(`Configure el horario de ${studentName} antes de registrar su asistencia.`, "error");
+    window.openScheduleSetup(true, student);
+    return false;
+  }
+  if (attendanceInFlight.has(studentId)) return false;
   attendanceInFlight.add(studentId);
-  setScannerStatus(`QR detectado: ${studentId}. Validando asistencia…`);
+  setScannerStatus(`${captureMethod === "manual" ? "Alumno seleccionado" : "QR detectado"}: ${studentName}. Validando asistencia…`);
   await playScanSound("scan");
   try {
-    const response = await api.recordAttendance({schoolKey, studentId});
+    const response = await api.recordAttendance({schoolKey, studentId, captureMethod});
     if (response.data.created) {
       const attendanceState = normalizedAttendanceStatus(response.data.status);
-      setScannerStatus(`Asistencia registrada: ${studentId} · ${response.data.hora} · ${attendanceState}`, "success");
+      setScannerStatus(`Asistencia registrada: ${studentName} · ${response.data.hora} · ${attendanceState}`, "success");
       await playScanSound("success");
+      return true;
     } else {
-      setScannerStatus(`El alumno ${studentId} ya tenía asistencia hoy.`, "error");
+      setScannerStatus(`${studentName} ya tenía asistencia hoy.`, "error");
       await playScanSound("error");
+      return false;
     }
   } catch (error) {
     const message = functionError(error);
-    setScannerStatus(`QR leído: ${studentId}. ${message}`, "error");
+    setScannerStatus(`${studentName}: ${message}`, "error");
     await playScanSound("error");
     window.showModalMsg("Asistencia", message);
+    return false;
   } finally {
     setTimeout(() => attendanceInFlight.delete(studentId), 2500);
   }
 };
 
 window.manualAttendance = async () => {
-  const input = byId("input-manual-id");
-  const value = input?.value;
+  const input = byId("input-manual-student-search");
+  const value = normalizedStudentSearch(input?.value);
   if (!value) return;
-  input.value = "";
+  let student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === selectedManualStudentId && !isStudentInactive(item));
+  if (!student) {
+    const exactMatches = matchingManualStudents(value, studentCatalogCache.length)
+      .filter((item) => normalizedStudentSearch(studentDisplayName(item)) === value);
+    if (exactMatches.length === 1) student = exactMatches[0];
+  }
+  if (!student) {
+    window.filterManualStudentSearch();
+    return window.showModalMsg("Registro manual", "Seleccione un alumno de los resultados del buscador antes de registrar la asistencia.");
+  }
   await unlockAudio();
-  await window.processAttendance(value);
+  const created = await window.processAttendance(student.id, {captureMethod: "manual"});
+  if (created) {
+    selectedManualStudentId = "";
+    if (input) input.value = "";
+    if (byId("manual-student-selection")) byId("manual-student-selection").textContent = "Busque y seleccione un alumno.";
+    hideManualStudentResults();
+  }
 };
 
 window.processPasswordChange = async () => {
@@ -2626,7 +2828,7 @@ function listenToAttendanceToday() {
       name.textContent = [log.apellido, log.materno, log.nombre].map((value) => normalizeText(value)).filter(Boolean).join(" ");
       const time = document.createElement("p");
       time.className = "text-xs text-slate-500";
-      time.textContent = `Hora de escaneo: ${normalizeText(log.hora)} · ${normalizeText(log.profesorNombre) || "Sin responsable"}`;
+      time.textContent = `Hora de registro: ${normalizeText(log.hora)} · ${log.captureMethod === "manual" ? "Manual" : "QR"} · ${normalizeText(log.profesorNombre) || "Sin responsable"}`;
       description.append(name, time);
       const state = document.createElement("span");
       const attendanceState = normalizedAttendanceStatus(log.status);
