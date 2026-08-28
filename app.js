@@ -36,6 +36,7 @@ const firebaseConfig = {
 
 const APP_ROOT_PATH = "listadeasistencia";
 const DEFAULT_ACCENT = "#3b82f6";
+const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.34.0";
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
@@ -66,6 +67,8 @@ const api = Object.fromEntries([
   "setSchoolVerification",
   "correctSchoolCct",
   "deleteSchool",
+  "listAuditLogs",
+  "recordAuditEvent",
 ].map((name) => [name, httpsCallable(functions, name)]));
 
 let schoolKey = "";
@@ -77,6 +80,7 @@ let html5QrScanner = null;
 let isScannerRunning = false;
 let isScannerTransitioning = false;
 let unsubscribeAttendance = null;
+let unsubscribeSchoolProfile = null;
 let modalPreviousFocus = null;
 let teacherBeingRepaired = "";
 let studentRegistrationInFlight = false;
@@ -91,6 +95,7 @@ let pendingLogoDataUrl = "";
 const attendanceInFlight = new Set();
 let schoolSelectionLoadVersion = 0;
 let globalSchoolsLoadVersion = 0;
+let auditHistory = [];
 
 const byId = (id) => document.getElementById(id);
 
@@ -469,6 +474,7 @@ window.applySchoolBranding = (data = {}) => {
   document.documentElement.style.setProperty("--primary-color", primaryColor);
   document.documentElement.style.setProperty("--accent-color", accentColor);
   const logoDataUrl = premium && /^data:image\/(?:png|jpeg|webp);base64,/i.test(String(data.logoDataUrl || "")) ? data.logoDataUrl : "";
+  const visibleLogoUrl = logoDataUrl || DEFAULT_APP_ICON;
   const logoBackgroundMode = data.brandLogoBackgroundMode === "color" ? "color" : "transparent";
   const logoBackgroundColor = /^#[0-9a-f]{6}$/i.test(String(data.brandLogoBackgroundColor || ""))
     ? data.brandLogoBackgroundColor
@@ -477,21 +483,15 @@ window.applySchoolBranding = (data = {}) => {
     const container = byId(id);
     if (!container) continue;
     container.replaceChildren();
-    if (logoDataUrl) {
-      container.style.backgroundColor = logoBackgroundMode === "color" ? logoBackgroundColor : "transparent";
-      const logo = document.createElement("img");
-      logo.src = logoDataUrl;
-      logo.alt = typeof data.name === "string" ? `Logotipo de ${data.name}` : "Logotipo institucional";
-      logo.className = "logo-img";
-      container.append(logo);
-    } else {
-      container.style.removeProperty("background-color");
-      const icon = document.createElement("i");
-      icon.className = id === "header-logo-container" ? "fas fa-graduation-cap text-xl" : "fas fa-university text-5xl text-slate-200";
-      icon.setAttribute("aria-hidden", "true");
-      container.append(icon);
-    }
+    container.style.backgroundColor = logoDataUrl && logoBackgroundMode === "color" ? logoBackgroundColor : "transparent";
+    const logo = document.createElement("img");
+    logo.src = visibleLogoUrl;
+    logo.alt = logoDataUrl && typeof data.name === "string" ? `Logotipo de ${data.name}` : "Logotipo de Control de Asistencia";
+    logo.className = "logo-img";
+    container.append(logo);
   }
+  const browserIcon = document.querySelector('link[rel="icon"]');
+  if (browserIcon) browserIcon.href = visibleLogoUrl;
   document.querySelectorAll("[data-free-ad]").forEach((element) => element.classList.toggle("hidden", premium));
   window.safeToggle("premium-upsell", premium);
   if (typeof data.name === "string") {
@@ -500,7 +500,37 @@ window.applySchoolBranding = (data = {}) => {
   }
 };
 
+function stopSchoolProfileListener() {
+  unsubscribeSchoolProfile?.();
+  unsubscribeSchoolProfile = null;
+}
+
+function startSchoolProfileListener() {
+  stopSchoolProfileListener();
+  if (!schoolKey || schoolKey === "SISTEMA" || loggedTeacher?.role === "super") return;
+  const schoolRef = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios", schoolKey);
+  unsubscribeSchoolProfile = onSnapshot(schoolRef, (snapshot) => {
+    if (!snapshot.exists()) return;
+    const previousPremium = currentSchool?.isPremium === true;
+    currentSchool = {...snapshot.data(), id: schoolKey};
+    schoolName = normalizeText(currentSchool.name || schoolKey);
+    window.applySchoolBranding(currentSchool);
+    if (byId("header-school-name")) byId("header-school-name").textContent = schoolName;
+    if (previousPremium !== (currentSchool.isPremium === true)) {
+      window.safeToggle("premium-badge-local", currentSchool.isPremium !== true);
+      window.safeToggle("invite-branding-panel", currentSchool.isPremium === true);
+      window.safeToggle("premium-branding-panel", currentSchool.isPremium !== true);
+      if (byId("brand-logo-help")) {
+        byId("brand-logo-help").textContent = currentSchool.isPremium === true
+          ? "Este logotipo está activo en la identidad visual del plantel."
+          : "Puede prepararlo ahora; se aplicará automáticamente cuando Soporte active Premium.";
+      }
+    }
+  }, () => {});
+}
+
 window.resetGateway = () => {
+  stopSchoolProfileListener();
   schoolKey = "";
   schoolName = "";
   currentSchool = null;
@@ -530,6 +560,7 @@ window.resetGateway = () => {
 window.logout = async () => {
   unsubscribeAttendance?.();
   unsubscribeAttendance = null;
+  stopSchoolProfileListener();
   schoolSelectionLoadVersion += 1;
   globalSchoolsLoadVersion += 1;
   if (isScannerRunning) await window.stopScanner();
@@ -827,6 +858,13 @@ function launchStudentPrint(content, afterMount) {
 }
 
 function printGroupRoster(levelLabel, groupLabel, students) {
+  recordClientAudit(
+    "print_group_roster",
+    `${levelLabel}-${groupLabel}`,
+    `${levelLabel} · ${groupLabel}`,
+    `Solicitó imprimir la lista de ${students.length} alumnos.`,
+    {studentCount: students.length},
+  );
   const content = document.createElement("div");
   content.append(createStudentPrintHeader("Lista del grupo", levelLabel, groupLabel));
   const table = document.createElement("table");
@@ -859,6 +897,13 @@ function printStudentQrs(levelLabel, groupLabel, students) {
   if (typeof window.QRCode !== "function") return window.showModalMsg("Códigos QR", "El generador de códigos QR no está disponible. Recargue la página e inténtelo nuevamente.");
   const content = document.createElement("div");
   const grid = document.createElement("div");
+  recordClientAudit(
+    "print_student_qr",
+    students.map((student) => student.id).slice(0, 20).join(","),
+    students.length === 1 ? studentDisplayName(students[0]) : `${levelLabel} · ${groupLabel}`,
+    `Solicitó imprimir ${students.length} código${students.length === 1 ? "" : "s"} QR.`,
+    {studentCount: students.length},
+  );
   grid.className = `student-qr-grid${students.length === 1 ? " student-qr-single" : ""}`;
   const qrTargets = [];
   for (const student of [...students].sort(compareStudentsByList)) {
@@ -1300,6 +1345,7 @@ async function enterApp() {
   window.safeToggle("maint-cat-institucion", !isMaster());
   if (superUser) await window.switchTab("global");
   else {
+    startSchoolProfileListener();
     await loadStudents();
     listenToAttendanceToday();
     await window.switchTab("scanner");
@@ -1327,7 +1373,7 @@ async function switchTab(tab) {
     window.safeToggle("super-school-selector", true);
     window.safeToggle("school-management-cards", false);
   }
-  if (tab === "global") await window.loadAllSchools();
+  if (tab === "global") await Promise.all([window.loadAllSchools(), window.loadAuditHistory()]);
 }
 
 window.loadSchoolsForSelection = async () => {
@@ -1619,7 +1665,7 @@ window.switchMaintCategory = async (category) => {
     "edit-logo-background-color": /^#[0-9a-f]{6}$/i.test(String(data.brandLogoBackgroundColor || "")) ? data.brandLogoBackgroundColor : "#ffffff",
   };
   for (const [id, value] of Object.entries(fields)) if (byId(id)) byId(id).value = value ?? "";
-  pendingLogoDataUrl = String(data.logoDataUrl || "");
+  pendingLogoDataUrl = String(data.isPremium === true ? data.logoDataUrl || "" : data.pendingLogoDataUrl || "");
   const logoPreview = byId("brand-logo-preview");
   if (logoPreview) {
     if (pendingLogoDataUrl) logoPreview.src = pendingLogoDataUrl;
@@ -1630,6 +1676,11 @@ window.switchMaintCategory = async (category) => {
   window.safeToggle("premium-badge-local", data.isPremium !== true);
   window.safeToggle("invite-branding-panel", data.isPremium === true);
   window.safeToggle("premium-branding-panel", data.isPremium !== true);
+  if (byId("brand-logo-help")) {
+    byId("brand-logo-help").textContent = data.isPremium === true
+      ? "Este logotipo está activo en la identidad visual del plantel."
+      : "Puede prepararlo ahora; se aplicará automáticamente cuando Soporte active Premium.";
+  }
   window.safeToggle("super-cct-correction-panel", loggedTeacher?.role !== "super");
   if (byId("correct-school-cct")) byId("correct-school-cct").value = "";
 };
@@ -1712,6 +1763,8 @@ window.updateSchoolGlobalData = async () => {
     profile.brandLogoBackgroundMode = byId("edit-logo-background-mode")?.value === "color" ? "color" : "transparent";
     profile.brandLogoBackgroundColor = byId("edit-logo-background-color")?.value || "#ffffff";
     profile.logoDataUrl = pendingLogoDataUrl;
+  } else {
+    profile.pendingLogoDataUrl = pendingLogoDataUrl;
   }
   try {
     await api.updateSchool({schoolKey, profile});
@@ -2022,6 +2075,13 @@ window.handleBatchImport = async (event) => {
     await commitStudentChunks(students, (ratio) => { bar.style.width = `${Math.round(ratio * 100)}%`; });
     text.textContent = "Aplicando numeración y nuevos identificadores QR…";
     await api.renumberStudentGroup({schoolKey, level, group});
+    recordClientAudit(
+      "students_imported",
+      `${level}-${group}`,
+      `${level} · Grupo ${group}`,
+      `Importó ${students.length} alumnos desde ${file.name}.`,
+      {studentCount: students.length, fileName: file.name},
+    );
     bar.classList.add("progress-success");
     const orderLabel = sourceOrder === "names-first" ? "nombres primero" : "apellidos primero";
     const skippedLabel = imported.skippedRows ? ` Se omitieron ${imported.skippedRows} filas incompletas.` : "";
@@ -2092,6 +2152,13 @@ window.addStudent = async () => {
       manualId: Boolean(manualId),
       createdAt: serverTimestamp(),
     });
+    recordClientAudit(
+      "student_created",
+      id,
+      [paterno, materno, names].filter(Boolean).join(" "),
+      `Registró al alumno en ${level} · Grupo ${group}.`,
+      {level, group, list},
+    );
     ["input-a-id", "input-a-paterno", "input-a-materno", "input-a-nombres", "input-a-grupo", "input-a-nivel"].forEach((field) => { if (byId(field)) byId(field).value = ""; });
     await loadStudents();
     window.openSingleStudentQRPrintModal({
@@ -2277,7 +2344,7 @@ window.createSchool = async () => {
     await api.createSchool({schoolKey: newSchoolKey, schoolName: schoolNameInput, directorName, adminName, adminId, password});
     ["school-create-cct", "school-create-name", "school-create-director", "school-create-admin-name", "school-create-admin-id", "school-create-password", "school-create-password-confirm"]
       .forEach((id) => { byId(id).value = ""; });
-    await window.loadAllSchools();
+    await Promise.all([window.loadAllSchools(), window.loadAuditHistory()]);
     window.showModalMsg("Plantel creado", `La CCT ${newSchoolKey} quedó registrada con el administrador ${adminId}. La contraseña capturada quedó activa como contraseña definitiva.`);
   } catch (error) {
     window.showModalMsg("Alta de plantel", functionError(error));
@@ -2288,6 +2355,101 @@ window.createSchool = async () => {
     }
   }
 };
+
+const AUDIT_ACTION_LABELS = {
+  school_created: "Plantel creado",
+  school_updated: "Plantel actualizado",
+  school_deleted: "Plantel eliminado",
+  school_cct_corrected: "CCT corregida",
+  school_verification_changed: "Verificación modificada",
+  premium_enabled: "Premium activado",
+  premium_disabled: "Premium desactivado",
+  teacher_created: "Usuario creado",
+  teacher_updated: "Usuario actualizado",
+  teacher_role_changed: "Rol modificado",
+  teacher_approved: "Usuario aprobado",
+  teacher_deleted: "Usuario eliminado",
+  student_created: "Alumno creado",
+  students_imported: "Alumnos importados",
+  student_disabled: "Alumno dado de baja",
+  student_enabled: "Alumno reactivado",
+  students_cleared: "Catálogo eliminado",
+  student_group_renumbered: "Grupo renumerado",
+  attendance_cleared: "Asistencias eliminadas",
+  print_group_roster: "Solicitó imprimir lista",
+  print_student_qr: "Solicitó imprimir QR",
+  print_attendance_report: "Solicitó imprimir reporte",
+};
+
+function auditCategory(action) {
+  if (/print/.test(action)) return "print";
+  if (/deleted|disabled|cleared/.test(action)) return "delete";
+  if (/premium/.test(action)) return "premium";
+  if (/teacher|role/.test(action)) return "security";
+  return "school";
+}
+
+function auditDateLabel(milliseconds) {
+  if (!Number.isFinite(Number(milliseconds))) return "Pendiente";
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    timeZone: "America/Mexico_City",
+  }).format(new Date(Number(milliseconds)));
+}
+
+window.renderAuditHistory = () => {
+  const body = byId("audit-history-body");
+  if (!body) return;
+  const search = normalizeText(byId("audit-history-search")?.value, 120).toUpperCase();
+  const category = String(byId("audit-history-filter")?.value || "");
+  const visible = auditHistory.filter((entry) => {
+    if (category && auditCategory(entry.action) !== category) return false;
+    if (!search) return true;
+    return [entry.schoolKey, entry.actorName, entry.actorId, entry.action, entry.targetId, entry.targetLabel, entry.summary]
+      .some((value) => normalizeText(value, 240).toUpperCase().includes(search));
+  });
+  body.replaceChildren();
+  for (const entry of visible) {
+    const row = document.createElement("tr");
+    row.append(
+      createCell(auditDateLabel(entry.createdAt), "p-3 whitespace-nowrap text-slate-600"),
+      createCell(`${normalizeText(entry.actorName || entry.actorId)} · ${normalizeText(entry.actorRole)}`, "font-bold text-slate-800"),
+      createCell(normalizeCode(entry.schoolKey, 40) || "SISTEMA", "font-black"),
+      createCell(AUDIT_ACTION_LABELS[entry.action] || normalizeText(entry.action), "font-bold"),
+      createCell(normalizeText(entry.targetLabel || entry.targetId) || "—"),
+      createCell(normalizeText(entry.summary) || "—", "max-w-sm normal-case text-slate-600"),
+    );
+    body.append(row);
+  }
+  if (!visible.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.className = "p-8 text-center text-slate-400";
+    cell.textContent = auditHistory.length ? "Ninguna acción coincide con los filtros." : "Todavía no hay acciones registradas.";
+    row.append(cell);
+    body.append(row);
+  }
+  if (byId("audit-history-status")) byId("audit-history-status").textContent = `${visible.length} de ${auditHistory.length} acciones`;
+};
+
+window.loadAuditHistory = async () => {
+  if (loggedTeacher?.role !== "super") return;
+  if (byId("audit-history-status")) byId("audit-history-status").textContent = "Cargando historial…";
+  try {
+    const response = await api.listAuditLogs({limit: 250});
+    auditHistory = Array.isArray(response.data?.logs) ? response.data.logs : [];
+    window.renderAuditHistory();
+  } catch (error) {
+    if (byId("audit-history-status")) byId("audit-history-status").textContent = functionError(error, "No fue posible cargar el historial.");
+  }
+};
+
+function recordClientAudit(action, targetId, targetLabel, summary = "", metadata = {}) {
+  if (!loggedTeacher || !schoolKey || schoolKey === "SISTEMA") return;
+  api.recordAuditEvent({schoolKey, action, targetId, targetLabel, summary, metadata}).catch(() => {});
+}
 
 window.loadAllSchools = async () => {
   if (loggedTeacher?.role !== "super") return;
@@ -2365,22 +2527,33 @@ window.setSchoolVerification = (id, verificationStatus) => {
   const action = verificationStatus === "verified" ? "validar" : "marcar en disputa";
   window.showConfirmMsg("Verificación de CCT", `¿Confirmar que desea ${action} la CCT ${cct}?`, async () => {
     await api.setSchoolVerification({schoolKey: cct, verificationStatus});
-    await window.loadAllSchools();
+    await Promise.all([window.loadAllSchools(), window.loadAuditHistory()]);
   });
 };
 
-window.togglePremiumMaster = async (id, field, current) => {
-  try {
-    await api.toggleSchoolFlag({schoolKey: id, field, value: !current});
-    await window.loadAllSchools();
-  } catch (error) {
-    window.showModalMsg("Error", functionError(error));
-  }
+window.togglePremiumMaster = (id, field, current) => {
+  const enabling = !current;
+  const message = enabling
+    ? `¿Activar Premium para ${id}? Si el administrador ya preparó un logotipo, se aplicará automáticamente.`
+    : `¿Desactivar Premium para ${id}? El logotipo institucional se conservará, pero dejará de mostrarse mientras el plantel sea Free.`;
+  window.showConfirmMsg(enabling ? "Activar Premium" : "Desactivar Premium", message, async () => {
+    try {
+      const response = await api.toggleSchoolFlag({schoolKey: id, field, value: enabling});
+      await Promise.all([window.loadAllSchools(), window.loadAuditHistory()]);
+      const logoMessage = response.data?.logoApplied
+        ? " También se aplicó el logotipo preparado por el administrador."
+        : response.data?.logoAvailable ? " También se reactivó el logotipo institucional existente."
+        : enabling ? " El administrador ya puede configurar o cambiar su logotipo." : "";
+      window.showModalMsg("Premium", `${enabling ? "Premium activado." : "Premium desactivado."}${logoMessage}`);
+    } catch (error) {
+      window.showModalMsg("Error", functionError(error));
+    }
+  });
 };
 
 window.deleteSchoolGlobal = (id) => window.showConfirmMsg("Eliminar escuela", `¿Borrar permanentemente ${id}, incluyendo alumnos, docentes y asistencias?`, async () => {
   await api.deleteSchool({schoolKey: id});
-  await window.loadAllSchools();
+  await Promise.all([window.loadAllSchools(), window.loadAuditHistory()]);
 });
 
 function reportGroupFromStudent(student) {
@@ -2629,6 +2802,13 @@ window.printAttendanceReport = () => {
   if (!latestAttendanceReport?.students?.length || !latestAttendanceReport?.dates?.length) {
     return window.showModalMsg("Impresión", "Primero genere un reporte de asistencia.");
   }
+  recordClientAudit(
+    "print_attendance_report",
+    `${latestAttendanceReport.from}_${latestAttendanceReport.to}`,
+    `${latestAttendanceReport.from} a ${latestAttendanceReport.to}`,
+    `Solicitó imprimir el reporte de ${latestAttendanceReport.students.length} alumnos y ${latestAttendanceReport.groups.length} grupos.`,
+    {studentCount: latestAttendanceReport.students.length, groupCount: latestAttendanceReport.groups.length},
+  );
   const content = document.createElement("div");
   content.className = "attendance-report-document";
   const dateChunks = [];

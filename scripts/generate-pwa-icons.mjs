@@ -1,11 +1,18 @@
 import {deflateSync} from "node:zlib";
-import {mkdirSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, writeFileSync} from "node:fs";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outputDirectory = join(root, "icons");
 mkdirSync(outputDirectory, {recursive: true});
+
+const customIconPath = join(outputDirectory, "custom-app-icon.png");
+if (existsSync(customIconPath)) {
+  throw new Error(
+    "Existe icons/custom-app-icon.png. Usa scripts/generate-custom-pwa-icons.ps1 para no reemplazar el logotipo personalizado.",
+  );
+}
 
 const palette = {
   navy: [15, 23, 42, 255],

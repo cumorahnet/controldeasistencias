@@ -330,14 +330,14 @@ test("registra el service worker con ruta y alcance relativos", () => {
   harness.dispatch("load");
 
   assert.equal(harness.serviceWorkerRegistrations.length, 1);
-  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=36.32.0");
+  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=36.34.0");
   assert.equal(harness.serviceWorkerRegistrations[0].options.scope, "./");
 });
 
 test("la versión 6 no conserva textos ni claves de los intentos anteriores", () => {
   assert.doesNotMatch(installScript, /control-asistencia-pwa-install-seen-v5/);
   assert.doesNotMatch(installScript, /Crear acceso directo|Abra esta liga|Ver cómo instalar/);
-  assert.match(html, /pwa-install\.js\?v=6/);
+  assert.match(html, /pwa-install\.js\?v=36\.34\.0/);
   assert.equal((html.match(/data-pwa-install-action/g) || []).length, 2);
   assert.match(html, /id="install-app-benefits"/);
   assert.match(html, /id="install-app-steps"/);
@@ -365,7 +365,7 @@ test("manifiesto, iconos y app shell cumplen los requisitos PWA", () => {
     assert.equal(png.readUInt32BE(20), requiredSize);
   }
 
-  assert.match(serviceWorker, /control-asistencia-36\.32\.0-pwa-v6/);
+  assert.match(serviceWorker, /control-asistencia-36\.34\.0-pwa-v8/);
   assert.match(serviceWorker, /"manifest\.webmanifest"/);
   assert.match(serviceWorker, /"pwa-install\.js"/);
 });

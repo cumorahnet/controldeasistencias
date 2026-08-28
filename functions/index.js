@@ -43,12 +43,56 @@ function schoolRegistrationRequestsRef() {
   return privateDataRef().collection("school_registration_requests");
 }
 
+function auditLogsRef() {
+  return privateDataRef().collection("audit_logs");
+}
+
 function normalizeCode(value, maxLength = 80) {
   return String(value || "").trim().toUpperCase().slice(0, maxLength);
 }
 
 function normalizeText(value, maxLength = 160) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, maxLength);
+}
+
+function safeAuditMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const metadata = {};
+  for (const [rawKey, rawValue] of Object.entries(value).slice(0, 20)) {
+    const key = String(rawKey).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40);
+    if (!key) continue;
+    if (typeof rawValue === "boolean" || (typeof rawValue === "number" && Number.isFinite(rawValue))) metadata[key] = rawValue;
+    else if (typeof rawValue === "string") metadata[key] = normalizeText(rawValue, 240);
+  }
+  return metadata;
+}
+
+function auditLogData(token, event = {}) {
+  return {
+    action: normalizeText(event.action, 80).toLowerCase(),
+    schoolKey: normalizeCode(event.schoolKey || token.schoolKey || "SISTEMA", 40),
+    targetType: normalizeText(event.targetType, 60).toLowerCase(),
+    targetId: normalizeText(event.targetId, 240),
+    targetLabel: normalizeText(event.targetLabel, 240),
+    summary: normalizeText(event.summary, 500),
+    actorUid: normalizeText(token.sub, 160),
+    actorId: normalizeText(token.teacherId || token.email || token.sub, 160),
+    actorName: normalizeText(token.name || token.email || token.teacherId || token.sub, 160),
+    actorRole: normalizeText(token.role, 40),
+    source: event.source === "client" ? "client" : "server",
+    metadata: safeAuditMetadata(event.metadata),
+    createdAt: FieldValue.serverTimestamp(),
+  };
+}
+
+async function writeAuditLog(token, event) {
+  const data = auditLogData(token, event);
+  if (!data.action) return;
+  try {
+    await auditLogsRef().add(data);
+  } catch (error) {
+    console.error("No fue posible guardar el historial de auditoría.", {action: data.action, code: error?.code || "unknown"});
+  }
 }
 
 function normalizeSchoolLevel(value) {
@@ -577,6 +621,15 @@ exports.createSchool = onCall(async (request) => {
     });
     if (pendingRequest.exists) transaction.delete(pendingRequestRef);
   });
+  await writeAuditLog(token, {
+    action: "school_created",
+    schoolKey,
+    targetType: "school",
+    targetId: schoolKey,
+    targetLabel: schoolName,
+    summary: `Creó el plantel y su administrador inicial ${adminId}.`,
+    metadata: {administratorId: adminId},
+  });
   return {ok: true, school: {id: schoolKey, name: schoolName}, administrator: {id: adminId, nombre: adminName}};
 });
 
@@ -692,6 +745,15 @@ exports.createTeacher = onCall(async (request) => {
       createdAt: FieldValue.serverTimestamp(),
     });
   });
+  await writeAuditLog(token, {
+    action: "teacher_created",
+    schoolKey,
+    targetType: "teacher",
+    targetId: teacherId,
+    targetLabel: name,
+    summary: `Creó la cuenta con rol ${role}.`,
+    metadata: {role},
+  });
   return {ok: true, teacher: {id: teacherId, nombre: name, role, passwordChangeRequired: true}};
 });
 
@@ -774,6 +836,58 @@ exports.changeTeacherId = onCall(async () => {
   throw new HttpsError("failed-precondition", "El ID de usuario ya no funciona como contraseña. Utilice el cambio de contraseña.");
 });
 
+exports.listAuditLogs = onCall(async (request) => {
+  const token = await assertRole(request, new Set());
+  if (token.role !== "super") throw new HttpsError("permission-denied", "El historial global requiere el rol maestro global.");
+  const limit = Math.max(1, Math.min(500, Number(request.data?.limit || 250)));
+  const snapshot = await auditLogsRef().orderBy("createdAt", "desc").limit(limit).get();
+  return {
+    logs: snapshot.docs.map((document) => {
+      const data = document.data() || {};
+      return {
+        id: document.id,
+        action: normalizeText(data.action, 80),
+        schoolKey: normalizeCode(data.schoolKey, 40),
+        targetType: normalizeText(data.targetType, 60),
+        targetId: normalizeText(data.targetId, 240),
+        targetLabel: normalizeText(data.targetLabel, 240),
+        summary: normalizeText(data.summary, 500),
+        actorId: normalizeText(data.actorId, 160),
+        actorName: normalizeText(data.actorName, 160),
+        actorRole: normalizeText(data.actorRole, 40),
+        source: data.source === "client" ? "client" : "server",
+        metadata: safeAuditMetadata(data.metadata),
+        createdAt: typeof data.createdAt?.toMillis === "function" ? data.createdAt.toMillis() : null,
+      };
+    }),
+  };
+});
+
+exports.recordAuditEvent = onCall(async (request) => {
+  const token = await assertRole(request, ADMIN_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const action = normalizeText(request.data?.action, 80).toLowerCase();
+  const allowedActions = new Set([
+    "student_created",
+    "students_imported",
+    "print_group_roster",
+    "print_student_qr",
+    "print_attendance_report",
+  ]);
+  if (!allowedActions.has(action)) throw new HttpsError("invalid-argument", "La acción no puede registrarse desde el cliente.");
+  await writeAuditLog(token, {
+    action,
+    schoolKey,
+    targetType: action.startsWith("print_") ? "print_job" : "student",
+    targetId: request.data?.targetId,
+    targetLabel: request.data?.targetLabel,
+    summary: request.data?.summary,
+    metadata: request.data?.metadata,
+    source: "client",
+  });
+  return {ok: true};
+});
+
 exports.updateSchool = onCall(async (request) => {
   const token = await assertRole(request, MASTER_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
@@ -786,6 +900,7 @@ exports.updateSchool = onCall(async (request) => {
     tolerance: Math.max(0, Math.min(120, Number(input.tolerance || 0))),
     classDuration: Math.max(1, Math.min(240, Number(input.classDuration || 50))),
     updatedAt: FieldValue.serverTimestamp(),
+    updatedBy: token.teacherId || token.role,
   };
   const contactEmail = normalizeText(input.contactEmail, 160).toLowerCase();
   if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
@@ -796,6 +911,15 @@ exports.updateSchool = onCall(async (request) => {
   const schoolRef = schoolsRef().doc(schoolKey);
   const schoolSnapshot = await schoolRef.get();
   if (!schoolSnapshot.exists) throw new HttpsError("not-found", "La CCT no está registrada. Créela desde el panel maestro.");
+  if (Object.hasOwn(input, "pendingLogoDataUrl")) {
+    const pendingLogoDataUrl = String(input.pendingLogoDataUrl || "");
+    if (pendingLogoDataUrl && (!/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(pendingLogoDataUrl) || pendingLogoDataUrl.length > 300000)) {
+      throw new HttpsError("invalid-argument", "El logotipo preparado debe ser PNG, JPG o WebP y pesar menos de 220 KB.");
+    }
+    profile.pendingLogoDataUrl = pendingLogoDataUrl;
+    profile.pendingLogoUpdatedAt = FieldValue.serverTimestamp();
+    profile.pendingLogoUpdatedBy = token.teacherId || token.role;
+  }
   const brandingRequested = ["brandPrimaryColor", "brandAccentColor", "brandLogoBackgroundMode", "brandLogoBackgroundColor", "logoDataUrl"].some((field) => Object.hasOwn(input, field));
   if (brandingRequested) {
     if (schoolSnapshot.get("isPremium") !== true) {
@@ -818,6 +942,7 @@ exports.updateSchool = onCall(async (request) => {
     profile.brandLogoBackgroundMode = logoBackgroundMode;
     profile.brandLogoBackgroundColor = logoBackgroundColor;
     profile.logoDataUrl = logoDataUrl;
+    profile.pendingLogoDataUrl = FieldValue.delete();
     profile.allowBranding = true;
   }
   const batch = db.batch();
@@ -828,6 +953,17 @@ exports.updateSchool = onCall(async (request) => {
     batch.set(privateDataRef().collection("school_secrets").doc(schoolKey), {passwordHash: hashSecret(newAccessKey), updatedAt: FieldValue.serverTimestamp()}, {merge: true});
   }
   await batch.commit();
+  await writeAuditLog(token, {
+    action: "school_updated",
+    schoolKey,
+    targetType: "school",
+    targetId: schoolKey,
+    targetLabel: profile.name,
+    summary: Object.hasOwn(input, "pendingLogoDataUrl") && schoolSnapshot.get("isPremium") !== true
+      ? "Actualizó los datos del plantel y preparó su logotipo para Premium."
+      : "Actualizó los datos institucionales del plantel.",
+    metadata: {changedFields: Object.keys(input).filter((field) => field !== "accessKey").join(",")},
+  });
   return {ok: true};
 });
 
@@ -848,6 +984,15 @@ exports.updateTeacherRole = onCall(async (request) => {
   }
   await targetRef.update({role, updatedAt: FieldValue.serverTimestamp(), updatedBy: token.teacherId || token.role});
   await revokeTeacherSessions(target.get("authUid") || teacherUid(schoolKey, teacherId));
+  await writeAuditLog(token, {
+    action: "teacher_role_changed",
+    schoolKey,
+    targetType: "teacher",
+    targetId: teacherId,
+    targetLabel: normalizeText(target.get("nombre") || teacherId, 120),
+    summary: `Cambió el rol de ${target.get("role") || "sin rol"} a ${role}.`,
+    metadata: {previousRole: target.get("role") || "", role},
+  });
   return {ok: true};
 });
 
@@ -901,6 +1046,15 @@ exports.repairTeacherAccount = onCall(async (request) => {
     transaction.set(currentRef, repaired);
   });
   if (temporaryPassword) await revokeTeacherSessions(authUid);
+  await writeAuditLog(token, {
+    action: "teacher_updated",
+    schoolKey,
+    targetType: "teacher",
+    targetId: teacherId,
+    targetLabel: name,
+    summary: temporaryPassword ? "Actualizó la cuenta y restableció su acceso." : "Actualizó los datos de la cuenta.",
+    metadata: {accessReset: Boolean(temporaryPassword), role},
+  });
   return {ok: true, teacher: {id: teacherId, nombre: name, role, accessReset: Boolean(temporaryPassword)}};
 });
 
@@ -909,6 +1063,14 @@ exports.approveTeacher = onCall(async (request) => {
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const teacherId = requireIdentifier(request.data?.teacherId, "ID docente");
   await schoolCollection(schoolKey, "maestros").doc(teacherId).update({status: "active", approvedAt: FieldValue.serverTimestamp(), approvedBy: token.teacherId || token.role});
+  await writeAuditLog(token, {
+    action: "teacher_approved",
+    schoolKey,
+    targetType: "teacher",
+    targetId: teacherId,
+    targetLabel: teacherId,
+    summary: "Aprobó y activó la cuenta.",
+  });
   return {ok: true};
 });
 
@@ -930,6 +1092,15 @@ exports.deleteTeacher = onCall(async (request) => {
   batch.delete(teacherCredentialRef(schoolKey, teacherId));
   await batch.commit();
   await revokeTeacherSessions(authUid);
+  await writeAuditLog(token, {
+    action: "teacher_deleted",
+    schoolKey,
+    targetType: "teacher",
+    targetId: teacherId,
+    targetLabel: normalizeText(target.get("nombre") || teacherId, 120),
+    summary: `Eliminó la cuenta con rol ${target.get("role") || "sin rol"}.`,
+    metadata: {role: target.get("role") || ""},
+  });
   return {ok: true};
 });
 
@@ -1002,6 +1173,14 @@ exports.deleteStudent = onCall(async (request) => {
     statusUpdatedAt: FieldValue.serverTimestamp(),
     statusUpdatedBy: token.teacherId || token.role,
   });
+  await writeAuditLog(token, {
+    action: "student_disabled",
+    schoolKey,
+    targetType: "student",
+    targetId: studentId,
+    targetLabel: [student.get("paterno"), student.get("materno"), student.get("nombres")].map((value) => normalizeText(value, 100)).filter(Boolean).join(" "),
+    summary: "Dio de baja al alumno; su QR dejó de registrar asistencia.",
+  });
   return {ok: true, active: false};
 });
 
@@ -1018,6 +1197,14 @@ exports.setStudentActive = onCall(async (request) => {
     status: active ? "active" : "inactive",
     statusUpdatedAt: FieldValue.serverTimestamp(),
     statusUpdatedBy: token.teacherId || token.role,
+  });
+  await writeAuditLog(token, {
+    action: active ? "student_enabled" : "student_disabled",
+    schoolKey,
+    targetType: "student",
+    targetId: studentId,
+    targetLabel: [student.get("paterno"), student.get("materno"), student.get("nombres")].map((value) => normalizeText(value, 100)).filter(Boolean).join(" "),
+    summary: active ? "Reactivó al alumno y su QR." : "Dio de baja al alumno; su QR dejó de registrar asistencia.",
   });
   return {ok: true, active};
 });
@@ -1125,6 +1312,19 @@ exports.renumberStudentGroup = onCall({timeoutSeconds: 540, memory: "512MiB"}, a
     });
   }
   await studentBatch.commit();
+  await writeAuditLog(token, {
+    action: "student_group_renumbered",
+    schoolKey,
+    targetType: "student_group",
+    targetId: `${level}-${group}`,
+    targetLabel: `${level} · Grupo ${group}`,
+    summary: `Renumeró ${desiredStudents.length} alumnos y actualizó sus identificadores QR.`,
+    metadata: {
+      students: desiredStudents.length,
+      changedIds: desiredStudents.filter((student) => student.id !== student.newId).length,
+      attendanceRecords: [...attendanceByDate.values()].reduce((total, migrations) => total + migrations.length, 0),
+    },
+  });
   return {
     ok: true,
     students: desiredStudents.length,
@@ -1161,6 +1361,14 @@ exports.clearStudents = onCall(async (request) => {
   const token = await assertRole(request, ADMIN_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   await deleteCollection(schoolCollection(schoolKey, "alumnos"));
+  await writeAuditLog(token, {
+    action: "students_cleared",
+    schoolKey,
+    targetType: "student_catalog",
+    targetId: schoolKey,
+    targetLabel: "Catálogo completo de alumnos",
+    summary: "Eliminó permanentemente todo el catálogo de alumnos.",
+  });
   return {ok: true};
 });
 
@@ -1201,6 +1409,14 @@ exports.clearAttendance = onCall(async (request) => {
   const token = await assertRole(request, MASTER_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   await deleteCollection(schoolCollection(schoolKey, "asistencias"));
+  await writeAuditLog(token, {
+    action: "attendance_cleared",
+    schoolKey,
+    targetType: "attendance_history",
+    targetId: schoolKey,
+    targetLabel: "Historial de asistencias",
+    summary: "Eliminó permanentemente todas las asistencias del plantel.",
+  });
   return {ok: true};
 });
 
@@ -1211,11 +1427,41 @@ exports.toggleSchoolFlag = onCall(async (request) => {
   const field = String(request.data?.field || "");
   if (!new Set(["isPremium", "allowBranding"]).has(field)) throw new HttpsError("invalid-argument", "Campo no permitido.");
   const enabled = request.data?.value === true;
-  const updates = field === "isPremium"
-    ? {isPremium: enabled, allowBranding: enabled, premiumUpdatedAt: FieldValue.serverTimestamp(), premiumUpdatedBy: token.sub}
-    : {[field]: enabled};
-  await schoolsRef().doc(schoolKey).update(updates);
-  return {ok: true};
+  const schoolRef = schoolsRef().doc(schoolKey);
+  let logoApplied = false;
+  let logoAvailable = false;
+  let schoolName = schoolKey;
+  await db.runTransaction(async (transaction) => {
+    const school = await transaction.get(schoolRef);
+    if (!school.exists) throw new HttpsError("not-found", "La CCT no está registrada.");
+    schoolName = normalizeText(school.get("name") || schoolKey, 120);
+    const updates = field === "isPremium"
+      ? {isPremium: enabled, allowBranding: enabled, premiumUpdatedAt: FieldValue.serverTimestamp(), premiumUpdatedBy: token.sub}
+      : {[field]: enabled};
+    const preparedLogo = String(school.get("pendingLogoDataUrl") || "");
+    const existingLogo = String(school.get("logoDataUrl") || "");
+    if (field === "isPremium" && enabled && /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(preparedLogo)) {
+      updates.logoDataUrl = preparedLogo;
+      updates.pendingLogoDataUrl = FieldValue.delete();
+      updates.logoActivatedAt = FieldValue.serverTimestamp();
+      updates.logoActivatedBy = token.sub;
+      logoApplied = true;
+    }
+    logoAvailable = enabled && (logoApplied || /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(existingLogo));
+    transaction.update(schoolRef, updates);
+  });
+  await writeAuditLog(token, {
+    action: enabled ? "premium_enabled" : "premium_disabled",
+    schoolKey,
+    targetType: "school",
+    targetId: schoolKey,
+    targetLabel: schoolName,
+    summary: enabled
+      ? `Activó Premium${logoApplied ? " y aplicó el logotipo preparado" : ""}.`
+      : "Desactivó Premium; la identidad institucional quedó conservada.",
+    metadata: {logoApplied, logoAvailable},
+  });
+  return {ok: true, logoApplied, logoAvailable};
 });
 
 exports.setSchoolVerification = onCall(async (request) => {
@@ -1235,6 +1481,15 @@ exports.setSchoolVerification = onCall(async (request) => {
     verificationUpdatedAt: FieldValue.serverTimestamp(),
     verificationUpdatedBy: token.sub,
     ...(verificationStatus === "verified" ? {verifiedAt: FieldValue.serverTimestamp(), verifiedBy: token.sub} : {}),
+  });
+  await writeAuditLog(token, {
+    action: "school_verification_changed",
+    schoolKey,
+    targetType: "school",
+    targetId: schoolKey,
+    targetLabel: normalizeText(school.get("name") || schoolKey, 120),
+    summary: `Cambió la verificación del plantel a ${verificationStatus}.`,
+    metadata: {verificationStatus},
   });
   return {ok: true, schoolKey, verificationStatus};
 });
@@ -1336,6 +1591,15 @@ exports.correctSchoolCct = onCall({timeoutSeconds: 540, memory: "512MiB"}, async
     deleteCollection(schoolCollection(oldSchoolKey, "asistencias")),
     deleteCollection(privateDataRef().collection("teacher_credentials").where("schoolKey", "==", oldSchoolKey)),
   ]);
+  await writeAuditLog(token, {
+    action: "school_cct_corrected",
+    schoolKey: newSchoolKey,
+    targetType: "school",
+    targetId: newSchoolKey,
+    targetLabel: normalizeText(initialOldSchool.get("name") || newSchoolKey, 120),
+    summary: `Corrigió la CCT ${oldSchoolKey} a ${newSchoolKey} y migró sus datos.`,
+    metadata: {oldSchoolKey, newSchoolKey},
+  });
   return {ok: true, oldSchoolKey, newSchoolKey};
 });
 
@@ -1371,5 +1635,14 @@ exports.deleteSchool = onCall(async (request) => {
     privateDataRef().collection("school_secrets").doc(schoolKey).delete(),
     schoolRegistrationRequestsRef().doc(schoolKey).delete(),
   ]);
+  await writeAuditLog(token, {
+    action: "school_deleted",
+    schoolKey,
+    targetType: "school",
+    targetId: schoolKey,
+    targetLabel: normalizeText(schoolSnapshot.get("name") || schoolKey, 120),
+    summary: `Eliminó permanentemente el plantel y ${authUids.length} cuentas de acceso.`,
+    metadata: {deletedAuthUsers: authUids.length},
+  });
   return {ok: true, deletedAuthUsers: authUids.length};
 });

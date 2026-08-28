@@ -1,4 +1,4 @@
-const CACHE_NAME = "control-asistencia-36.32.0-pwa-v6";
+const CACHE_NAME = "control-asistencia-36.34.0-pwa-v8";
 const APP_BASE_URL = new URL("./", self.location.href);
 const appUrl = (path) => new URL(path, APP_BASE_URL).href;
 const APP_SHELL = [

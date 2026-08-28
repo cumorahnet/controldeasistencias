@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
     <title>Control de Asistencia</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=36.32.0">
-    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
-    <script src="./pwa-install.js?v=6"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=36.34.0">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.34.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.34.0">
+    <script src="./pwa-install.js?v=36.34.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -113,7 +113,7 @@
     <div id="install-app-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-end sm:items-center justify-center p-3 sm:p-4 text-center">
         <div class="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl max-w-sm w-full p-7 sm:p-8 space-y-5 border-t-8 border-orange-500">
             <div class="flex items-center gap-4 text-left">
-                <img src="./icons/app-icon-192.png" alt="" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
+                <img src="./icons/app-icon-192.png?v=36.34.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
                 <div class="min-w-0 space-y-1">
                     <p id="install-app-platform" class="text-[9px] font-black uppercase tracking-[0.18em] text-orange-600">Acceso desde tu celular</p>
                     <h2 id="install-app-title" class="text-xl font-black leading-tight text-slate-800">Control de Asistencia</h2>
@@ -222,24 +222,14 @@
             
             <div class="flex justify-center mb-2">
                 <div id="login-logo-placeholder" class="logo-container">
-                    <svg class="w-full h-full text-center" viewBox="0 0 100 100">
-                        <rect x="25" y="45" width="50" height="40" fill="#fde68a" rx="2" />
-                        <path d="M20 45 L50 20 L80 45 Z" fill="#ef4444" />
-                        <rect x="44" y="65" width="12" height="20" fill="#78350f" rx="1" />
-                        <rect x="32" y="55" width="8" height="8" fill="#bae6fd" rx="1" />
-                        <rect x="60" y="55" width="8" height="8" fill="#bae6fd" rx="1" />
-                        <line x1="75" y1="15" x2="75" y2="45" stroke="#475569" stroke-width="2" />
-                        <rect x="75" y="15" width="7" height="15" fill="#006847" />
-                        <rect x="82" y="15" width="7" height="15" fill="#ffffff" />
-                        <rect x="89" y="15" width="7" height="15" fill="#ce1126" />
-                    </svg>
+                    <img src="./icons/app-icon-512.png?v=36.34.0" alt="Logotipo de la aplicación" class="logo-img">
                 </div>
             </div>
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
                 <div class="-mt-4 flex flex-wrap items-center justify-center gap-2">
-                    <p class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500">VERSION 36.32.0</p>
+                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.34.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.34.0</button>
                     <button type="button" id="btn-install-pwa" data-pwa-install-action aria-label="Instalar app" aria-hidden="true" class="hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-white shadow-lg active:scale-95 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">
                         <i aria-hidden="true" class="fas fa-download"></i>
                         <span data-pwa-install-label>Instalar app</span>
@@ -255,7 +245,6 @@
                 </div>
                 <div class="flex flex-col gap-3">
                     <button id="btn-validate-cct" onclick="window.validateSchoolCCT()" class="w-full theme-accent text-white font-black py-5 rounded-3xl shadow-xl uppercase active:scale-95 btn-disabled">Validar Escuela</button>
-                    <button type="button" onclick="window.switchToStep('step-super-login')" class="w-full text-slate-600 py-2 rounded-2xl font-bold uppercase text-[9px] underline">Acceso maestro</button>
                     <button onclick="window.logout()" class="w-full bg-slate-50 text-slate-400 py-3 rounded-2xl font-bold uppercase text-[9px] border border-slate-100">Salir</button>
                 </div>
             </div>
@@ -305,14 +294,7 @@
         <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center">
             <div class="flex items-center gap-4 text-left">
                 <div id="header-logo-container" class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5">
-                    <svg id="default-header-icon" class="w-full h-full text-center" viewBox="0 0 100 100">
-                        <rect x="25" y="45" width="50" height="40" fill="white" rx="2" />
-                        <path d="M20 45 L50 20 L80 45 Z" fill="#ef4444" />
-                        <line x1="75" y1="15" x2="75" y2="45" stroke="white" stroke-width="2" />
-                        <rect x="75" y="15" width="7" height="15" fill="#006847" />
-                        <rect x="82" y="15" width="7" height="15" fill="#ffffff" />
-                        <rect x="89" y="15" width="7" height="15" fill="#ce1126" />
-                    </svg>
+                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.34.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
                 </div>
                 <div class="flex flex-col">
                     <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
@@ -581,7 +563,7 @@
                                 <div id="invite-branding-panel" class="bg-orange-50 border border-orange-100 p-6 rounded-[2rem] text-center text-center text-center">
                                     <i class="fas fa-lock text-orange-300 text-2xl mb-3 text-center text-center text-center"></i>
                                     <p class="text-orange-700 font-black uppercase text-[10px] mb-2 leading-tight italic text-center text-center text-center">Personalización Bloqueada</p>
-                                    <p class="text-orange-600/80 font-medium leading-normal mb-4 text-[9px] text-center text-center text-center">El logotipo y los colores se habilitan cuando Soporte confirma el pago Premium.</p>
+                                    <p class="text-orange-600/80 font-medium leading-normal mb-4 text-[9px] text-center text-center text-center">Puede preparar el logotipo ahora. Se aplicará automáticamente cuando Soporte active Premium.</p>
                                     <button onclick="window.showModalMsg('Premium','Contacta a Soporte para comprobar el pago y activar Premium.','institutional')" class="premium-btn text-center text-center text-center">SABER MÁS</button>
                                 </div>
                                 <div id="premium-branding-panel" class="hidden space-y-4 rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 text-center">
@@ -594,6 +576,10 @@
                                         <label class="text-[8px] font-black uppercase text-slate-600">Fondo del logotipo<select id="edit-logo-background-mode" onchange="window.updateLogoBackgroundPreview()" class="mt-1 h-12 w-full rounded-xl border bg-white px-2 text-center font-bold"><option value="transparent">Transparente</option><option value="color">Color personalizado</option></select></label>
                                         <label class="text-[8px] font-black uppercase text-slate-600">Color del fondo<input id="edit-logo-background-color" type="color" value="#ffffff" oninput="window.updateLogoBackgroundPreview()" class="mt-1 h-12 w-full rounded-xl border bg-white"></label>
                                     </div>
+                                </div>
+                                <div id="branding-logo-editor" class="mt-4 space-y-3 rounded-[2rem] border border-slate-200 bg-white p-5 text-center">
+                                    <h4 class="text-[10px] font-black uppercase text-slate-700">Logotipo institucional</h4>
+                                    <p id="brand-logo-help" class="text-[9px] font-medium leading-relaxed text-slate-500">Suba el logotipo que identificará al plantel.</p>
                                     <div id="brand-logo-preview-frame" class="logo-preview-frame hidden p-3"><img id="brand-logo-preview" alt="Vista previa del logotipo" class="max-h-28 max-w-full"></div>
                                     <input id="edit-brand-logo" type="file" accept="image/png,image/jpeg,image/webp" onchange="window.handleLogoUpload(event)" class="w-full text-[9px]">
                                     <button type="button" onclick="window.removeBrandLogo()" class="rounded-xl border border-slate-300 px-4 py-2 text-[8px] font-black uppercase text-slate-600">Quitar logotipo</button>
@@ -644,6 +630,27 @@
                     <button id="btn-create-school" type="button" onclick="window.createSchool()" class="w-full bg-red-700 text-white font-black py-4 rounded-2xl uppercase shadow-lg disabled:opacity-50">Crear plantel y administrador</button>
                 </div>
                 <div class="overflow-x-auto"><table class="w-full border-collapse text-center"><caption class="sr-only">Directorio maestro de escuelas</caption><thead class="bg-slate-50 text-[9px] uppercase border-b"><tr><th scope="col" class="p-4">CCT</th><th scope="col">Escuela</th><th scope="col">Verificación</th><th scope="col">Ads OFF</th><th scope="col">Identidad</th><th scope="col">Acciones</th></tr></thead><tbody id="global-schools-body" class="divide-y divide-slate-100 text-[11px] font-bold uppercase"></tbody></table></div>
+                <div class="mt-10 border-t border-slate-200 pt-8 text-left">
+                    <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <h4 class="font-black uppercase text-slate-800">Historial de acciones</h4>
+                            <p class="mt-1 text-xs text-slate-500">Registro central de cambios sensibles y solicitudes de impresión.</p>
+                        </div>
+                        <button type="button" onclick="window.loadAuditHistory()" class="rounded-xl border border-slate-300 bg-white px-4 py-3 text-[9px] font-black uppercase text-slate-700">Actualizar historial</button>
+                    </div>
+                    <div class="my-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <label class="text-[9px] font-black uppercase text-slate-600">Buscar<input id="audit-history-search" type="search" oninput="window.renderAuditHistory()" placeholder="CCT, usuario, alumno, escuela…" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-xs font-medium normal-case"></label>
+                        <label class="text-[9px] font-black uppercase text-slate-600">Tipo<select id="audit-history-filter" onchange="window.renderAuditHistory()" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold"><option value="">Todas las acciones</option><option value="delete">Eliminaciones y bajas</option><option value="print">Impresiones</option><option value="premium">Premium e identidad</option><option value="security">Usuarios y permisos</option><option value="school">Planteles</option></select></label>
+                    </div>
+                    <p id="audit-history-status" role="status" aria-live="polite" class="mb-3 min-h-5 text-xs font-bold text-slate-500"></p>
+                    <div class="max-h-[32rem] overflow-auto rounded-2xl border border-slate-200">
+                        <table class="w-full min-w-[760px] border-collapse text-left">
+                            <caption class="sr-only">Historial de acciones administrativas</caption>
+                            <thead class="sticky top-0 bg-slate-50 text-[9px] uppercase text-slate-600"><tr><th class="p-3">Fecha</th><th>Usuario</th><th>CCT</th><th>Acción</th><th>Objetivo</th><th>Detalle</th></tr></thead>
+                            <tbody id="audit-history-body" class="divide-y divide-slate-100 text-[10px]"><tr><td colspan="6" class="p-8 text-center text-slate-400">Cargando historial…</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </section>
         <div data-free-ad class="hidden mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-center text-[10px] font-black uppercase text-slate-500">
@@ -780,6 +787,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.32.0"></script>
+    <script type="module" src="./app.js?v=36.34.0"></script>
 </body>
 </html>

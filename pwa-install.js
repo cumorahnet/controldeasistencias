@@ -387,7 +387,7 @@
 
   if ("serviceWorker" in window.navigator) {
     window.addEventListener("load", () => {
-      window.navigator.serviceWorker.register("./sw.js?v=36.32.0", {scope: "./"}).catch(() => {});
+      window.navigator.serviceWorker.register("./sw.js?v=36.34.0", {scope: "./"}).catch(() => {});
     }, {once: true});
   }
 }());
