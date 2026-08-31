@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
-    <title>Control de Asistencia</title>
+    <title>Control de Asistencia — VERSION 36.35</title>
     <link rel="manifest" href="./manifest.webmanifest?v=36.34.0">
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.34.0">
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.34.0">
@@ -169,6 +169,23 @@
         </div>
     </div>
 
+    <!-- NEW MODAL FOR QR VERIFICATION -->
+    <div id="modal-verify-qr" role="dialog" aria-modal="true" aria-labelledby="verify-qr-title" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[900] hidden flex items-center justify-center p-4 text-center">
+        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-10 space-y-6 border-t-8 theme-border">
+            <h3 id="verify-qr-title" class="text-lg font-black theme-text uppercase tracking-tight">Verificar QR de Alumno</h3>
+            <div class="space-y-4">
+                <div id="qr-verification-reader" aria-label="Lector de código QR para verificación" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[250px] w-full mx-auto"></div>
+                <p id="verified-student-name" class="text-base font-bold text-slate-800 uppercase hidden"></p>
+                <p id="verified-student-details" class="text-xs text-slate-600 font-medium hidden"></p>
+                <p id="qr-verification-status" class="text-[10px] font-bold text-slate-500 min-h-4" aria-live="polite">Esperando QR...</p>
+            </div>
+            <div class="pt-4 flex flex-col gap-2">
+                <button type="button" id="btn-start-qr-verification" onclick="window.startQrVerificationScanner()" class="theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Iniciar Lector</button>
+                <button type="button" id="btn-close-qr-verification-modal" onclick="window.closeVerifyQrModal()" class="bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL CAMBIO OBLIGATORIO DE CONTRASEÑA -->
     <div id="modal-change-password" role="dialog" aria-modal="true" aria-labelledby="change-password-title" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[950] hidden flex items-center justify-center p-4 text-center">
         <div class="bg-white rounded-[3rem] shadow-2xl max-w-md w-full p-10 space-y-6 border-t-[12px] border-orange-500">
@@ -227,7 +244,7 @@
             </div>
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
-                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
+                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.35</h1>
                 <div class="-mt-4 flex flex-wrap items-center justify-center gap-2">
                     <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.34.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.34.0</button>
                     <button type="button" id="btn-install-pwa" data-pwa-install-action aria-label="Instalar app" aria-hidden="true" class="hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-white shadow-lg active:scale-95 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">
@@ -432,6 +449,14 @@
                         </div>
 
                         <button onclick="window.clearAllStudents()" class="mt-4 text-red-500 font-black uppercase text-[8px] underline text-center text-center">Borrar Catálogo Completo</button>
+                    </div>
+
+                    <!-- NEW CARD FOR QR VERIFICATION -->
+                    <div class="bg-white p-10 rounded-[3rem] border border-slate-200 text-center shadow-xl flex flex-col justify-center">
+                        <i class="fas fa-qrcode text-5xl text-blue-400 mb-4 mx-auto"></i>
+                        <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3 mb-4">Verificar QR Perdido</h3>
+                        <p class="text-[9px] leading-relaxed text-slate-500 mb-4">Escanee un QR de alumno para identificar de quién es, sin registrar asistencia ni afectar el historial.</p>
+                        <button type="button" onclick="window.openVerifyQrModal()" class="w-full bg-blue-600 text-white py-4 rounded-3xl font-black uppercase text-[10px] shadow-xl">Verificar QR</button>
                     </div>
                 </div>
 
@@ -771,13 +796,132 @@
             currentStudentForQR = null; // Clear student data
         };
 
-        // Event listeners for the new modal buttons
+        // Placeholder for app.js functionality
+        // In a real scenario, window.allStudents would be populated by app.js
+        // and findStudentByQrContent would use that data or make an API call.
+        // For demonstration purposes, we'll mock some data.
+        window.allStudents = [
+            { id: '1001', paterno: 'GARCIA', materno: 'LOPEZ', nombres: 'ANA', nivel: 'PRI', grupo: '1A', lista: 1, qrContent: 'STUDENT-1001' },
+            { id: '1002', paterno: 'MARTINEZ', materno: 'SANCHEZ', nombres: 'LUIS', nivel: 'PRI', grupo: '1A', lista: 2, qrContent: 'STUDENT-1002' },
+            { id: '2001', paterno: 'RODRIGUEZ', materno: 'HERNANDEZ', nombres: 'CARLOS', nivel: 'SEC', grupo: '3B', lista: 5, qrContent: 'STUDENT-2001' },
+            { id: '2002', paterno: 'SANCHEZ', materno: 'PEREZ', nombres: 'MARTHA', nivel: 'SEC', grupo: '3B', lista: 6, qrContent: 'STUDENT-2002' }
+        ];
+
+        window.findStudentByQrContent = async function(qrContent) {
+            console.log("Searching for student with QR content:", qrContent);
+            // Simulate a lookup delay
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            const foundStudent = window.allStudents.find(s => s.qrContent === qrContent);
+
+            if (foundStudent) {
+                return {
+                    id: foundStudent.id,
+                    nombreCompleto: `${foundStudent.paterno} ${foundStudent.materno} ${foundStudent.nombres}`,
+                    nivel: foundStudent.nivel,
+                    grupo: foundStudent.grupo,
+                    lista: foundStudent.lista,
+                    qrContent: foundStudent.qrContent
+                };
+            }
+            return null;
+        };
+
+        let qrVerificationScanner = null; // Global instance for the verification scanner
+        const qrVerificationReaderId = "qr-verification-reader";
+
+        window.openVerifyQrModal = function() {
+            document.getElementById('modal-verify-qr').classList.remove('hidden');
+            document.getElementById('verified-student-name').classList.add('hidden');
+            document.getElementById('verified-student-details').classList.add('hidden');
+            document.getElementById('qr-verification-status').innerText = 'Esperando QR...';
+            document.getElementById('btn-start-qr-verification').classList.remove('hidden'); // Show start button initially
+            window.stopQrVerificationScanner(); // Ensure scanner is stopped if previously open
+        };
+
+        window.startQrVerificationScanner = function() {
+            if (qrVerificationScanner) {
+                window.stopQrVerificationScanner(); // Stop if already running
+            }
+
+            document.getElementById('btn-start-qr-verification').classList.add('hidden'); // Hide start button
+            document.getElementById('qr-verification-status').innerText = 'Iniciando lector...';
+            document.getElementById('verified-student-name').classList.add('hidden');
+            document.getElementById('verified-student-details').classList.add('hidden');
+
+            qrVerificationScanner = new Html5QrcodeScanner(
+                qrVerificationReaderId,
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                /* verbose= */ false
+            );
+            qrVerificationScanner.render(window.onQrVerificationScanSuccess, window.onQrVerificationScanError);
+        };
+
+        window.onQrVerificationScanSuccess = async function(decodedText, decodedResult) {
+            console.log(`QR Verification Scan successful: ${decodedText}`);
+            // Stop the scanner immediately after a successful scan
+            await window.stopQrVerificationScanner();
+            document.getElementById('qr-verification-status').innerText = 'QR Escaneado. Buscando alumno...';
+
+            const student = await window.findStudentByQrContent(decodedText);
+
+            if (student) {
+                document.getElementById('verified-student-name').innerText = student.nombreCompleto;
+                document.getElementById('verified-student-details').innerText = `${student.nivel} - ${student.grupo} - Lista: ${student.lista}`;
+                document.getElementById('verified-student-name').classList.remove('hidden');
+                document.getElementById('verified-student-details').classList.remove('hidden');
+                document.getElementById('qr-verification-status').innerText = 'Alumno identificado.';
+            } else {
+                document.getElementById('verified-student-name').innerText = 'Alumno no encontrado.';
+                document.getElementById('verified-student-details').innerText = 'El código QR no corresponde a un alumno registrado o es inválido.';
+                document.getElementById('verified-student-name').classList.remove('hidden');
+                document.getElementById('verified-student-details').classList.remove('hidden');
+                document.getElementById('qr-verification-status').innerText = 'Verificación fallida.';
+            }
+            document.getElementById('btn-start-qr-verification').classList.remove('hidden'); // Show start button again
+        };
+
+        window.onQrVerificationScanError = function(errorMessage) {
+            // console.warn(`QR Verification Scan error: ${errorMessage}`); // Keep silent for cleaner UX
+            document.getElementById('qr-verification-status').innerText = 'Esperando QR...';
+            document.getElementById('verified-student-name').classList.add('hidden');
+            document.getElementById('verified-student-details').classList.add('hidden');
+        };
+
+        window.stopQrVerificationScanner = async function() {
+            if (qrVerificationScanner && qrVerificationScanner.getState() === Html5QrcodeScanner.Html5QrcodeScannerState.SCANNING) {
+                try {
+                    await qrVerificationScanner.clear();
+                    console.log("QR verification scanner stopped.");
+                    document.getElementById('qr-verification-status').innerText = 'Lector detenido.';
+                } catch (err) {
+                    console.error("Failed to stop QR verification scanner:", err);
+                }
+            }
+            qrVerificationScanner = null; // Clear the instance
+            // Ensure the reader div is visible/available for restart
+            const readerDiv = document.getElementById(qrVerificationReaderId);
+            if (readerDiv) {
+                readerDiv.innerHTML = ''; // Clear any residual camera feed
+            }
+        };
+
+        window.closeVerifyQrModal = function() {
+            window.stopQrVerificationScanner();
+            document.getElementById('modal-verify-qr').classList.add('hidden');
+            document.getElementById('verified-student-name').classList.add('hidden');
+            document.getElementById('verified-student-details').classList.add('hidden');
+            document.getElementById('qr-verification-status').innerText = 'Esperando QR...';
+        };
+
+        // DOMContentLoaded for initial setup of existing features, keeping new features outside it or adding new event listeners specifically
         document.addEventListener('DOMContentLoaded', () => {
+            // Existing modal button listeners
             const closeModalBtn = document.getElementById('btn-close-single-qr-modal');
             if (closeModalBtn) {
                 closeModalBtn.addEventListener('click', () => {
                     document.getElementById('modal-print-single-qr').classList.add('hidden');
-                    currentStudentForQR = null; // Clear student data
+                    currentStudentForQR = null;
                 });
             }
 

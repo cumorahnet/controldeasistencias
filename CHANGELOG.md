@@ -1,5 +1,111 @@
 # CHANGELOG
 
+<!-- cdc-session:session-20260828195822-e11df2 -->
+## Sesión 28/08/2026, 05:45 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 16 cambio(s): 1 creado(s), 15 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting..cache
+- app.js
+- firebase-debug.log
+- functions/index.js
+- icons/app-icon-192.png
+- icons/app-icon-512.png
+- icons/app-icon-maskable-512.png
+- icons/apple-touch-icon.png
+- index.html
+- manifest.webmanifest
+- pwa-install.js
+- scripts/generate-pwa-icons.mjs
+- sw.js
+- tests/admin-features.test.cjs
+- tests/pwa-install.test.cjs
+- version.json
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20260828183227-08d1e0 -->
+## Sesión 28/08/2026, 12:38 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 0 cambio(s): 0 creado(s), 0 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- No se detectaron archivos modificados.
+
+### Riesgos
+
+- No se detectaron archivos modificados. Confirma que el trabajo se haya guardado dentro del proyecto y fuera de carpetas ignoradas.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Definir el siguiente objetivo de trabajo del proyecto.
+
+<!-- cdc-session:session-20260828045729-2da867 -->
+## Sesión 27/08/2026, 11:03 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 3 cambio(s): 0 creado(s), 3 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- index.html
+- index.html.backup
+- version.json
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20260827054029-676504 -->
+## Sesión 27/08/2026, 01:00 a.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 10 cambio(s): 0 creado(s), 10 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting..cache
+- CHANGELOG.md
+- firebase-debug.log
+- firebase.json
+- index.html
+- manifest.webmanifest
+- pwa-install.js
+- sw.js
+- tests/pwa-install.test.cjs
+- version.json
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
 ## 36.31.0 - 27/08/2026
 
 - Se reemplazó por completo la experiencia móvil fallida de acceso directo con un flujo PWA versión 5.
