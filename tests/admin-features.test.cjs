@@ -57,3 +57,11 @@ test("el verificador QR consulta alumnos reales y no incluye datos de demostraci
   assert.match(app, /\$\{schoolKey\}_alumnos/);
   assert.match(app, /window\.closeVerifyQrModal = async/);
 });
+
+test("el reporte de asistencia agrega el total único del periodo al final de cada fila", () => {
+  assert.match(app, /function attendanceCountsByStudent\(report\)/);
+  assert.match(app, /recordedAttendances\.has\(key\)/);
+  assert.match(app, /totalHeading\.textContent = "Total"/);
+  assert.match(app, /attendanceCounts\.get\(normalizeCode\(student\.id, 40\)\) \|\| 0/);
+  assert.match(html, /\.attendance-total-cell/);
+});

@@ -2695,8 +2695,24 @@ function createAttendanceReportHeader(report, sectionLabel = "") {
   return header;
 }
 
+function attendanceCountsByStudent(report) {
+  const counts = new Map();
+  const recordedAttendances = new Set();
+  for (const attendance of report.rows || []) {
+    const studentId = normalizeCode(attendance?.studentId, 40);
+    const date = String(attendance?.date || "");
+    if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const key = `${studentId}|${date}`;
+    if (recordedAttendances.has(key)) continue;
+    recordedAttendances.add(key);
+    counts.set(studentId, (counts.get(studentId) || 0) + 1);
+  }
+  return counts;
+}
+
 function createAttendanceMatrixTable(report, dates = report.dates) {
   const attendanceByStudentAndDate = new Map(report.rows.map((row) => [`${row.studentId}|${row.date}`, row]));
+  const attendanceCounts = attendanceCountsByStudent(report);
   const table = document.createElement("table");
   table.className = "attendance-report-grid";
   const thead = document.createElement("thead");
@@ -2718,6 +2734,11 @@ function createAttendanceMatrixTable(report, dates = report.dates) {
     dateHeading.append(label);
     headingRow.append(dateHeading);
   });
+  const totalHeading = document.createElement("th");
+  totalHeading.className = "attendance-total-cell";
+  totalHeading.title = "Total de asistencias en el periodo";
+  totalHeading.textContent = "Total";
+  headingRow.append(totalHeading);
   thead.append(headingRow);
   const tbody = document.createElement("tbody");
   report.students.forEach((student, index) => {
@@ -2735,6 +2756,11 @@ function createAttendanceMatrixTable(report, dates = report.dates) {
       cell.setAttribute("aria-label", cell.title);
       row.append(cell);
     });
+    const total = attendanceCounts.get(normalizeCode(student.id, 40)) || 0;
+    const totalCell = createCell(String(total), "attendance-total-cell");
+    totalCell.title = `${student.name}: ${total} ${total === 1 ? "asistencia" : "asistencias"} en el periodo`;
+    totalCell.setAttribute("aria-label", totalCell.title);
+    row.append(totalCell);
     tbody.append(row);
   });
   table.append(thead, tbody);
@@ -2761,7 +2787,7 @@ function renderAttendanceReport(report) {
   scroller.append(createAttendanceMatrixTable(report));
   const legend = document.createElement("p");
   legend.className = "p-3 text-right text-[9px] font-black uppercase text-slate-600";
-  legend.textContent = "● Asistencia · / Falta";
+  legend.textContent = "● Asistencia · / Falta · Total: asistencias del periodo";
   preview.append(scroller, legend);
   summary.textContent = `${report.students.length} ${report.students.length === 1 ? "alumno" : "alumnos"} · ${report.dates.length} ${report.dates.length === 1 ? "fecha" : "fechas"} · ${report.groups.length} ${report.groups.length === 1 ? "grupo" : "grupos"}${report.truncated ? " · historial limitado a 5000 registros" : ""}`;
   window.safeToggle("btn-print-attendance", report.students.length === 0 || report.dates.length === 0);
@@ -2829,7 +2855,7 @@ window.printAttendanceReport = () => {
     );
     const legend = document.createElement("p");
     legend.className = "mt-2 text-right text-[8px] font-black uppercase";
-    legend.textContent = "● Asistencia · / Falta";
+    legend.textContent = "● Asistencia · / Falta · Total: asistencias del periodo";
     section.append(legend);
     content.append(section);
   });
