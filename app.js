@@ -80,7 +80,8 @@ let html5QrScanner = null;
 let isScannerRunning = false;
 let isScannerTransitioning = false;
 let qrVerificationScanner = null;
-let isQrVerificationTransitioning = false;
+let isQrVerificationScannerRunning = false;
+let isQrVerificationScannerTransitioning = false;
 let qrVerificationScanInFlight = false;
 let unsubscribeAttendance = null;
 let unsubscribeSchoolProfile = null;
@@ -2914,104 +2915,91 @@ function setQrVerificationStartVisible(visible) {
   byId("btn-start-qr-verification")?.classList.toggle("hidden", !visible);
 }
 
-async function stopQrVerificationScanner() {
-  const scanner = qrVerificationScanner;
-  qrVerificationScanner = null;
-  if (scanner) {
-    try {
-      await scanner.stop();
-    } catch {
-      // El lector puede no haber llegado a iniciar antes de cerrar el modal.
-    }
-    try {
-      await scanner.clear();
-    } catch {
-      // La limpieza visual no debe impedir que el usuario cierre el modal.
-    }
-  }
-  byId("qr-verification-reader")?.replaceChildren();
-}
-
-window.openVerifyQrModal = async () => {
+window.openVerifyQrModal = () => {
   if (!isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos para verificar códigos QR.");
   window.safeToggle("modal-verify-qr", false);
   resetQrVerificationResult();
   setQrVerificationStatus("Esperando QR...");
   setQrVerificationStartVisible(true);
-  await stopQrVerificationScanner();
   byId("btn-start-qr-verification")?.focus();
 };
 
-window.startQrVerificationScanner = async () => {
-  if (!isAdmin() || isQrVerificationTransitioning) return;
-  if (typeof Html5Qrcode !== "function") {
-    setQrVerificationStatus("El lector QR no está disponible. Recargue la página e inténtelo nuevamente.");
-    return;
-  }
-  isQrVerificationTransitioning = true;
+window.initQrVerificationScanner = async () => {
+  if (isQrVerificationScannerTransitioning || isQrVerificationScannerRunning || !loggedTeacher || !isAdmin()) return;
+  isQrVerificationScannerTransitioning = true;
   resetQrVerificationResult();
   setQrVerificationStatus("Iniciando lector...");
   setQrVerificationStartVisible(false);
   try {
-    await stopQrVerificationScanner();
-    const scanner = new Html5Qrcode("qr-verification-reader");
-    qrVerificationScanner = scanner;
-    await scanner.start(
-      {facingMode: "environment"},
-      {fps: 8, qrbox: 250},
-      async (rawId) => {
-        if (qrVerificationScanInFlight) return;
-        qrVerificationScanInFlight = true;
-        await stopQrVerificationScanner();
-        setQrVerificationStatus("QR escaneado. Buscando alumno...");
-        const studentId = normalizeCode(rawId, 40);
-        try {
-          if (!/^[A-Z0-9._-]{4,40}$/.test(studentId)) {
-            showQrVerificationResult("Código no válido", "El QR no tiene un identificador de alumno válido.");
-            setQrVerificationStatus("Verificación fallida.");
-            return;
-          }
-          const studentRef = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, studentId);
-          const snapshot = await getDoc(studentRef);
-          if (!snapshot.exists()) {
-            showQrVerificationResult("Alumno no encontrado", "El código no corresponde a un alumno registrado en este plantel.");
-            setQrVerificationStatus("Verificación fallida.");
-            return;
-          }
-          const student = {...snapshot.data(), id: snapshot.id};
-          const level = normalizeSchoolLevel(student.level || student.nivel) || "SIN NIVEL";
-          const group = normalizeGroupName(student.grupo) || "SIN GRUPO";
-          const list = studentListNumber(student);
-          const inactive = isStudentInactive(student) ? " · BAJA" : "";
-          showQrVerificationResult(
-            studentDisplayName(student) || student.id,
-            `${level} · Grupo ${group}${list ? ` · Lista ${String(list).padStart(2, "0")}` : ""}${inactive}`,
-          );
-          setQrVerificationStatus(isStudentInactive(student) ? "Alumno identificado, actualmente dado de baja." : "Alumno identificado.");
-        } catch (error) {
-          showQrVerificationResult("No fue posible verificar el QR", functionError(error, "Revise su conexión e inténtelo nuevamente."));
-          setQrVerificationStatus("Verificación fallida.");
-        } finally {
-          qrVerificationScanInFlight = false;
-          setQrVerificationStartVisible(true);
-        }
-      },
-      () => {},
-    );
+    if (!qrVerificationScanner) qrVerificationScanner = new Html5Qrcode("qr-verification-reader");
+    await qrVerificationScanner.start({facingMode: "environment"}, {fps: 8, qrbox: 250}, (text) => window.processQrVerification(text));
+    isQrVerificationScannerRunning = true;
     setQrVerificationStatus("Lector activo. Enfoque el código QR del alumno.");
-  } catch {
+  } catch (error) {
     setQrVerificationStatus("No se pudo iniciar la cámara. Revise el permiso del navegador.");
     setQrVerificationStartVisible(true);
-    await stopQrVerificationScanner();
   } finally {
-    isQrVerificationTransitioning = false;
+    isQrVerificationScannerTransitioning = false;
   }
 };
 
-window.stopQrVerificationScanner = stopQrVerificationScanner;
+window.stopQrVerificationScanner = async () => {
+  if (isQrVerificationScannerTransitioning || !isQrVerificationScannerRunning || !qrVerificationScanner) return;
+  isQrVerificationScannerTransitioning = true;
+  try {
+    await qrVerificationScanner.stop();
+    isQrVerificationScannerRunning = false;
+  } finally {
+    isQrVerificationScannerTransitioning = false;
+  }
+};
+
+window.startQrVerificationScanner = window.initQrVerificationScanner;
+
+window.processQrVerification = async (rawId) => {
+  if (qrVerificationScanInFlight || !loggedTeacher || !isAdmin()) return false;
+  const studentId = normalizeCode(rawId, 40);
+  if (!/^[A-Z0-9._-]{4,40}$/.test(studentId)) {
+    setQrVerificationStatus("El QR no contiene un identificador de alumno válido.");
+    return false;
+  }
+  qrVerificationScanInFlight = true;
+  await window.stopQrVerificationScanner();
+  setQrVerificationStatus("QR detectado. Consultando alumno...");
+  try {
+    let student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === studentId);
+    if (!student) {
+      const studentRef = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, studentId);
+      const snapshot = await getDoc(studentRef);
+      if (snapshot.exists()) student = {...snapshot.data(), id: snapshot.id};
+    }
+    if (!student) {
+      showQrVerificationResult("Alumno no encontrado", "El código no corresponde a un alumno registrado en este plantel.");
+      setQrVerificationStatus("Verificación fallida.");
+      return false;
+    }
+    const level = normalizeSchoolLevel(student.level || student.nivel) || "SIN NIVEL";
+    const group = normalizeGroupName(student.grupo) || "SIN GRUPO";
+    const list = studentListNumber(student);
+    const inactive = isStudentInactive(student) ? " · BAJA" : "";
+    showQrVerificationResult(
+      studentDisplayName(student) || student.id,
+      `${level} · Grupo ${group}${list ? ` · Lista ${String(list).padStart(2, "0")}` : ""}${inactive}`,
+    );
+    setQrVerificationStatus(isStudentInactive(student) ? "Alumno identificado, actualmente dado de baja." : "Alumno identificado.");
+    return true;
+  } catch (error) {
+    showQrVerificationResult("No fue posible verificar el QR", functionError(error, "Revise su conexión e inténtelo nuevamente."));
+    setQrVerificationStatus("Verificación fallida.");
+    return false;
+  } finally {
+    qrVerificationScanInFlight = false;
+    setQrVerificationStartVisible(true);
+  }
+};
 
 window.closeVerifyQrModal = async () => {
-  await stopQrVerificationScanner();
+  await window.stopQrVerificationScanner();
   qrVerificationScanInFlight = false;
   window.safeToggle("modal-verify-qr", true);
   resetQrVerificationResult();
