@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
     <title>Control de Asistencia — VERSION 36.35</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=36.34.0">
-    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.34.0">
-    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.34.0">
-    <script src="./pwa-install.js?v=36.34.0"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=36.35.0">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.35.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.35.0">
+    <script src="./pwa-install.js?v=36.35.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -113,7 +113,7 @@
     <div id="install-app-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-end sm:items-center justify-center p-3 sm:p-4 text-center">
         <div class="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl max-w-sm w-full p-7 sm:p-8 space-y-5 border-t-8 border-orange-500">
             <div class="flex items-center gap-4 text-left">
-                <img src="./icons/app-icon-192.png?v=36.34.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
+                <img src="./icons/app-icon-192.png?v=36.35.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
                 <div class="min-w-0 space-y-1">
                     <p id="install-app-platform" class="text-[9px] font-black uppercase tracking-[0.18em] text-orange-600">Acceso desde tu celular</p>
                     <h2 id="install-app-title" class="text-xl font-black leading-tight text-slate-800">Control de Asistencia</h2>
@@ -239,14 +239,14 @@
             
             <div class="flex justify-center mb-2">
                 <div id="login-logo-placeholder" class="logo-container">
-                    <img src="./icons/app-icon-512.png?v=36.34.0" alt="Logotipo de la aplicación" class="logo-img">
+                    <img src="./icons/app-icon-512.png?v=36.35.0" alt="Logotipo de la aplicación" class="logo-img">
                 </div>
             </div>
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
                 <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.35</h1>
                 <div class="-mt-4 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.34.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.34.0</button>
+                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.35.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.35.0</button>
                     <button type="button" id="btn-install-pwa" data-pwa-install-action aria-label="Instalar app" aria-hidden="true" class="hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-white shadow-lg active:scale-95 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">
                         <i aria-hidden="true" class="fas fa-download"></i>
                         <span data-pwa-install-label>Instalar app</span>
@@ -311,7 +311,7 @@
         <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center">
             <div class="flex items-center gap-4 text-left">
                 <div id="header-logo-container" class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5">
-                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.34.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
+                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.35.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
                 </div>
                 <div class="flex flex-col">
                     <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
@@ -796,127 +796,8 @@
             currentStudentForQR = null; // Clear student data
         };
 
-        // Placeholder for app.js functionality
-        // In a real scenario, window.allStudents would be populated by app.js
-        // and findStudentByQrContent would use that data or make an API call.
-        // For demonstration purposes, we'll mock some data.
-        window.allStudents = [
-            { id: '1001', paterno: 'GARCIA', materno: 'LOPEZ', nombres: 'ANA', nivel: 'PRI', grupo: '1A', lista: 1, qrContent: 'STUDENT-1001' },
-            { id: '1002', paterno: 'MARTINEZ', materno: 'SANCHEZ', nombres: 'LUIS', nivel: 'PRI', grupo: '1A', lista: 2, qrContent: 'STUDENT-1002' },
-            { id: '2001', paterno: 'RODRIGUEZ', materno: 'HERNANDEZ', nombres: 'CARLOS', nivel: 'SEC', grupo: '3B', lista: 5, qrContent: 'STUDENT-2001' },
-            { id: '2002', paterno: 'SANCHEZ', materno: 'PEREZ', nombres: 'MARTHA', nivel: 'SEC', grupo: '3B', lista: 6, qrContent: 'STUDENT-2002' }
-        ];
-
-        window.findStudentByQrContent = async function(qrContent) {
-            console.log("Searching for student with QR content:", qrContent);
-            // Simulate a lookup delay
-            await new Promise(resolve => setTimeout(resolve, 300));
-
-            const foundStudent = window.allStudents.find(s => s.qrContent === qrContent);
-
-            if (foundStudent) {
-                return {
-                    id: foundStudent.id,
-                    nombreCompleto: `${foundStudent.paterno} ${foundStudent.materno} ${foundStudent.nombres}`,
-                    nivel: foundStudent.nivel,
-                    grupo: foundStudent.grupo,
-                    lista: foundStudent.lista,
-                    qrContent: foundStudent.qrContent
-                };
-            }
-            return null;
-        };
-
-        let qrVerificationScanner = null; // Global instance for the verification scanner
-        const qrVerificationReaderId = "qr-verification-reader";
-
-        window.openVerifyQrModal = function() {
-            document.getElementById('modal-verify-qr').classList.remove('hidden');
-            document.getElementById('verified-student-name').classList.add('hidden');
-            document.getElementById('verified-student-details').classList.add('hidden');
-            document.getElementById('qr-verification-status').innerText = 'Esperando QR...';
-            document.getElementById('btn-start-qr-verification').classList.remove('hidden'); // Show start button initially
-            window.stopQrVerificationScanner(); // Ensure scanner is stopped if previously open
-        };
-
-        window.startQrVerificationScanner = function() {
-            if (qrVerificationScanner) {
-                window.stopQrVerificationScanner(); // Stop if already running
-            }
-
-            document.getElementById('btn-start-qr-verification').classList.add('hidden'); // Hide start button
-            document.getElementById('qr-verification-status').innerText = 'Iniciando lector...';
-            document.getElementById('verified-student-name').classList.add('hidden');
-            document.getElementById('verified-student-details').classList.add('hidden');
-
-            qrVerificationScanner = new Html5QrcodeScanner(
-                qrVerificationReaderId,
-                { fps: 10, qrbox: { width: 250, height: 250 } },
-                /* verbose= */ false
-            );
-            qrVerificationScanner.render(window.onQrVerificationScanSuccess, window.onQrVerificationScanError);
-        };
-
-        window.onQrVerificationScanSuccess = async function(decodedText, decodedResult) {
-            console.log(`QR Verification Scan successful: ${decodedText}`);
-            // Stop the scanner immediately after a successful scan
-            await window.stopQrVerificationScanner();
-            document.getElementById('qr-verification-status').innerText = 'QR Escaneado. Buscando alumno...';
-
-            const student = await window.findStudentByQrContent(decodedText);
-
-            if (student) {
-                document.getElementById('verified-student-name').innerText = student.nombreCompleto;
-                document.getElementById('verified-student-details').innerText = `${student.nivel} - ${student.grupo} - Lista: ${student.lista}`;
-                document.getElementById('verified-student-name').classList.remove('hidden');
-                document.getElementById('verified-student-details').classList.remove('hidden');
-                document.getElementById('qr-verification-status').innerText = 'Alumno identificado.';
-            } else {
-                document.getElementById('verified-student-name').innerText = 'Alumno no encontrado.';
-                document.getElementById('verified-student-details').innerText = 'El código QR no corresponde a un alumno registrado o es inválido.';
-                document.getElementById('verified-student-name').classList.remove('hidden');
-                document.getElementById('verified-student-details').classList.remove('hidden');
-                document.getElementById('qr-verification-status').innerText = 'Verificación fallida.';
-            }
-            document.getElementById('btn-start-qr-verification').classList.remove('hidden'); // Show start button again
-        };
-
-        window.onQrVerificationScanError = function(errorMessage) {
-            // console.warn(`QR Verification Scan error: ${errorMessage}`); // Keep silent for cleaner UX
-            document.getElementById('qr-verification-status').innerText = 'Esperando QR...';
-            document.getElementById('verified-student-name').classList.add('hidden');
-            document.getElementById('verified-student-details').classList.add('hidden');
-        };
-
-        window.stopQrVerificationScanner = async function() {
-            if (qrVerificationScanner && qrVerificationScanner.getState() === Html5QrcodeScanner.Html5QrcodeScannerState.SCANNING) {
-                try {
-                    await qrVerificationScanner.clear();
-                    console.log("QR verification scanner stopped.");
-                    document.getElementById('qr-verification-status').innerText = 'Lector detenido.';
-                } catch (err) {
-                    console.error("Failed to stop QR verification scanner:", err);
-                }
-            }
-            qrVerificationScanner = null; // Clear the instance
-            // Ensure the reader div is visible/available for restart
-            const readerDiv = document.getElementById(qrVerificationReaderId);
-            if (readerDiv) {
-                readerDiv.innerHTML = ''; // Clear any residual camera feed
-            }
-        };
-
-        window.closeVerifyQrModal = function() {
-            window.stopQrVerificationScanner();
-            document.getElementById('modal-verify-qr').classList.add('hidden');
-            document.getElementById('verified-student-name').classList.add('hidden');
-            document.getElementById('verified-student-details').classList.add('hidden');
-            document.getElementById('qr-verification-status').innerText = 'Esperando QR...';
-        };
-
-        // DOMContentLoaded for initial setup of existing features, keeping new features outside it or adding new event listeners specifically
+        // Controles para la impresión individual de códigos QR.
         document.addEventListener('DOMContentLoaded', () => {
-            // Existing modal button listeners
             const closeModalBtn = document.getElementById('btn-close-single-qr-modal');
             if (closeModalBtn) {
                 closeModalBtn.addEventListener('click', () => {
@@ -931,6 +812,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.34.0"></script>
+    <script type="module" src="./app.js?v=36.35.0"></script>
 </body>
 </html>

@@ -46,3 +46,13 @@ test("las impresiones y eliminaciones sensibles generan eventos auditables", () 
     assert.match(`${app}\n${functions}`, new RegExp(`"${action}"`), `falta auditar ${action}`);
   }
 });
+
+test("el verificador QR consulta alumnos reales y no incluye datos de demostración", () => {
+  assert.match(html, /id="modal-verify-qr"/);
+  assert.doesNotMatch(html, /window\.allStudents|STUDENT-1001|findStudentByQrContent/);
+  assert.match(app, /window\.openVerifyQrModal = async/);
+  assert.match(app, /new Html5Qrcode\("qr-verification-reader"\)/);
+  assert.match(app, /getDoc\(studentRef\)/);
+  assert.match(app, /\$\{schoolKey\}_alumnos/);
+  assert.match(app, /window\.closeVerifyQrModal = async/);
+});
