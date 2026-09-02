@@ -46,7 +46,6 @@
         .attendance-report-grid { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
         .attendance-report-grid th, .attendance-report-grid td { border: 1px solid #64748b; }
         .attendance-report-grid th { background: #e2e8f0; }
-        .attendance-number-cell { width: 2.5rem; padding: 0.4rem; text-align: center; }
         .attendance-name-cell { min-width: 16rem; padding: 0.4rem 0.6rem; text-align: left; }
         .attendance-date-cell { width: 2rem; min-width: 2rem; height: 5.5rem; padding: 0.25rem; text-align: center; vertical-align: bottom; }
         .attendance-date-label { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
@@ -56,7 +55,7 @@
         .attendance-report-grid td.attendance-total-cell { z-index: 3; background: #fff7ed; }
         @media print {
             @page { size: A4; margin: 10mm; }
-            @page attendance-report { size: A4 landscape; margin: 7mm; }
+            @page attendance-report { size: Letter landscape; margin: 5mm; }
             body { background: #fff !important; }
             .no-print { display: none !important; }
             .print-only { display: block !important; }
@@ -83,15 +82,14 @@
             .attendance-report-logo-frame { width: 20mm; height: 20mm; border-radius: 2mm; }
             .attendance-report-header h1 { font-size: 13pt; font-weight: 900; text-transform: uppercase; }
             .attendance-report-header p { margin-top: 0.8mm; font-size: 7pt; font-weight: 700; text-transform: uppercase; }
-            .attendance-report-grid { width: 100% !important; min-width: 0 !important; table-layout: fixed; border-collapse: collapse; border-spacing: 0; font-size: 6.5pt; }
+            .attendance-report-grid { width: 100% !important; min-width: 0 !important; table-layout: fixed; border-collapse: collapse; border-spacing: 0; font-size: 5.5pt; }
             .attendance-report-grid thead { display: table-header-group; }
             .attendance-report-grid tr { break-inside: avoid; }
             .attendance-report-grid th, .attendance-report-grid td { border: 0.25mm solid #334155; }
-            .attendance-number-cell { width: 8mm; padding: 1mm; }
-            .attendance-name-cell { width: 58mm; min-width: 58mm; padding: 1mm 1.5mm; }
-            .attendance-date-cell { width: 5.5mm; min-width: 5.5mm; height: 18mm; padding: 0.5mm; }
-            .attendance-mark-cell { width: 5.5mm; height: 5.5mm; padding: 0; font-size: 8pt; }
-            .attendance-total-cell { display: table-cell !important; width: 13mm !important; min-width: 13mm !important; max-width: 13mm !important; padding: 0.5mm; font-size: 8pt; color: #000 !important; visibility: visible !important; }
+            .attendance-name-cell { width: 50mm; min-width: 50mm; padding: 0.8mm 1.2mm; font-size: 6pt; }
+            .attendance-date-cell { width: 4mm; min-width: 4mm; height: 16mm; padding: 0.2mm; font-size: 5pt; }
+            .attendance-mark-cell { width: 4mm; height: 4.5mm; padding: 0; font-size: 6.5pt; }
+            .attendance-total-cell { display: table-cell !important; width: 14mm !important; min-width: 14mm !important; max-width: 14mm !important; padding: 0.4mm; font-size: 7pt; color: #000 !important; visibility: visible !important; }
             .attendance-report-grid .attendance-total-cell { position: static !important; border-left: 0.6mm solid #c2410c !important; background: #ffedd5 !important; box-shadow: none; }
             .attendance-report-grid td.attendance-total-cell { background: #fff7ed !important; }
         }

@@ -2715,7 +2715,7 @@ function attendanceCountsByStudent(report) {
   return counts;
 }
 
-const ATTENDANCE_PRINT_DATES_PER_PAGE = 20;
+const ATTENDANCE_PRINT_DATES_PER_PAGE = 50;
 
 function createAttendanceMatrixTable(report, dates = report.dates) {
   const attendanceByStudentAndDate = new Map(report.rows.map((row) => [`${row.studentId}|${row.date}`, row]));
@@ -2724,13 +2724,10 @@ function createAttendanceMatrixTable(report, dates = report.dates) {
   table.className = "attendance-report-grid";
   const thead = document.createElement("thead");
   const headingRow = document.createElement("tr");
-  const numberHeading = document.createElement("th");
-  numberHeading.className = "attendance-number-cell";
-  numberHeading.textContent = "#";
   const nameHeading = document.createElement("th");
   nameHeading.className = "attendance-name-cell";
   nameHeading.textContent = "Nombre del alumno";
-  headingRow.append(numberHeading, nameHeading);
+  headingRow.append(nameHeading);
   dates.forEach((date) => {
     const dateHeading = document.createElement("th");
     dateHeading.className = "attendance-date-cell";
@@ -2748,12 +2745,9 @@ function createAttendanceMatrixTable(report, dates = report.dates) {
   headingRow.append(totalHeading);
   thead.append(headingRow);
   const tbody = document.createElement("tbody");
-  report.students.forEach((student, index) => {
+  report.students.forEach((student) => {
     const row = document.createElement("tr");
-    row.append(
-      createCell(String(index + 1), "attendance-number-cell"),
-      createCell(student.name, "attendance-name-cell"),
-    );
+    row.append(createCell(student.name, "attendance-name-cell"));
     dates.forEach((date) => {
       const attendance = attendanceByStudentAndDate.get(`${student.id}|${date}`);
       const cell = createCell(attendance ? "●" : "/", `attendance-mark-cell ${attendance ? "text-green-800" : "text-slate-500"}`);

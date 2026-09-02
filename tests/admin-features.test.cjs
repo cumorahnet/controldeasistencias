@@ -73,13 +73,18 @@ test("el localizador QR reutiliza el mismo lector del pase de lista y consulta a
   assert.match(cameraScanner, /capturedAt: new Date\(now\)\.toISOString\(\)/);
 });
 
-test("el reporte de asistencia agrega el total único del periodo al final de cada fila", () => {
+test("el reporte de asistencia imprime hasta 52 columnas en una hoja Carta horizontal", () => {
   assert.match(app, /function attendanceCountsByStudent\(report\)/);
   assert.match(app, /recordedAttendances\.has\(key\)/);
   assert.match(app, /totalHeading\.textContent = "Total asist\."/);
   assert.match(app, /attendanceCounts\.get\(normalizeCode\(student\.id, 40\)\) \|\| 0/);
-  assert.match(app, /ATTENDANCE_PRINT_DATES_PER_PAGE = 20/);
+  assert.match(app, /ATTENDANCE_PRINT_DATES_PER_PAGE = 50/);
   assert.match(app, /dates\.slice\(index, index \+ ATTENDANCE_PRINT_DATES_PER_PAGE\)/);
+  assert.doesNotMatch(app, /numberHeading/);
+  assert.match(html, /@page attendance-report \{ size: Letter landscape; margin: 5mm; \}/);
+  assert.match(html, /\.attendance-name-cell \{ width: 50mm; min-width: 50mm;/);
+  assert.match(html, /\.attendance-date-cell \{ width: 4mm; min-width: 4mm;/);
+  assert.match(html, /\.attendance-total-cell \{ display: table-cell !important; width: 14mm !important;/);
   assert.match(html, /\.attendance-total-cell/);
   assert.match(html, /display: table-cell !important/);
   assert.match(html, /position: sticky; right: 0/);
