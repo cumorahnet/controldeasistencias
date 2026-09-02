@@ -8,6 +8,7 @@ const test = require("node:test");
 const projectRoot = path.resolve(__dirname, "..");
 const html = fs.readFileSync(path.join(projectRoot, "index.html"), "utf8");
 const app = fs.readFileSync(path.join(projectRoot, "app.js"), "utf8");
+const cameraScanner = fs.readFileSync(path.join(projectRoot, "camera-data-scanner.js"), "utf8");
 const functions = fs.readFileSync(path.join(projectRoot, "functions", "index.js"), "utf8");
 
 test("el acceso maestro queda oculto en la etiqueta de versión", () => {
@@ -47,21 +48,39 @@ test("las impresiones y eliminaciones sensibles generan eventos auditables", () 
   }
 });
 
-test("el verificador QR consulta alumnos reales y no incluye datos de demostración", () => {
+test("el localizador QR reutiliza el mismo lector del pase de lista y consulta alumnos reales", () => {
   assert.match(html, /id="modal-verify-qr"/);
+  assert.match(html, /id="qr-reader-home"/);
+  assert.match(html, /id="qr-verification-reader"/);
+  assert.match(html, /id="qr-verification-file"[^>]+accept="image\/\*"[^>]+capture="environment"/);
   assert.doesNotMatch(html, /window\.allStudents|STUDENT-1001|findStudentByQrContent/);
   assert.match(app, /window\.initQrVerificationScanner = async/);
-  assert.match(app, /new Html5Qrcode\("qr-verification-reader"\)/);
+  assert.equal((app.match(/createCameraDataScanner\(/g) || []).length, 1);
+  assert.match(app, /elementId: "qr-reader"/);
+  assert.match(app, /startSharedQrScanner\("attendance"\)/);
+  assert.match(app, /startSharedQrScanner\("verification",/);
+  assert.match(app, /placeSharedQrReader\("qr-verification-reader"\)/);
+  assert.match(app, /placeSharedQrReader\("qr-reader-home"\)/);
+  assert.doesNotMatch(app, /elementId: "qr-verification-reader"/);
   assert.match(app, /window\.processQrVerification = async/);
   assert.match(app, /getDoc\(studentRef\)/);
   assert.match(app, /\$\{schoolKey\}_alumnos/);
   assert.match(app, /window\.closeVerifyQrModal = async/);
+  for (const method of ["start", "stop", "toggle", "listCameras", "switchCamera", "setTorch", "scanImage", "destroy"]) {
+    assert.match(cameraScanner, new RegExp(`\\b${method}\\b`), `falta el método ${method} del adaptador`);
+  }
+  assert.match(cameraScanner, /captureMethod,/);
+  assert.match(cameraScanner, /capturedAt: new Date\(now\)\.toISOString\(\)/);
 });
 
 test("el reporte de asistencia agrega el total único del periodo al final de cada fila", () => {
   assert.match(app, /function attendanceCountsByStudent\(report\)/);
   assert.match(app, /recordedAttendances\.has\(key\)/);
-  assert.match(app, /totalHeading\.textContent = "Total"/);
+  assert.match(app, /totalHeading\.textContent = "Total asist\."/);
   assert.match(app, /attendanceCounts\.get\(normalizeCode\(student\.id, 40\)\) \|\| 0/);
+  assert.match(app, /ATTENDANCE_PRINT_DATES_PER_PAGE = 20/);
+  assert.match(app, /dates\.slice\(index, index \+ ATTENDANCE_PRINT_DATES_PER_PAGE\)/);
   assert.match(html, /\.attendance-total-cell/);
+  assert.match(html, /display: table-cell !important/);
+  assert.match(html, /position: sticky; right: 0/);
 });

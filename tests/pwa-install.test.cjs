@@ -81,6 +81,8 @@ function createHarness({
   const windowListeners = new Map();
   const timers = new Map();
   const serviceWorkerRegistrations = [];
+  const serviceWorkerListeners = new Map();
+  let serviceWorkerUpdateCalls = 0;
   let nextTimerId = 1;
   const document = {
     activeElement: null,
@@ -93,9 +95,17 @@ function createHarness({
   if (typeof userAgentDataMobile === "boolean") navigator.userAgentData = {mobile: userAgentDataMobile};
   if (withServiceWorker) {
     navigator.serviceWorker = {
+      addEventListener(type, listener) {
+        serviceWorkerListeners.set(type, listener);
+      },
       register(scriptUrl, options) {
         serviceWorkerRegistrations.push({options, scriptUrl});
-        return Promise.resolve();
+        return Promise.resolve({
+          update() {
+            serviceWorkerUpdateCalls += 1;
+            return Promise.resolve();
+          },
+        });
       },
     };
   }
@@ -110,6 +120,7 @@ function createHarness({
     },
     matchMedia: () => ({matches: standalone}),
     navigator,
+    location: {reload() {}},
     setTimeout(callback) {
       const id = nextTimerId;
       nextTimerId += 1;
@@ -129,6 +140,8 @@ function createHarness({
   return {
     elements,
     serviceWorkerRegistrations,
+    serviceWorkerListeners,
+    serviceWorkerUpdateCalls: () => serviceWorkerUpdateCalls,
     storage,
     dispatch(type, event = {}) {
       for (const listener of windowListeners.get(type) || []) listener(event);
@@ -325,19 +338,21 @@ test("standalone nunca muestra avisos ni acciones", () => {
   assert.equal(harness.elements["btn-install-pwa"].classList.contains("hidden"), true);
 });
 
-test("registra el service worker con ruta y alcance relativos", () => {
+test("registra el service worker sin caché y prepara la recarga al actualizar", () => {
   const harness = createHarness({withServiceWorker: true});
   harness.dispatch("load");
 
   assert.equal(harness.serviceWorkerRegistrations.length, 1);
-  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=36.35.0");
+  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=36.38.0");
   assert.equal(harness.serviceWorkerRegistrations[0].options.scope, "./");
+  assert.equal(harness.serviceWorkerRegistrations[0].options.updateViaCache, "none");
+  assert.equal(typeof harness.serviceWorkerListeners.get("controllerchange"), "function");
 });
 
 test("la versión 6 no conserva textos ni claves de los intentos anteriores", () => {
   assert.doesNotMatch(installScript, /control-asistencia-pwa-install-seen-v5/);
   assert.doesNotMatch(installScript, /Crear acceso directo|Abra esta liga|Ver cómo instalar/);
-  assert.match(html, /pwa-install\.js\?v=36\.35\.0/);
+  assert.match(html, /pwa-install\.js\?v=36\.38\.0/);
   assert.equal((html.match(/data-pwa-install-action/g) || []).length, 2);
   assert.match(html, /id="install-app-benefits"/);
   assert.match(html, /id="install-app-steps"/);
@@ -365,7 +380,8 @@ test("manifiesto, iconos y app shell cumplen los requisitos PWA", () => {
     assert.equal(png.readUInt32BE(20), requiredSize);
   }
 
-  assert.match(serviceWorker, /control-asistencia-36\.35\.0-pwa-v9/);
+  assert.match(serviceWorker, /control-asistencia-36\.38\.0-pwa-v13/);
+  assert.match(serviceWorker, /"camera-data-scanner\.js"/);
   assert.match(serviceWorker, /"manifest\.webmanifest"/);
   assert.match(serviceWorker, /"pwa-install\.js"/);
 });

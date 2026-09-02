@@ -8,11 +8,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
-    <title>Control de Asistencia — VERSION 36.35</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=36.35.0">
-    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.35.0">
-    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.35.0">
-    <script src="./pwa-install.js?v=36.35.0"></script>
+    <title>Control de Asistencia — VERSION 36.38</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=36.38.0">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.38.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.38.0">
+    <script src="./pwa-install.js?v=36.38.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -42,7 +42,8 @@
         .attendance-report-header { display: flex; align-items: center; gap: 1rem; border-bottom: 2px solid #0f172a; padding: 0.75rem; text-align: left; }
         .attendance-report-logo-frame { width: 4.5rem; height: 4.5rem; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0.75rem; }
         .attendance-report-logo { width: 100%; height: 100%; object-fit: contain; }
-        .attendance-report-grid { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+        .attendance-report-scroller { position: relative; max-width: 100%; overflow-x: auto; }
+        .attendance-report-grid { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
         .attendance-report-grid th, .attendance-report-grid td { border: 1px solid #64748b; }
         .attendance-report-grid th { background: #e2e8f0; }
         .attendance-number-cell { width: 2.5rem; padding: 0.4rem; text-align: center; }
@@ -50,7 +51,9 @@
         .attendance-date-cell { width: 2rem; min-width: 2rem; height: 5.5rem; padding: 0.25rem; text-align: center; vertical-align: bottom; }
         .attendance-date-label { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
         .attendance-mark-cell { height: 2rem; padding: 0.2rem; text-align: center; font-size: 1rem; font-weight: 900; }
-        .attendance-total-cell { width: 3.5rem; min-width: 3.5rem; padding: 0.4rem; text-align: center; font-size: 0.8rem; font-weight: 900; }
+        .attendance-total-cell { box-sizing: border-box; display: table-cell !important; width: 4.5rem; min-width: 4.5rem; padding: 0.4rem; text-align: center; font-size: 0.8rem; font-weight: 900; color: #0f172a; visibility: visible !important; }
+        .attendance-report-grid .attendance-total-cell { position: sticky; right: 0; z-index: 4; border-left: 3px solid #f97316; background: #ffedd5; box-shadow: -4px 0 8px rgb(15 23 42 / 0.22); }
+        .attendance-report-grid td.attendance-total-cell { z-index: 3; background: #fff7ed; }
         @media print {
             @page { size: A4; margin: 10mm; }
             @page attendance-report { size: A4 landscape; margin: 7mm; }
@@ -80,15 +83,17 @@
             .attendance-report-logo-frame { width: 20mm; height: 20mm; border-radius: 2mm; }
             .attendance-report-header h1 { font-size: 13pt; font-weight: 900; text-transform: uppercase; }
             .attendance-report-header p { margin-top: 0.8mm; font-size: 7pt; font-weight: 700; text-transform: uppercase; }
-            .attendance-report-grid { width: 100%; table-layout: fixed; font-size: 6.5pt; }
+            .attendance-report-grid { width: 100% !important; min-width: 0 !important; table-layout: fixed; border-collapse: collapse; border-spacing: 0; font-size: 6.5pt; }
             .attendance-report-grid thead { display: table-header-group; }
             .attendance-report-grid tr { break-inside: avoid; }
             .attendance-report-grid th, .attendance-report-grid td { border: 0.25mm solid #334155; }
             .attendance-number-cell { width: 8mm; padding: 1mm; }
-            .attendance-name-cell { width: 62mm; min-width: 62mm; padding: 1mm 1.5mm; }
+            .attendance-name-cell { width: 58mm; min-width: 58mm; padding: 1mm 1.5mm; }
             .attendance-date-cell { width: 5.5mm; min-width: 5.5mm; height: 18mm; padding: 0.5mm; }
             .attendance-mark-cell { width: 5.5mm; height: 5.5mm; padding: 0; font-size: 8pt; }
-            .attendance-total-cell { width: 10mm; min-width: 10mm; padding: 0.5mm; font-size: 8pt; }
+            .attendance-total-cell { display: table-cell !important; width: 13mm !important; min-width: 13mm !important; max-width: 13mm !important; padding: 0.5mm; font-size: 8pt; color: #000 !important; visibility: visible !important; }
+            .attendance-report-grid .attendance-total-cell { position: static !important; border-left: 0.6mm solid #c2410c !important; background: #ffedd5 !important; box-shadow: none; }
+            .attendance-report-grid td.attendance-total-cell { background: #fff7ed !important; }
         }
         .logo-container { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 1rem; }
         .logo-img { max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -115,7 +120,7 @@
     <div id="install-app-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-end sm:items-center justify-center p-3 sm:p-4 text-center">
         <div class="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl max-w-sm w-full p-7 sm:p-8 space-y-5 border-t-8 border-orange-500">
             <div class="flex items-center gap-4 text-left">
-                <img src="./icons/app-icon-192.png?v=36.35.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
+                <img src="./icons/app-icon-192.png?v=36.38.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
                 <div class="min-w-0 space-y-1">
                     <p id="install-app-platform" class="text-[9px] font-black uppercase tracking-[0.18em] text-orange-600">Acceso desde tu celular</p>
                     <h2 id="install-app-title" class="text-xl font-black leading-tight text-slate-800">Control de Asistencia</h2>
@@ -173,16 +178,23 @@
 
     <!-- NEW MODAL FOR QR VERIFICATION -->
     <div id="modal-verify-qr" role="dialog" aria-modal="true" aria-labelledby="verify-qr-title" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[900] hidden flex items-center justify-center p-4 text-center">
-        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-10 space-y-6 border-t-8 theme-border">
-            <h3 id="verify-qr-title" class="text-lg font-black theme-text uppercase tracking-tight">Verificar QR de Alumno</h3>
+        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-md w-full p-6 sm:p-10 space-y-6 border-t-8 theme-border">
+            <h3 id="verify-qr-title" class="text-lg font-black theme-text uppercase tracking-tight">Lector de QR perdidos</h3>
             <div class="space-y-4">
-                <div id="qr-verification-reader" aria-label="Lector de código QR para verificación" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[250px] w-full mx-auto"></div>
+                <div id="qr-verification-reader" aria-label="Lector de código QR para localizar alumno" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[280px] w-full mx-auto"></div>
+                <label id="qr-verification-camera-field" for="qr-verification-camera-select" class="hidden space-y-2 text-left text-[9px] font-black uppercase text-slate-600">
+                    <span class="block">Cámara</span>
+                    <select id="qr-verification-camera-select" onchange="window.switchQrVerificationCamera(this.value)" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold normal-case"></select>
+                </label>
                 <p id="verified-student-name" class="text-base font-bold text-slate-800 uppercase hidden"></p>
                 <p id="verified-student-details" class="text-xs text-slate-600 font-medium hidden"></p>
-                <p id="qr-verification-status" class="text-[10px] font-bold text-slate-500 min-h-4" aria-live="polite">Esperando QR...</p>
+                <p id="qr-verification-status" role="status" class="text-[10px] font-bold text-slate-500 min-h-4" aria-live="polite">Esperando QR...</p>
             </div>
-            <div class="pt-4 flex flex-col gap-2">
-                <button type="button" id="btn-start-qr-verification" onclick="window.startQrVerificationScanner()" class="theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Iniciar Lector</button>
+            <div class="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button type="button" id="btn-start-qr-verification" aria-pressed="false" onclick="window.toggleQrVerificationScanner()" class="theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Encender cámara</button>
+                <button type="button" id="btn-qr-verification-torch" aria-pressed="false" onclick="window.toggleQrVerificationTorch()" class="hidden bg-amber-100 text-amber-800 py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Encender linterna</button>
+                <label for="qr-verification-file" class="cursor-pointer bg-blue-50 text-blue-700 py-3 rounded-xl font-bold text-xs uppercase shadow-lg sm:col-span-2">Tomar o elegir foto del QR</label>
+                <input type="file" id="qr-verification-file" accept="image/*" capture="environment" onchange="window.scanQrVerificationImage(event)" class="hidden">
                 <button type="button" id="btn-close-qr-verification-modal" onclick="window.closeVerifyQrModal()" class="bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Cerrar</button>
             </div>
         </div>
@@ -241,14 +253,14 @@
             
             <div class="flex justify-center mb-2">
                 <div id="login-logo-placeholder" class="logo-container">
-                    <img src="./icons/app-icon-512.png?v=36.35.0" alt="Logotipo de la aplicación" class="logo-img">
+                    <img src="./icons/app-icon-512.png?v=36.38.0" alt="Logotipo de la aplicación" class="logo-img">
                 </div>
             </div>
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
-                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.35</h1>
+                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.38</h1>
                 <div class="-mt-4 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.35.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.35.0</button>
+                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.38.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.38.0</button>
                     <button type="button" id="btn-install-pwa" data-pwa-install-action aria-label="Instalar app" aria-hidden="true" class="hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-white shadow-lg active:scale-95 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">
                         <i aria-hidden="true" class="fas fa-download"></i>
                         <span data-pwa-install-label>Instalar app</span>
@@ -313,7 +325,7 @@
         <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center">
             <div class="flex items-center gap-4 text-left">
                 <div id="header-logo-container" class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5">
-                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.35.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
+                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.38.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
                 </div>
                 <div class="flex flex-col">
                     <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
@@ -351,7 +363,9 @@
             <div class="max-w-md mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200">
                 <div class="theme-primary p-6 text-white text-center"><h2 class="text-lg font-black uppercase tracking-wide">Pase de Lista</h2><p id="current-schedule-label" class="mt-2 text-[9px] font-black uppercase opacity-80">Sin horario configurado</p></div>
                 <div class="p-8 space-y-6">
-                    <div id="qr-reader" aria-label="Lector de código QR" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[350px]"></div>
+                    <div id="qr-reader-home">
+                        <div id="qr-reader" aria-label="Lector de código QR" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[350px]"></div>
+                    </div>
                     <button type="button" onclick="window.toggleCamera()" id="btn-camera" aria-pressed="false" class="w-full bg-slate-800 text-white font-black py-4 rounded-[2rem] shadow-lg uppercase text-[10px]">Encender cámara</button>
                     <div class="space-y-2">
                         <label for="input-manual-student-search" class="block text-[10px] font-black uppercase text-slate-600">Registro manual por nombre</label>
@@ -456,9 +470,9 @@
                     <!-- NEW CARD FOR QR VERIFICATION -->
                     <div class="bg-white p-10 rounded-[3rem] border border-slate-200 text-center shadow-xl flex flex-col justify-center">
                         <i class="fas fa-qrcode text-5xl text-blue-400 mb-4 mx-auto"></i>
-                        <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3 mb-4">Verificar QR Perdido</h3>
+                        <h3 class="font-black theme-text uppercase text-[11px] border-b pb-3 mb-4">Lector de QR perdidos</h3>
                         <p class="text-[9px] leading-relaxed text-slate-500 mb-4">Escanee un QR de alumno para identificar de quién es, sin registrar asistencia ni afectar el historial.</p>
-                        <button type="button" onclick="window.openVerifyQrModal()" class="w-full bg-blue-600 text-white py-4 rounded-3xl font-black uppercase text-[10px] shadow-xl">Verificar QR</button>
+                        <button type="button" onclick="window.openVerifyQrModal()" class="w-full bg-blue-600 text-white py-4 rounded-3xl font-black uppercase text-[10px] shadow-xl">Abrir lector</button>
                     </div>
                 </div>
 
@@ -814,6 +828,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.35.0"></script>
+    <script type="module" src="./app.js?v=36.38.0"></script>
 </body>
 </html>

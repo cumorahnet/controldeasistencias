@@ -386,8 +386,22 @@
   }
 
   if ("serviceWorker" in window.navigator) {
-    window.addEventListener("load", () => {
-      window.navigator.serviceWorker.register("./sw.js?v=36.35.0", {scope: "./"}).catch(() => {});
+    let reloadingForServiceWorkerUpdate = false;
+    window.navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadingForServiceWorkerUpdate) return;
+      reloadingForServiceWorkerUpdate = true;
+      window.location.reload();
+    });
+    window.addEventListener("load", async () => {
+      try {
+        const registration = await window.navigator.serviceWorker.register("./sw.js?v=36.38.0", {
+          scope: "./",
+          updateViaCache: "none",
+        });
+        await registration.update();
+      } catch {
+        // La aplicación continúa en línea aunque la actualización PWA falle.
+      }
     }, {once: true});
   }
 }());

@@ -24,6 +24,7 @@ import {
   getFunctions,
   httpsCallable,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
+import {createCameraDataScanner} from "./camera-data-scanner.js?v=36.38.0";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBLH2OuKVr8ez5_9GeRJBcnHFlhfgeHD1o",
@@ -36,7 +37,7 @@ const firebaseConfig = {
 
 const APP_ROOT_PATH = "listadeasistencia";
 const DEFAULT_ACCENT = "#3b82f6";
-const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.35.0";
+const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.38.0";
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
@@ -76,12 +77,13 @@ let schoolName = "";
 let currentSchool = null;
 let loggedTeacher = null;
 let accessChallenge = "";
-let html5QrScanner = null;
+let sharedQrScanner = null;
+let qrScannerMode = "attendance";
 let isScannerRunning = false;
 let isScannerTransitioning = false;
-let qrVerificationScanner = null;
-let isQrVerificationScannerRunning = false;
-let isQrVerificationScannerTransitioning = false;
+let qrScannerStartPromise = null;
+let qrVerificationTorchEnabled = false;
+let qrVerificationSessionVersion = 0;
 let qrVerificationScanInFlight = false;
 let unsubscribeAttendance = null;
 let unsubscribeSchoolProfile = null;
@@ -567,7 +569,10 @@ window.logout = async () => {
   stopSchoolProfileListener();
   schoolSelectionLoadVersion += 1;
   globalSchoolsLoadVersion += 1;
-  if (isScannerRunning) await window.stopScanner();
+  if (sharedQrScanner) await sharedQrScanner.destroy().catch(() => {});
+  sharedQrScanner = null;
+  qrScannerMode = "attendance";
+  placeSharedQrReader("qr-reader-home");
   loggedTeacher = null;
   scheduleSetupRequired = false;
   selectedManualStudentId = "";
@@ -2710,6 +2715,8 @@ function attendanceCountsByStudent(report) {
   return counts;
 }
 
+const ATTENDANCE_PRINT_DATES_PER_PAGE = 20;
+
 function createAttendanceMatrixTable(report, dates = report.dates) {
   const attendanceByStudentAndDate = new Map(report.rows.map((row) => [`${row.studentId}|${row.date}`, row]));
   const attendanceCounts = attendanceCountsByStudent(report);
@@ -2737,7 +2744,7 @@ function createAttendanceMatrixTable(report, dates = report.dates) {
   const totalHeading = document.createElement("th");
   totalHeading.className = "attendance-total-cell";
   totalHeading.title = "Total de asistencias en el periodo";
-  totalHeading.textContent = "Total";
+  totalHeading.textContent = "Total asist.";
   headingRow.append(totalHeading);
   thead.append(headingRow);
   const tbody = document.createElement("tbody");
@@ -2783,7 +2790,7 @@ function renderAttendanceReport(report) {
   }
   preview.append(createAttendanceReportHeader(report));
   const scroller = document.createElement("div");
-  scroller.className = "overflow-x-auto";
+  scroller.className = "attendance-report-scroller overflow-x-auto";
   scroller.append(createAttendanceMatrixTable(report));
   const legend = document.createElement("p");
   legend.className = "p-3 text-right text-[9px] font-black uppercase text-slate-600";
@@ -2842,8 +2849,8 @@ window.printAttendanceReport = () => {
   const content = document.createElement("div");
   content.className = "attendance-report-document";
   const dateChunks = [];
-  for (let index = 0; index < latestAttendanceReport.dates.length; index += 31) {
-    dateChunks.push(latestAttendanceReport.dates.slice(index, index + 31));
+  for (let index = 0; index < latestAttendanceReport.dates.length; index += ATTENDANCE_PRINT_DATES_PER_PAGE) {
+    dateChunks.push(latestAttendanceReport.dates.slice(index, index + ATTENDANCE_PRINT_DATES_PER_PAGE));
   }
   dateChunks.forEach((dates, index) => {
     const section = document.createElement("section");
@@ -2872,41 +2879,103 @@ window.clearAttendanceHistory = () => window.showConfirmMsg(
   },
 );
 
+function placeSharedQrReader(targetId = "qr-reader-home") {
+  const reader = byId("qr-reader");
+  const target = byId(targetId);
+  if (!reader || !target || reader.parentElement === target) return false;
+  target.append(reader);
+  return true;
+}
+
+function updateAttendanceScannerUi() {
+  const button = byId("btn-camera");
+  if (!button) return;
+  const running = isScannerRunning && qrScannerMode === "attendance";
+  button.disabled = isScannerTransitioning;
+  button.classList.toggle("opacity-50", isScannerTransitioning);
+  button.textContent = running ? "Apagar cámara" : isScannerTransitioning ? "Preparando cámara…" : "Encender cámara";
+  button.setAttribute("aria-pressed", String(running));
+}
+
+function updateSharedQrScannerState(state) {
+  isScannerRunning = state === "running";
+  isScannerTransitioning = new Set(["starting", "stopping", "scanning-file"]).has(state);
+  updateAttendanceScannerUi();
+  updateQrVerificationCameraUi(qrScannerMode === "verification" ? state : "idle");
+  if (state === "running" && qrScannerMode === "verification") void refreshQrVerificationCameraOptions();
+}
+
+function ensureSharedQrScanner() {
+  if (sharedQrScanner) return sharedQrScanner;
+  sharedQrScanner = createCameraDataScanner({
+    elementId: "qr-reader",
+    Html5QrcodeClass: window.Html5Qrcode,
+    scanConfig: {fps: 8, qrbox: 250},
+    dedupeMs: 1800,
+    onDecoded: ({raw, captureMethod, format, capturedAt}) => qrScannerMode === "verification"
+      ? window.processQrVerification(raw, {captureMethod, format, capturedAt, sessionVersion: qrVerificationSessionVersion})
+      : window.processAttendance(raw, {captureMethod: "qr", format, capturedAt}),
+    onStateChange: ({state}) => updateSharedQrScannerState(state),
+    onError: ({operation, message}) => {
+      if (operation === "process") return;
+      if (qrScannerMode === "verification") {
+        setQrVerificationStatus(operation === "scan-file"
+          ? "No se detectó un QR válido en la imagen. Pruebe con otra foto."
+          : message);
+      } else {
+        setScannerStatus(message, "error");
+      }
+    },
+  });
+  return sharedQrScanner;
+}
+
+async function stopSharedQrScanner() {
+  if (qrScannerStartPromise) await qrScannerStartPromise.catch(() => {});
+  if (!sharedQrScanner) return false;
+  return sharedQrScanner.stop();
+}
+
+async function startSharedQrScanner(mode, camera = {facingMode: "environment"}) {
+  if (!loggedTeacher || !new Set(["attendance", "verification"]).has(mode)) return false;
+  if (isScannerRunning && qrScannerMode !== mode) await stopSharedQrScanner();
+  qrScannerMode = mode;
+  placeSharedQrReader(mode === "verification" ? "qr-verification-reader" : "qr-reader-home");
+  const scanner = ensureSharedQrScanner();
+  if (scanner.getState() === "running") return false;
+  qrScannerStartPromise = scanner.start(camera);
+  try {
+    return await qrScannerStartPromise;
+  } finally {
+    qrScannerStartPromise = null;
+  }
+}
+
 window.initScanner = async () => {
   if (isScannerTransitioning || isScannerRunning || !loggedTeacher) return;
   if (teacherNeedsInitialScheduleSetup()) {
     window.openScheduleSetup(true);
     return;
   }
-  isScannerTransitioning = true;
   showScannerStartTime();
   try {
-    if (!html5QrScanner) html5QrScanner = new Html5Qrcode("qr-reader");
-    await html5QrScanner.start({facingMode: "environment"}, {fps: 8, qrbox: 250}, (text) => window.processAttendance(text));
-    isScannerRunning = true;
+    const started = await startSharedQrScanner("attendance");
+    if (!started) return;
     showScannerStartTime(new Date());
-    byId("btn-camera").textContent = "Apagar cámara";
-    byId("btn-camera").setAttribute("aria-pressed", "true");
     setScannerStatus("Escáner activo. Avisos al máximo; verifique que el volumen multimedia del celular esté alto.", "success");
     await playScanSound("scan");
   } catch (error) {
-    byId("btn-camera").textContent = "Encender cámara";
-    window.showModalMsg("Cámara", "No se pudo iniciar la cámara. Revise el permiso del navegador o use la captura manual.");
-  } finally {
-    isScannerTransitioning = false;
+    updateAttendanceScannerUi();
+    window.showModalMsg("Cámara", functionError(error, "No se pudo iniciar la cámara. Revise el permiso del navegador o use la captura manual."));
   }
 };
 
 window.stopScanner = async () => {
-  if (isScannerTransitioning || !isScannerRunning || !html5QrScanner) return;
-  isScannerTransitioning = true;
   try {
-    await html5QrScanner.stop();
-    isScannerRunning = false;
-    byId("btn-camera").textContent = "Encender cámara";
-    byId("btn-camera").setAttribute("aria-pressed", "false");
-  } finally {
-    isScannerTransitioning = false;
+    return await stopSharedQrScanner();
+  } catch (error) {
+    setScannerStatus(functionError(error, "No se pudo apagar la cámara."), "error");
+    return false;
   }
 };
 
@@ -2937,63 +3006,167 @@ function showQrVerificationResult(name, detail) {
   }
 }
 
-function setQrVerificationStartVisible(visible) {
-  byId("btn-start-qr-verification")?.classList.toggle("hidden", !visible);
+function updateQrVerificationCameraUi(state = sharedQrScanner?.getState?.() || "idle") {
+  const button = byId("btn-start-qr-verification");
+  const select = byId("qr-verification-camera-select");
+  const running = state === "running";
+  const busy = new Set(["starting", "stopping", "scanning-file"]).has(state);
+  if (button) {
+    button.disabled = busy;
+    button.classList.toggle("opacity-50", busy);
+    button.setAttribute("aria-pressed", String(running));
+    button.textContent = running ? "Apagar cámara" : busy ? "Preparando cámara…" : "Encender cámara";
+  }
+  if (select) select.disabled = busy;
+  if (!running) {
+    qrVerificationTorchEnabled = false;
+    const torchButton = byId("btn-qr-verification-torch");
+    torchButton?.classList.add("hidden");
+    torchButton?.setAttribute("aria-pressed", "false");
+    if (torchButton) torchButton.textContent = "Encender linterna";
+  }
 }
 
-window.openVerifyQrModal = () => {
-  if (!isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos para verificar códigos QR.");
-  window.safeToggle("modal-verify-qr", false);
-  resetQrVerificationResult();
-  setQrVerificationStatus("Esperando QR...");
-  setQrVerificationStartVisible(true);
-  byId("btn-start-qr-verification")?.focus();
-};
+async function refreshQrVerificationCameraOptions() {
+  const container = byId("qr-verification-camera-field");
+  const select = byId("qr-verification-camera-select");
+  if (!container || !select || !sharedQrScanner) return;
+  try {
+    const devices = await sharedQrScanner.listCameras();
+    const selectedDeviceId = sharedQrScanner?.getCameraSettings?.()?.deviceId || select.value;
+    select.replaceChildren();
+    devices.forEach((device, index) => {
+      const option = document.createElement("option");
+      option.value = device.id || device.deviceId;
+      option.textContent = device.label || `Cámara ${index + 1}`;
+      option.selected = Boolean(selectedDeviceId && option.value === selectedDeviceId);
+      select.append(option);
+    });
+    container.classList.toggle("hidden", devices.length < 2);
+  } catch {
+    container.classList.add("hidden");
+  }
+}
 
 window.initQrVerificationScanner = async () => {
-  if (isQrVerificationScannerTransitioning || isQrVerificationScannerRunning || !loggedTeacher || !isAdmin()) return;
-  isQrVerificationScannerTransitioning = true;
+  if (!loggedTeacher || !isAdmin()) return false;
   resetQrVerificationResult();
   setQrVerificationStatus("Iniciando lector...");
-  setQrVerificationStartVisible(false);
   try {
-    if (!qrVerificationScanner) qrVerificationScanner = new Html5Qrcode("qr-verification-reader");
-    await qrVerificationScanner.start({facingMode: "environment"}, {fps: 8, qrbox: 250}, (text) => window.processQrVerification(text));
-    isQrVerificationScannerRunning = true;
+    const cameraId = byId("qr-verification-camera-select")?.value;
+    const started = await startSharedQrScanner("verification", cameraId || {facingMode: "environment"});
+    if (!started && sharedQrScanner?.getState() !== "running") return false;
     setQrVerificationStatus("Lector activo. Enfoque el código QR del alumno.");
+    const capabilities = sharedQrScanner.getCameraCapabilities?.() || {};
+    byId("btn-qr-verification-torch")?.classList.toggle("hidden", !("torch" in capabilities));
+    return true;
   } catch (error) {
-    setQrVerificationStatus("No se pudo iniciar la cámara. Revise el permiso del navegador.");
-    setQrVerificationStartVisible(true);
-  } finally {
-    isQrVerificationScannerTransitioning = false;
+    updateQrVerificationCameraUi("error");
+    setQrVerificationStatus(functionError(error, "No se pudo iniciar la cámara. Revise el permiso del navegador o seleccione una foto del QR."));
+    return false;
   }
 };
 
 window.stopQrVerificationScanner = async () => {
-  if (isQrVerificationScannerTransitioning || !isQrVerificationScannerRunning || !qrVerificationScanner) return;
-  isQrVerificationScannerTransitioning = true;
+  if (!sharedQrScanner || qrScannerMode !== "verification") return false;
   try {
-    await qrVerificationScanner.stop();
-    isQrVerificationScannerRunning = false;
-  } finally {
-    isQrVerificationScannerTransitioning = false;
+    return await stopSharedQrScanner();
+  } catch (error) {
+    setQrVerificationStatus(functionError(error, "No se pudo apagar la cámara."));
+    return false;
   }
 };
 
-window.startQrVerificationScanner = window.initQrVerificationScanner;
+window.toggleQrVerificationScanner = async () => {
+  if (qrScannerMode === "verification" && sharedQrScanner?.getState() === "running") {
+    const stopped = await window.stopQrVerificationScanner();
+    if (stopped) setQrVerificationStatus("Cámara apagada. Puede encenderla de nuevo o seleccionar una foto del QR.");
+    return stopped;
+  }
+  return window.initQrVerificationScanner();
+};
 
-window.processQrVerification = async (rawId) => {
+window.startQrVerificationScanner = window.toggleQrVerificationScanner;
+
+window.switchQrVerificationCamera = async (cameraId) => {
+  if (!cameraId || !sharedQrScanner || qrScannerMode !== "verification") return false;
+  setQrVerificationStatus("Cambiando de cámara...");
+  try {
+    await sharedQrScanner.switchCamera(cameraId);
+    setQrVerificationStatus(sharedQrScanner.getState() === "running"
+      ? "Lector activo. Enfoque el código QR del alumno."
+      : "Cámara seleccionada. Presione Encender cámara para usarla.");
+    return true;
+  } catch (error) {
+    setQrVerificationStatus(functionError(error, "No se pudo cambiar de cámara."));
+    return false;
+  }
+};
+
+window.toggleQrVerificationTorch = async () => {
+  if (!sharedQrScanner || qrScannerMode !== "verification" || sharedQrScanner.getState() !== "running") return false;
+  const nextValue = !qrVerificationTorchEnabled;
+  try {
+    const supported = await sharedQrScanner.setTorch(nextValue);
+    if (!supported) {
+      byId("btn-qr-verification-torch")?.classList.add("hidden");
+      return false;
+    }
+    qrVerificationTorchEnabled = nextValue;
+    const button = byId("btn-qr-verification-torch");
+    button?.setAttribute("aria-pressed", String(nextValue));
+    if (button) button.textContent = nextValue ? "Apagar linterna" : "Encender linterna";
+    return true;
+  } catch (error) {
+    setQrVerificationStatus(functionError(error, "No se pudo controlar la linterna."));
+    return false;
+  }
+};
+
+window.scanQrVerificationImage = async (event) => {
+  const input = event?.target;
+  const file = input?.files?.[0];
+  if (!file) return false;
+  resetQrVerificationResult();
+  setQrVerificationStatus("Analizando imagen...");
+  try {
+    if (qrScannerMode !== "verification") await stopSharedQrScanner();
+    qrScannerMode = "verification";
+    placeSharedQrReader("qr-verification-reader");
+    await ensureSharedQrScanner().scanImage(file, true);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    input.value = "";
+  }
+};
+
+window.openVerifyQrModal = async () => {
+  if (!isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos para verificar códigos QR.");
+  qrVerificationSessionVersion += 1;
+  window.safeToggle("modal-verify-qr", false);
+  resetQrVerificationResult();
+  setQrVerificationStatus("Preparando cámara...");
+  updateQrVerificationCameraUi("idle");
+  await window.initQrVerificationScanner();
+  byId("btn-start-qr-verification")?.focus();
+};
+
+window.processQrVerification = async (rawId, options = {}) => {
   if (qrVerificationScanInFlight || !loggedTeacher || !isAdmin()) return false;
+  const sessionVersion = Number(options.sessionVersion || qrVerificationSessionVersion);
   const studentId = normalizeCode(rawId, 40);
   if (!/^[A-Z0-9._-]{4,40}$/.test(studentId)) {
     setQrVerificationStatus("El QR no contiene un identificador de alumno válido.");
     return false;
   }
   qrVerificationScanInFlight = true;
-  await window.stopQrVerificationScanner();
+  if (options.captureMethod !== "file") await window.stopQrVerificationScanner();
   setQrVerificationStatus("QR detectado. Consultando alumno...");
   try {
     let student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === studentId);
+    if (sessionVersion !== qrVerificationSessionVersion || byId("modal-verify-qr")?.classList.contains("hidden")) return false;
     if (!student) {
       const studentRef = doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`, studentId);
       const snapshot = await getDoc(studentRef);
@@ -3015,22 +3188,26 @@ window.processQrVerification = async (rawId) => {
     setQrVerificationStatus(isStudentInactive(student) ? "Alumno identificado, actualmente dado de baja." : "Alumno identificado.");
     return true;
   } catch (error) {
+    if (sessionVersion !== qrVerificationSessionVersion) return false;
     showQrVerificationResult("No fue posible verificar el QR", functionError(error, "Revise su conexión e inténtelo nuevamente."));
     setQrVerificationStatus("Verificación fallida.");
     return false;
   } finally {
     qrVerificationScanInFlight = false;
-    setQrVerificationStartVisible(true);
   }
 };
 
 window.closeVerifyQrModal = async () => {
-  await window.stopQrVerificationScanner();
+  qrVerificationSessionVersion += 1;
+  if (qrScannerMode === "verification") await stopSharedQrScanner().catch(() => {});
+  qrVerificationTorchEnabled = false;
   qrVerificationScanInFlight = false;
   window.safeToggle("modal-verify-qr", true);
+  qrScannerMode = "attendance";
+  placeSharedQrReader("qr-reader-home");
   resetQrVerificationResult();
   setQrVerificationStatus("Esperando QR...");
-  setQrVerificationStartVisible(true);
+  updateQrVerificationCameraUi("idle");
 };
 
 window.toggleCamera = async () => {

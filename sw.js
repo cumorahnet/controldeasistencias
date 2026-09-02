@@ -1,10 +1,11 @@
-const CACHE_NAME = "control-asistencia-36.35.0-pwa-v9";
+const CACHE_NAME = "control-asistencia-36.38.0-pwa-v13";
 const APP_BASE_URL = new URL("./", self.location.href);
 const appUrl = (path) => new URL(path, APP_BASE_URL).href;
 const APP_SHELL = [
   "./",
   "index.html",
   "app.js",
+  "camera-data-scanner.js",
   "pwa-install.js",
   "manifest.webmanifest",
   "icons/app-icon-192.png",
