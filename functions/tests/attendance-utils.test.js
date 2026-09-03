@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const {attendanceStatus, resolveAttendanceSchedule} = require("../attendance-utils");
+const {applyTardyPolicy, attendanceStatus, resolveAttendanceSchedule, tardyLimit} = require("../attendance-utils");
 
 test("clasifica como asistencia dentro de la tolerancia", () => {
   assert.equal(attendanceStatus("07:14:59", "07:00", 15), "A TIEMPO");
@@ -11,6 +11,27 @@ test("clasifica como asistencia dentro de la tolerancia", () => {
 
 test("clasifica como retardo después de la tolerancia", () => {
   assert.equal(attendanceStatus("07:16:00", "07:00", 15), "RETARDO");
+});
+
+test("convierte en falta el retardo que alcanza el límite y reinicia el contador", () => {
+  assert.deepEqual(applyTardyPolicy({arrivalStatus: "RETARDO", tardiesPerAbsence: 3, pendingTardies: 1}), {
+    status: "RETARDO",
+    convertedToAbsence: false,
+    pendingTardies: 2,
+    tardyLimit: 3,
+  });
+  assert.deepEqual(applyTardyPolicy({arrivalStatus: "RETARDO", tardiesPerAbsence: 3, pendingTardies: 2}), {
+    status: "FALTA POR RETARDOS",
+    convertedToAbsence: true,
+    pendingTardies: 0,
+    tardyLimit: 3,
+  });
+});
+
+test("la equivalencia de retardos se puede desactivar y limita valores inválidos", () => {
+  assert.equal(tardyLimit(""), 0);
+  assert.equal(tardyLimit(99), 30);
+  assert.equal(applyTardyPolicy({arrivalStatus: "RETARDO", tardiesPerAbsence: 0, pendingTardies: 4}).status, "RETARDO");
 });
 
 test("un docente requiere horario específico para el grupo", () => {

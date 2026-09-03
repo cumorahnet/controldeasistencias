@@ -17,6 +17,28 @@ function attendanceStatus(localTime, entryTime, tolerance) {
   return scannedAt <= startsAt + allowedMinutes ? "A TIEMPO" : "RETARDO";
 }
 
+function tardyLimit(value) {
+  const limit = Math.trunc(Number(value));
+  return Number.isFinite(limit) ? Math.max(0, Math.min(30, limit)) : 0;
+}
+
+function applyTardyPolicy({arrivalStatus, tardiesPerAbsence, pendingTardies} = {}) {
+  const status = String(arrivalStatus || "").trim().toUpperCase() === "RETARDO" ? "RETARDO" : "A TIEMPO";
+  const limit = tardyLimit(tardiesPerAbsence);
+  const currentPending = Math.max(0, Math.trunc(Number(pendingTardies) || 0));
+  if (status !== "RETARDO" || limit === 0) {
+    return {status, convertedToAbsence: false, pendingTardies: currentPending, tardyLimit: limit};
+  }
+  const nextPending = currentPending + 1;
+  const convertedToAbsence = nextPending >= limit;
+  return {
+    status: convertedToAbsence ? "FALTA POR RETARDOS" : "RETARDO",
+    convertedToAbsence,
+    pendingTardies: convertedToAbsence ? 0 : nextPending,
+    tardyLimit: limit,
+  };
+}
+
 function normalizedGroupPart(value) {
   return String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
 }
@@ -40,7 +62,9 @@ function resolveAttendanceSchedule({teacher = {}, school = {}, role = "", level 
 }
 
 module.exports = {
+  applyTardyPolicy,
   attendanceStatus,
   clockMinutes,
   resolveAttendanceSchedule,
+  tardyLimit,
 };

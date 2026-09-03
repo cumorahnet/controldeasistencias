@@ -24,7 +24,8 @@ import {
   getFunctions,
   httpsCallable,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
-import {createCameraDataScanner} from "./camera-data-scanner.js?v=36.38.0";
+import {createCameraDataScanner} from "./camera-data-scanner.js?v=36.40.0";
+import {attendanceExportFilename, createAttendanceExportData} from "./attendance-report-export.js?v=36.40.0";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBLH2OuKVr8ez5_9GeRJBcnHFlhfgeHD1o",
@@ -37,7 +38,7 @@ const firebaseConfig = {
 
 const APP_ROOT_PATH = "listadeasistencia";
 const DEFAULT_ACCENT = "#3b82f6";
-const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.38.0";
+const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.40.0";
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
@@ -52,6 +53,7 @@ const api = Object.fromEntries([
   "createTeacher",
   "repairTeacherAccount",
   "changeTeacherPassword",
+  "completeTeacherOnboarding",
   "updateOwnSchedule",
   "updateSchool",
   "updateTeacherRole",
@@ -60,9 +62,14 @@ const api = Object.fromEntries([
   "recordAttendance",
   "deleteStudent",
   "setStudentActive",
+  "moveStudent",
+  "deleteStudentGroup",
   "renumberStudentGroup",
   "clearStudents",
   "listAttendanceReport",
+  "createIncident",
+  "listIncidents",
+  "updateIncident",
   "clearAttendance",
   "toggleSchoolFlag",
   "setSchoolVerification",
@@ -88,8 +95,11 @@ let qrVerificationScanInFlight = false;
 let unsubscribeAttendance = null;
 let unsubscribeSchoolProfile = null;
 let modalPreviousFocus = null;
+let schoolCalendarPreviousFocus = null;
 let teacherBeingRepaired = "";
 let studentRegistrationInFlight = false;
+let studentBeingMoved = "";
+let studentGroupBeingDeleted = null;
 let scheduleSetupRequired = false;
 let selectedManualStudentId = "";
 let audioContext = null;
@@ -97,6 +107,7 @@ let audioUnlockPromise = null;
 let studentCatalogCache = [];
 let teacherCatalogCache = [];
 let latestAttendanceReport = null;
+let incidentCache = [];
 let pendingLogoDataUrl = "";
 const attendanceInFlight = new Set();
 let schoolSelectionLoadVersion = 0;
@@ -307,7 +318,12 @@ function compareStudentsByList(first, second) {
 const validPassword = (value) => String(value || "").length >= 8 && String(value || "").length <= 72 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(value)) && /\d/.test(String(value));
 const isAdmin = () => ["admin_maestro", "director", "admin_jr", "super"].includes(loggedTeacher?.role);
 const isMaster = () => ["admin_maestro", "director", "super"].includes(loggedTeacher?.role);
-const normalizedAttendanceStatus = (value) => normalizeText(value).toUpperCase() === "RETARDO" ? "RETARDO" : "A TIEMPO";
+const normalizedAttendanceStatus = (value) => {
+  const status = normalizeText(value, 30).toUpperCase();
+  if (status === "FALTA POR RETARDOS") return status;
+  return status === "RETARDO" ? "RETARDO" : "A TIEMPO";
+};
+const isTardyAbsence = (value) => normalizedAttendanceStatus(value) === "FALTA POR RETARDOS";
 
 function showScannerStartTime(value = null) {
   const label = byId("scanner-start-label");
@@ -443,6 +459,61 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+window.openSchoolCalendar = () => {
+  const modal = byId("modal-school-calendar");
+  const calendarImage = byId("school-calendar-image");
+  if (!modal || !calendarImage) return;
+  schoolCalendarPreviousFocus = document.activeElement;
+  calendarImage.onload = () => {
+    calendarImage.classList.remove("hidden");
+    window.safeToggle("school-calendar-error", true);
+  };
+  calendarImage.onerror = () => {
+    calendarImage.classList.add("hidden");
+    window.safeToggle("school-calendar-error", false);
+  };
+  if (!calendarImage.getAttribute("src")) calendarImage.setAttribute("src", calendarImage.dataset.src);
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+  modal.setAttribute("aria-hidden", "false");
+  byId("btn-school-calendar")?.setAttribute("aria-expanded", "true");
+  document.body.classList.add("overflow-hidden");
+  byId("btn-close-school-calendar")?.focus();
+};
+
+window.closeSchoolCalendar = () => {
+  const modal = byId("modal-school-calendar");
+  if (!modal || modal.classList.contains("hidden")) return;
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
+  modal.setAttribute("aria-hidden", "true");
+  byId("btn-school-calendar")?.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("overflow-hidden");
+  schoolCalendarPreviousFocus?.focus?.();
+  schoolCalendarPreviousFocus = null;
+};
+
+document.addEventListener("keydown", (event) => {
+  const modal = byId("modal-school-calendar");
+  if (!modal || modal.classList.contains("hidden")) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    return window.closeSchoolCalendar();
+  }
+  if (event.key !== "Tab") return;
+  const focusable = [...modal.querySelectorAll("a[href], button:not([disabled])")];
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+
 window.togglePass = (id, control) => {
   const input = byId(id);
   if (!input) return;
@@ -556,6 +627,7 @@ window.resetGateway = () => {
     "register-admin-password",
     "register-admin-password-confirm",
     "input-current-password",
+    "input-new-user-email",
     "input-new-password",
     "input-confirm-password",
   ]
@@ -577,12 +649,18 @@ window.logout = async () => {
   scheduleSetupRequired = false;
   selectedManualStudentId = "";
   studentCatalogCache = [];
+  incidentCache = [];
+  studentBeingMoved = "";
+  studentGroupBeingDeleted = null;
   attendanceInFlight.clear();
   if (byId("input-manual-student-search")) byId("input-manual-student-search").value = "";
   hideManualStudentResults();
   document.querySelectorAll("header, main").forEach((element) => element.classList.add("hidden"));
   window.safeToggle("modal-change-password", true);
   window.safeToggle("modal-teacher-schedule", true);
+  window.safeToggle("modal-move-student", true);
+  window.safeToggle("modal-delete-student-group", true);
+  window.closeSchoolCalendar();
   window.safeToggle("section-gateway", false);
   window.resetGateway();
   await signOut(auth).catch(() => {});
@@ -730,8 +808,22 @@ function studentDisplayName(student) {
   return [student?.paterno, student?.materno, student?.nombres].map((value) => normalizeText(value)).filter(Boolean).join(" ");
 }
 
+function studentRosterName(student) {
+  const name = studentDisplayName(student);
+  if (!isMovedStudent(student)) return name;
+  const destination = [
+    normalizeSchoolLevel(student?.movedToLevel),
+    normalizeGroupName(student?.movedToGroup) && `GRUPO ${normalizeGroupName(student?.movedToGroup)}`,
+  ].filter(Boolean).join(" · ");
+  return `${name} — MOVIDO / ELIMINADO${destination ? ` (A ${destination})` : ""}`;
+}
+
 function isStudentInactive(student) {
-  return student?.active === false || normalizeText(student?.status).toLowerCase() === "inactive";
+  return student?.active === false || new Set(["inactive", "moved"]).has(normalizeText(student?.status).toLowerCase());
+}
+
+function isMovedStudent(student) {
+  return normalizeText(student?.status).toLowerCase() === "moved" || Boolean(student?.movedToStudentId);
 }
 
 function normalizedStudentSearch(value) {
@@ -892,7 +984,7 @@ function printGroupRoster(levelLabel, groupLabel, students) {
     const listCell = document.createElement("td");
     listCell.textContent = student.displayListNumber || "";
     const nameCell = document.createElement("td");
-    nameCell.textContent = studentDisplayName(student);
+    nameCell.textContent = studentRosterName(student);
     if (isStudentInactive(student)) nameCell.classList.add("student-inactive-name");
     row.append(listCell, nameCell);
     body.append(row);
@@ -981,11 +1073,13 @@ function createStudentTable(levelLabel, groupLabel, students) {
   body.className = "divide-y divide-slate-100 text-[11px] font-bold uppercase";
   for (const student of [...students].sort(compareStudentsByList)) {
     const row = document.createElement("tr");
-    row.append(createCell(student.displayListNumber || "", "p-3 font-black text-center"));
     const fullName = studentDisplayName(student);
     const inactive = isStudentInactive(student);
-    const activeAfterAction = inactive;
-    row.append(createCell(fullName, `text-left px-2${inactive ? " student-inactive-name" : ""}`));
+    const moved = isMovedStudent(student);
+    if (moved) row.className = "bg-red-50/80";
+    row.append(createCell(student.displayListNumber || "", "p-3 font-black text-center"));
+    const nameCell = createCell(studentRosterName(student), `text-left px-2${inactive ? " student-inactive-name" : ""}`);
+    row.append(nameCell);
     const qrCell = document.createElement("td");
     qrCell.className = "text-center";
     if (!inactive) {
@@ -998,17 +1092,24 @@ function createStudentTable(levelLabel, groupLabel, students) {
     }
     row.append(qrCell);
     const actionCell = document.createElement("td");
-    actionCell.className = "text-center";
-    // El siguiente estado activo coincide con el estado inactivo actual:
-    // un alumno activo pasa a false y uno inactivo vuelve a true.
-    actionCell.append(createIconButton(
-      inactive ? `Reactivar a ${fullName}` : `Dar de baja a ${fullName}`,
-      inactive ? "fas fa-rotate-left" : "fas fa-user-slash",
-      () => window.setStudentActive(student.id, activeAfterAction),
-      inactive
-        ? "text-green-700 p-2 rounded-lg hover:bg-green-50 focus-visible:ring-2 focus-visible:ring-green-600"
-        : "text-red-600 p-2 rounded-lg hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-600",
-    ));
+    actionCell.className = "text-center whitespace-nowrap";
+    if (!inactive) {
+      const actionSelect = document.createElement("select");
+      actionSelect.className = "max-w-[9rem] rounded-xl border border-slate-200 bg-white px-2 py-2 text-[9px] font-black uppercase text-slate-700 shadow-sm focus-visible:ring-2 focus-visible:ring-blue-500";
+      actionSelect.setAttribute("aria-label", `Acción para ${fullName}`);
+      actionSelect.add(new Option("Seleccionar…", ""));
+      actionSelect.add(new Option("Mover de grupo", "move"));
+      actionSelect.add(new Option("Dar de baja", "disable"));
+      actionSelect.addEventListener("change", () => window.handleStudentAction(actionSelect, student.id));
+      actionCell.append(actionSelect);
+    } else if (!moved) {
+      actionCell.append(createIconButton(
+        `Reactivar a ${fullName}`,
+        "fas fa-rotate-left",
+        () => window.setStudentActive(student.id, true),
+        "text-green-700 p-2 rounded-lg hover:bg-green-50 focus-visible:ring-2 focus-visible:ring-green-600",
+      ));
+    }
     row.append(actionCell);
     body.append(row);
   }
@@ -1016,6 +1117,13 @@ function createStudentTable(levelLabel, groupLabel, students) {
   wrapper.append(table);
   return wrapper;
 }
+
+window.handleStudentAction = (select, studentId) => {
+  const action = select?.value;
+  if (select) select.value = "";
+  if (action === "move") return window.openMoveStudentModal(studentId);
+  if (action === "disable") return window.setStudentActive(studentId, false);
+};
 
 function createGroupView(level, levelLabel, group, groupLabel, students) {
   const numberedStudents = assignDisplayListNumbers(students);
@@ -1038,6 +1146,17 @@ function createGroupView(level, levelLabel, group, groupLabel, students) {
     createPrintActionButton("Imprimir lista", "fas fa-print", () => printGroupRoster(levelLabel, groupLabel, numberedStudents)),
     createPrintActionButton("Imprimir QR", "fas fa-qrcode", () => printStudentQrs(levelLabel, groupLabel, activeStudents), true),
   );
+  if (isAdmin()) {
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[9px] font-black uppercase text-red-700 shadow-sm hover:bg-red-100 focus-visible:ring-2 focus-visible:ring-red-700";
+    const lockIcon = document.createElement("i");
+    lockIcon.className = "fas fa-lock mr-2";
+    lockIcon.setAttribute("aria-hidden", "true");
+    deleteButton.append(lockIcon, document.createTextNode("Borrar grupo"));
+    deleteButton.addEventListener("click", () => window.openDeleteStudentGroupModal(level, group));
+    actions.append(deleteButton);
+  }
   toolbar.append(title, actions);
   view.append(toolbar, createStudentTable(levelLabel, groupLabel, numberedStudents));
   return view;
@@ -1339,6 +1458,341 @@ window.saveOwnSchedule = async () => {
   }
 };
 
+const INCIDENT_PRIORITY_LABELS = {baja: "Baja", media: "Media", alta: "Alta", urgente: "Urgente"};
+const INCIDENT_AFFECTATION_LABELS = {alumno: "Alumna o alumno", personal: "Personal", servicio: "Servicio", infraestructura: "Infraestructura", mobiliario_equipo: "Mobiliario o equipo"};
+const INCIDENT_TYPE_LABELS = {asistencia: "Asistencia", conducta: "Conducta", convivencia: "Convivencia escolar", acoso_violencia: "Acoso o violencia", accidente_salud: "Accidente o salud", aprendizaje: "Aprendizaje", proteccion_civil: "Protección civil", servicio: "Servicio del plantel", infraestructura: "Infraestructura", mobiliario_equipo: "Mobiliario o equipo", otro: "Otro"};
+const INCIDENT_STATUS_LABELS = {abierta: "Abierta", seguimiento: "En seguimiento", resuelta: "Resuelta"};
+
+function selectedIncidentGroup(value = byId("incident-group")?.value) {
+  const raw = String(value || "");
+  const separator = raw.indexOf("|");
+  if (separator < 0) return null;
+  try {
+    return {
+      level: normalizeSchoolLevel(decodeURIComponent(raw.slice(0, separator))),
+      group: normalizeGroupName(decodeURIComponent(raw.slice(separator + 1))),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function teacherIncidentGroups() {
+  const groups = new Map();
+  for (const student of studentCatalogCache) {
+    if (isStudentInactive(student)) continue;
+    const level = normalizeSchoolLevel(student.level || student.nivel);
+    const group = normalizeGroupName(student.grupo);
+    if (!level || !group) continue;
+    groups.set(scheduleGroupKey(level, group), {level, group});
+  }
+  return [...groups.entries()].sort(([, first], [, second]) => {
+    const levelOrder = (STUDENT_LEVEL_ORDER.get(first.level) ?? 99) - (STUDENT_LEVEL_ORDER.get(second.level) ?? 99);
+    return levelOrder || first.group.localeCompare(second.group, "es", {numeric: true, sensitivity: "base"});
+  });
+}
+
+function populateIncidentGroupOptions() {
+  const groups = teacherIncidentGroups();
+  const select = byId("incident-group");
+  const filter = byId("incident-group-filter");
+  const previous = select?.value || "";
+  if (select) {
+    select.replaceChildren(new Option(groups.length ? "Seleccione un grupo" : "No hay grupos activos", ""));
+    groups.forEach(([value, item]) => select.add(new Option(`${STUDENT_LEVEL_LABELS[item.level] || item.level} · Grupo ${item.group}`, value)));
+    select.disabled = groups.length === 0;
+    if (groups.some(([value]) => value === previous)) select.value = previous;
+  }
+  if (filter) {
+    const selectedFilter = filter.value;
+    filter.replaceChildren(new Option("Todos", ""));
+    groups.forEach(([value, item]) => filter.add(new Option(`${item.level} · ${item.group}`, value)));
+    if (groups.some(([value]) => value === selectedFilter)) filter.value = selectedFilter;
+  }
+  window.populateIncidentStudents();
+}
+
+window.populateIncidentStudents = () => {
+  const selection = selectedIncidentGroup();
+  const select = byId("incident-student");
+  if (!select) return;
+  const previous = select.value;
+  const students = studentCatalogCache
+    .filter((student) => !isStudentInactive(student)
+      && selection
+      && normalizeSchoolLevel(student.level || student.nivel) === selection.level
+      && normalizeGroupName(student.grupo) === selection.group)
+    .sort(compareStudentsByName);
+  select.replaceChildren(new Option(students.length ? "Seleccione o capture el nombre" : "Seleccione primero un grupo", ""));
+  students.forEach((student) => select.add(new Option(studentDisplayName(student), student.id)));
+  if (students.some((student) => student.id === previous)) select.value = previous;
+  window.selectIncidentStudent();
+};
+
+window.selectIncidentStudent = () => {
+  const student = studentCatalogCache.find((candidate) => candidate.id === byId("incident-student")?.value);
+  if (student && byId("incident-affected-name")) byId("incident-affected-name").value = studentDisplayName(student);
+};
+
+window.updateIncidentAffectedFields = () => {
+  const affectation = byId("incident-affectation")?.value || "alumno";
+  const personAffected = new Set(["alumno", "personal"]).has(affectation);
+  window.safeToggle("incident-student-field", affectation !== "alumno");
+  window.safeToggle("incident-function-field", !personAffected);
+  window.safeToggle("incident-age-field", !personAffected);
+  window.safeToggle("incident-name-field", !personAffected);
+  window.safeToggle("incident-service-field", personAffected);
+  if (byId("incident-affected-name")) byId("incident-affected-name").required = personAffected;
+  if (byId("incident-affected-service")) byId("incident-affected-service").required = !personAffected;
+  if (affectation === "alumno" && byId("incident-affected-function")) byId("incident-affected-function").value = "alumno";
+  if (affectation === "personal" && byId("incident-affected-function")?.value === "alumno") byId("incident-affected-function").value = "docente";
+};
+
+function mexicoDateAndTime() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date()).reduce((values, part) => ({...values, [part.type]: part.value}), {});
+  return {date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}`};
+}
+
+function prepareIncidentForm({reset = false} = {}) {
+  const defaults = reset ? {
+    group: byId("incident-group")?.value || "",
+    municipality: byId("incident-municipality")?.value || "",
+    shift: byId("incident-shift")?.value || "",
+    administrativeUnit: byId("incident-administrative-unit")?.value || "",
+    regionalOffice: byId("incident-regional-office")?.value || "",
+  } : null;
+  if (reset) byId("incident-form")?.reset();
+  const now = mexicoDateAndTime();
+  if (byId("incident-cct")) byId("incident-cct").value = schoolKey;
+  if (byId("incident-school-name")) byId("incident-school-name").value = schoolName;
+  if (byId("incident-reporter")) byId("incident-reporter").value = loggedTeacher?.nombre || "";
+  if (byId("incident-report-type")) byId("incident-report-type").value = "Inicial";
+  if (byId("incident-folio")) byId("incident-folio").value = "Se generará al guardar";
+  if (byId("incident-date")) {
+    byId("incident-date").max = now.date;
+    byId("incident-date").value = now.date;
+  }
+  if (byId("incident-time")) byId("incident-time").value = now.time;
+  populateIncidentGroupOptions();
+  if (defaults) {
+    if (byId("incident-group")) byId("incident-group").value = defaults.group;
+    if (byId("incident-municipality")) byId("incident-municipality").value = defaults.municipality;
+    if (byId("incident-shift")) byId("incident-shift").value = defaults.shift;
+    if (byId("incident-administrative-unit")) byId("incident-administrative-unit").value = defaults.administrativeUnit;
+    if (byId("incident-regional-office")) byId("incident-regional-office").value = defaults.regionalOffice;
+    window.populateIncidentStudents();
+  }
+  window.updateIncidentAffectedFields();
+};
+
+function setIncidentFormStatus(message, error = false) {
+  const status = byId("incident-form-status");
+  if (!status) return;
+  status.textContent = message;
+  status.className = `min-h-5 text-center text-xs font-bold ${error ? "text-red-700" : "text-slate-600"}`;
+}
+
+window.createIncident = async (event) => {
+  event?.preventDefault?.();
+  if (loggedTeacher?.role !== "docente") return window.showModalMsg("Acceso", "Esta bitácora está disponible para cuentas docentes.");
+  const form = byId("incident-form");
+  if (!form?.reportValidity()) return;
+  const selectedGroup = selectedIncidentGroup();
+  if (!selectedGroup) return setIncidentFormStatus("Seleccione uno de sus grupos.", true);
+  const button = byId("btn-create-incident");
+  if (button) button.disabled = true;
+  setIncidentFormStatus("Guardando la incidencia…");
+  try {
+    const result = await api.createIncident({
+      schoolKey,
+      schoolName,
+      level: selectedGroup.level,
+      group: selectedGroup.group,
+      reportedDate: byId("incident-date")?.value,
+      reportedTime: byId("incident-time")?.value,
+      priority: byId("incident-priority")?.value,
+      affectationType: byId("incident-affectation")?.value,
+      incidentType: byId("incident-type")?.value,
+      affectedStudentId: byId("incident-student")?.value,
+      affectedFunction: byId("incident-affected-function")?.value,
+      affectedPersonName: byId("incident-affected-name")?.value,
+      affectedAge: byId("incident-affected-age")?.value,
+      affectedService: byId("incident-affected-service")?.value,
+      municipality: byId("incident-municipality")?.value,
+      shift: byId("incident-shift")?.value,
+      administrativeUnit: byId("incident-administrative-unit")?.value,
+      regionalOffice: byId("incident-regional-office")?.value,
+      description: byId("incident-description")?.value,
+      immediateActions: byId("incident-immediate-actions")?.value,
+      guardianNotified: byId("incident-guardian-notified")?.checked === true,
+      nextFollowUpDate: byId("incident-next-follow-up")?.value,
+    });
+    const incident = result.data.incident;
+    incidentCache.unshift(incident);
+    prepareIncidentForm({reset: true});
+    setIncidentFormStatus(`Incidencia ${incident.folio} guardada.`);
+    window.renderIncidentList();
+    window.showModalMsg("Incidencia guardada", `Se creó el folio ${incident.folio}. Puede actualizar su seguimiento desde la bitácora.`);
+  } catch (error) {
+    setIncidentFormStatus(functionError(error, "No fue posible guardar la incidencia."), true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+};
+
+function incidentTextElement(tag, text, className = "") {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  element.className = className;
+  return element;
+}
+
+function formatIncidentDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return "Sin fecha";
+  return new Intl.DateTimeFormat("es-MX", {dateStyle: "medium", timeZone: "UTC"}).format(new Date(`${value}T00:00:00Z`));
+}
+
+function createIncidentHistory(incident) {
+  const details = document.createElement("details");
+  details.className = "rounded-2xl border border-slate-200 bg-slate-50 p-4";
+  const summary = incidentTextElement("summary", `Historial (${incident.history?.length || 0})`, "cursor-pointer text-[10px] font-black uppercase text-slate-700");
+  const list = document.createElement("ol");
+  list.className = "mt-3 space-y-3";
+  [...(incident.history || [])].reverse().forEach((entry) => {
+    const item = document.createElement("li");
+    item.className = "border-l-2 border-violet-300 pl-3";
+    item.append(
+      incidentTextElement("p", `${INCIDENT_STATUS_LABELS[entry.status] || entry.status} · ${entry.authorName || "Docente"}`, "text-[9px] font-black uppercase text-violet-800"),
+      incidentTextElement("p", entry.note || "Sin nota", "mt-1 text-xs leading-relaxed text-slate-700"),
+      incidentTextElement("p", `${entry.guardianNotified ? "Familia notificada" : "Sin notificación familiar registrada"}${entry.nextFollowUpDate ? ` · Próximo seguimiento: ${formatIncidentDate(entry.nextFollowUpDate)}` : ""}`, "mt-1 text-[9px] font-bold text-slate-500"),
+    );
+    list.append(item);
+  });
+  details.append(summary, list);
+  return details;
+}
+
+function createIncidentFollowUp(incident) {
+  const panel = document.createElement("div");
+  panel.className = "grid grid-cols-1 gap-3 rounded-2xl border border-violet-100 bg-violet-50 p-4 sm:grid-cols-2";
+  const status = document.createElement("select");
+  status.className = "w-full rounded-xl border bg-white px-3 py-3 text-xs font-bold";
+  Object.entries(INCIDENT_STATUS_LABELS).forEach(([value, label]) => status.add(new Option(label, value)));
+  status.value = incident.status;
+  const nextDate = document.createElement("input");
+  nextDate.type = "date";
+  nextDate.value = incident.nextFollowUpDate || "";
+  nextDate.className = "w-full rounded-xl border bg-white px-3 py-3 text-xs font-bold";
+  const note = document.createElement("textarea");
+  note.rows = 3;
+  note.maxLength = 1200;
+  note.placeholder = "Nota de seguimiento obligatoria";
+  note.className = "w-full rounded-xl border bg-white px-3 py-3 text-xs leading-relaxed sm:col-span-2";
+  const guardianLabel = document.createElement("label");
+  guardianLabel.className = "flex items-center gap-2 text-[9px] font-black uppercase text-slate-700";
+  const guardian = document.createElement("input");
+  guardian.type = "checkbox";
+  guardian.checked = incident.guardianNotified === true;
+  guardian.className = "h-5 w-5 accent-violet-700";
+  guardianLabel.append(guardian, document.createTextNode("Familia notificada"));
+  const button = incidentTextElement("button", "Guardar seguimiento", "rounded-xl bg-violet-700 px-4 py-3 text-[10px] font-black uppercase text-white disabled:opacity-50");
+  button.type = "button";
+  button.addEventListener("click", async () => {
+    if (normalizeText(note.value, 1200).length < 3) {
+      note.setCustomValidity("Capture una nota de seguimiento.");
+      note.reportValidity();
+      note.setCustomValidity("");
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Guardando…";
+    try {
+      const result = await api.updateIncident({schoolKey, incidentId: incident.id, status: status.value, note: note.value, guardianNotified: guardian.checked, nextFollowUpDate: nextDate.value});
+      const updated = result.data.incident;
+      incidentCache = incidentCache.map((item) => item.id === updated.id ? updated : item);
+      window.renderIncidentList();
+    } catch (error) {
+      window.showModalMsg("Seguimiento", functionError(error, "No fue posible actualizar la incidencia."));
+      button.disabled = false;
+      button.textContent = "Guardar seguimiento";
+    }
+  });
+  panel.append(status, nextDate, note, guardianLabel, button);
+  return panel;
+}
+
+function createIncidentCard(incident) {
+  const card = document.createElement("article");
+  card.className = "space-y-4 rounded-[2rem] border border-slate-200 p-5 shadow-sm";
+  const header = document.createElement("div");
+  header.className = "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between";
+  const title = document.createElement("div");
+  title.append(
+    incidentTextElement("p", `${incident.folio} · ${formatIncidentDate(incident.reportedDate)} · ${incident.reportedTime}`, "text-[9px] font-black uppercase text-violet-700"),
+    incidentTextElement("h3", `${INCIDENT_TYPE_LABELS[incident.incidentType] || incident.incidentType} · ${incident.level} · Grupo ${incident.group}`, "mt-1 text-base font-black uppercase text-slate-900"),
+  );
+  const badges = document.createElement("div");
+  badges.className = "flex flex-wrap gap-2";
+  const priorityClasses = incident.priority === "urgente" ? "bg-red-100 text-red-800" : incident.priority === "alta" ? "bg-orange-100 text-orange-800" : "bg-slate-100 text-slate-700";
+  badges.append(
+    incidentTextElement("span", INCIDENT_PRIORITY_LABELS[incident.priority] || incident.priority, `rounded-full px-3 py-1 text-[9px] font-black uppercase ${priorityClasses}`),
+    incidentTextElement("span", INCIDENT_STATUS_LABELS[incident.status] || incident.status, "rounded-full bg-violet-100 px-3 py-1 text-[9px] font-black uppercase text-violet-800"),
+  );
+  header.append(title, badges);
+  const affected = incident.affectedPersonName || incident.affectedService || INCIDENT_AFFECTATION_LABELS[incident.affectationType] || "Sin detalle";
+  const facts = document.createElement("div");
+  facts.className = "grid grid-cols-1 gap-3 text-xs sm:grid-cols-2";
+  facts.append(
+    incidentTextElement("p", `Afectación: ${INCIDENT_AFFECTATION_LABELS[incident.affectationType] || incident.affectationType} · ${affected}`, "rounded-xl bg-slate-50 p-3 font-bold text-slate-700"),
+    incidentTextElement("p", `Plantel: ${incident.municipality} · Turno ${String(incident.shift || "").replace("_", " ")}`, "rounded-xl bg-slate-50 p-3 font-bold text-slate-700"),
+  );
+  card.append(
+    header,
+    facts,
+    incidentTextElement("p", incident.description, "whitespace-pre-line text-sm leading-relaxed text-slate-700"),
+    incidentTextElement("p", `Atención inicial: ${incident.immediateActions}`, "rounded-xl border-l-4 border-violet-400 bg-violet-50 p-3 text-xs font-bold leading-relaxed text-violet-950"),
+    createIncidentHistory(incident),
+    createIncidentFollowUp(incident),
+  );
+  return card;
+}
+
+window.renderIncidentList = () => {
+  const list = byId("incident-list");
+  const status = byId("incident-list-status");
+  if (!list || !status) return;
+  const statusFilter = byId("incident-status-filter")?.value || "";
+  const groupFilter = selectedIncidentGroup(byId("incident-group-filter")?.value);
+  const filtered = incidentCache.filter((incident) => (!statusFilter || incident.status === statusFilter)
+    && (!groupFilter || (incident.level === groupFilter.level && incident.group === groupFilter.group)));
+  list.replaceChildren(...filtered.map(createIncidentCard));
+  status.textContent = filtered.length ? `${filtered.length} ${filtered.length === 1 ? "incidencia" : "incidencias"}` : "No hay incidencias con los filtros seleccionados.";
+  const openCount = incidentCache.filter((incident) => incident.status !== "resuelta").length;
+  if (byId("incident-open-count")) byId("incident-open-count").textContent = `${openCount} ${openCount === 1 ? "abierta" : "abiertas"}`;
+};
+
+window.loadIncidents = async () => {
+  const status = byId("incident-list-status");
+  if (status) status.textContent = "Cargando incidencias…";
+  try {
+    const result = await api.listIncidents({schoolKey});
+    incidentCache = Array.isArray(result.data.incidents) ? result.data.incidents : [];
+    window.renderIncidentList();
+    if (result.data.truncated && status) status.textContent += " · Se muestran las 300 más recientes.";
+  } catch (error) {
+    incidentCache = [];
+    if (status) status.textContent = functionError(error, "No fue posible cargar las incidencias.");
+  }
+};
+
 async function enterApp() {
   if (!loggedTeacher) return;
   window.safeToggle("section-gateway", true);
@@ -1351,6 +1805,7 @@ async function enterApp() {
   window.safeToggle("tab-admin", !isAdmin());
   window.safeToggle("tab-super", !superUser);
   window.safeToggle("tab-scanner", superUser);
+  window.safeToggle("tab-incidents", loggedTeacher.role !== "docente");
   window.safeToggle("maint-cat-institucion", !isMaster());
   if (superUser) await window.switchTab("global");
   else {
@@ -1362,11 +1817,13 @@ async function enterApp() {
 }
 
 async function switchTab(tab) {
-  const allowed = new Set(["scanner", "admin", "global"]);
+  const allowed = new Set(["scanner", "incidents", "admin", "global"]);
   if (!allowed.has(tab)) return;
+  if (tab === "incidents" && loggedTeacher?.role !== "docente") return window.showModalMsg("Acceso", "Esta bitácora está disponible para cuentas docentes.");
   if (tab === "admin" && !isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos de administración.");
   if (tab === "global" && loggedTeacher?.role !== "super") return window.showModalMsg("Acceso", "Esta sección requiere el rol maestro global.");
   window.safeToggle("section-scanner", tab !== "scanner");
+  window.safeToggle("section-incidents", tab !== "incidents");
   window.safeToggle("section-admin", tab !== "admin");
   window.safeToggle("section-global", tab !== "global");
   if (tab === "scanner" && teacherNeedsInitialScheduleSetup()) {
@@ -1381,6 +1838,10 @@ async function switchTab(tab) {
   } else if (tab === "admin") {
     window.safeToggle("super-school-selector", true);
     window.safeToggle("school-management-cards", false);
+  }
+  if (tab === "incidents") {
+    prepareIncidentForm();
+    await window.loadIncidents();
   }
   if (tab === "global") await Promise.all([window.loadAllSchools(), window.loadAuditHistory()]);
 }
@@ -1666,6 +2127,7 @@ window.switchMaintCategory = async (category) => {
     "edit-recess-return": data.recessReturnTime,
     "edit-tolerance": data.tolerance,
     "edit-class-duration": data.classDuration,
+    "edit-tardies-per-absence": data.tardiesPerAbsence ?? 0,
     "display-school-cct-readonly": schoolKey,
     "edit-school-contact-email": data.contactEmail,
     "edit-brand-primary": data.brandPrimaryColor || "#1e293b",
@@ -1764,6 +2226,7 @@ window.updateSchoolGlobalData = async () => {
     recessReturnTime: byId("edit-recess-return").value,
     tolerance: byId("edit-tolerance").value,
     classDuration: byId("edit-class-duration").value,
+    tardiesPerAbsence: byId("edit-tardies-per-absence")?.value || 0,
     contactEmail: byId("edit-school-contact-email")?.value || "",
   };
   if (currentSchool?.isPremium === true || byId("premium-branding-panel")?.classList.contains("hidden") === false) {
@@ -1994,14 +2457,20 @@ async function existingStudentIdentityIndex(level, group) {
   const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_alumnos`));
   const usedIds = new Set(snapshot.docs.map((entry) => entry.id));
   const idsByIdentity = new Map();
+  const reservedListNumbers = new Set();
   for (const entry of snapshot.docs) {
     const student = entry.data();
     if (normalizeSchoolLevel(student.level || student.nivel) !== level || normalizeGroupName(student.grupo) !== group) continue;
+    if (isMovedStudent(student)) {
+      const listNumber = studentListNumber(student);
+      if (listNumber !== null) reservedListNumbers.add(listNumber);
+      continue;
+    }
     const key = studentIdentityKey(student);
     idsByIdentity.set(key, [...(idsByIdentity.get(key) || []), entry.id]);
   }
   for (const ids of idsByIdentity.values()) ids.sort((a, b) => a.localeCompare(b, "es", {numeric: true}));
-  return {idsByIdentity, usedIds};
+  return {idsByIdentity, reservedListNumbers, usedIds};
 }
 
 async function commitStudentChunks(students, progress) {
@@ -2055,18 +2524,22 @@ window.handleBatchImport = async (event) => {
     if (!parsedStudents.length) throw new Error("No se encontraron nombres de alumnos válidos en el archivo.");
     if (parsedStudents.length > 99) throw new Error("Un grupo no puede contener más de 99 alumnos.");
     parsedStudents.sort(compareStudentsByName);
-    const {idsByIdentity, usedIds} = await existingStudentIdentityIndex(level, group);
+    const {idsByIdentity, reservedListNumbers, usedIds} = await existingStudentIdentityIndex(level, group);
+    const availableListNumbers = Array.from({length: 99}, (_, index) => index + 1)
+      .filter((listNumber) => !reservedListNumbers.has(listNumber));
+    if (parsedStudents.length > availableListNumbers.length) throw new Error("El grupo no tiene suficientes lugares disponibles sin alterar los espacios eliminados.");
     const students = [];
     parsedStudents.forEach((parsedStudent, index) => {
       const identity = studentIdentityKey(parsedStudent);
       const existingIds = idsByIdentity.get(identity) || [];
       const existingId = existingIds.shift();
-      const id = existingId || buildStudentId(level, group, index + 1, parsedStudent);
+      const listNumber = availableListNumbers[index];
+      const id = existingId || buildStudentId(level, group, listNumber, parsedStudent);
       if (!existingId && usedIds.has(id)) {
         throw new Error(`No se puede generar ${id}: otro alumno ya utiliza ese identificador.`);
       }
       usedIds.add(id);
-      const list = String(index + 1).padStart(2, "0");
+      const list = String(listNumber).padStart(2, "0");
       students.push({
         id,
         data: {
@@ -2188,10 +2661,7 @@ window.addStudent = async () => {
     }
   }
 };
-window.clearAllStudents = () => window.showConfirmMsg("Limpieza", "¿Borrar todo el catálogo de alumnos? Esta acción no se puede deshacer.", async () => {
-  await api.clearStudents({schoolKey});
-  await loadStudents();
-});
+window.clearAllStudents = () => window.openDeleteStudentCatalogModal();
 
 window.setStudentActive = (id, active) => window.showConfirmMsg(
   active ? "Reactivar alumno" : "Dar de baja",
@@ -2203,6 +2673,192 @@ window.setStudentActive = (id, active) => window.showConfirmMsg(
     await loadStudents();
   },
 );
+
+function moveStudentDestinationGroups(level, student) {
+  const destinationLevel = normalizeSchoolLevel(level);
+  const sourceLevel = normalizeSchoolLevel(student?.level || student?.nivel);
+  const sourceGroup = normalizeGroupName(student?.grupo);
+  return [...new Set(studentCatalogCache
+    .filter((candidate) => normalizeSchoolLevel(candidate.level || candidate.nivel) === destinationLevel)
+    .map((candidate) => normalizeGroupName(candidate.grupo))
+    .filter((group) => group && (destinationLevel !== sourceLevel || group !== sourceGroup)))]
+    .sort((first, second) => first.localeCompare(second, "es", {numeric: true}));
+}
+
+window.populateMoveStudentGroupOptions = () => {
+  const select = byId("move-student-group");
+  const level = byId("move-student-level")?.value;
+  if (!select) return;
+  const student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === studentBeingMoved);
+  const groups = student ? moveStudentDestinationGroups(level, student) : [];
+  select.replaceChildren(new Option(groups.length ? "Seleccione un grupo" : "No hay grupos disponibles", ""));
+  for (const group of groups) select.add(new Option(group, group));
+  select.disabled = groups.length === 0;
+};
+
+window.openMoveStudentModal = (id) => {
+  if (!isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos para corregir grupos.");
+  const student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === normalizeCode(id, 40));
+  if (!student || isStudentInactive(student)) return window.showModalMsg("Corregir grupo", "Seleccione un alumno activo.");
+  studentBeingMoved = normalizeCode(student.id, 40);
+  if (byId("move-student-name")) byId("move-student-name").textContent = studentDisplayName(student);
+  if (byId("move-student-origin")) {
+    byId("move-student-origin").textContent = `Ubicación actual: ${normalizeSchoolLevel(student.level || student.nivel)} · Grupo ${normalizeGroupName(student.grupo)} · Lista ${studentListNumber(student)?.toString().padStart(2, "0") || "—"}`;
+  }
+  if (byId("move-student-level")) byId("move-student-level").value = normalizeSchoolLevel(student.level || student.nivel);
+  window.populateMoveStudentGroupOptions();
+  window.safeToggle("modal-move-student", false);
+  byId("move-student-group")?.focus();
+};
+
+window.closeMoveStudentModal = () => {
+  studentBeingMoved = "";
+  if (byId("move-student-group")) byId("move-student-group").value = "";
+  window.safeToggle("modal-move-student", true);
+};
+
+window.submitMoveStudent = async () => {
+  const student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === studentBeingMoved);
+  const level = normalizeSchoolLevel(byId("move-student-level")?.value);
+  const group = normalizeGroupName(byId("move-student-group")?.value, 12);
+  if (!student || isStudentInactive(student)) return window.closeMoveStudentModal();
+  if (!level || !group) return window.showModalMsg("Corregir grupo", "Seleccione un grupo destino existente.");
+  if (!moveStudentDestinationGroups(level, student).includes(group)) {
+    window.populateMoveStudentGroupOptions();
+    return window.showModalMsg("Corregir grupo", "El grupo seleccionado ya no esta disponible. Seleccione uno de la lista.");
+  }
+  if (level === normalizeSchoolLevel(student.level || student.nivel) && group === normalizeGroupName(student.grupo)) {
+    return window.showModalMsg("Corregir grupo", "El grupo destino debe ser diferente al grupo actual.");
+  }
+  const button = byId("btn-confirm-move-student");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Corrigiendo…";
+  }
+  try {
+    const response = await api.moveStudent({schoolKey, studentId: student.id, level, group});
+    const moved = response.data || {};
+    window.closeMoveStudentModal();
+    await loadStudents();
+    window.openSingleStudentQRPrintModal({
+      id: moved.studentId,
+      nivel: moved.level,
+      grupo: moved.group,
+      lista: moved.list,
+      nombreCompleto: moved.name,
+      qrContent: moved.studentId,
+      modalTitle: "Nuevo QR por corrección de grupo",
+    });
+  } catch (error) {
+    window.showModalMsg("No se realizó el cambio", `${functionError(error)} El alumno permanece activo en su grupo de origen.`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Corregir grupo";
+    }
+  }
+};
+
+function deleteStudentGroupPhrase(level, group) {
+  return `BORRAR ${normalizeSchoolLevel(level)} ${normalizeGroupName(group)}`;
+}
+
+function studentDeletionPhrase(selection) {
+  return selection?.scope === "catalog"
+    ? "BORRAR CATALOGO COMPLETO"
+    : deleteStudentGroupPhrase(selection?.level, selection?.group);
+}
+
+function prepareStudentDeletionModal(selection) {
+  studentGroupBeingDeleted = selection;
+  const phrase = studentDeletionPhrase(selection);
+  if (byId("delete-student-group-phrase")) byId("delete-student-group-phrase").textContent = phrase;
+  if (byId("delete-student-group-confirmation")) byId("delete-student-group-confirmation").value = "";
+  if (byId("delete-student-group-status")) byId("delete-student-group-status").textContent = "";
+  if (byId("btn-confirm-delete-student-group")) byId("btn-confirm-delete-student-group").disabled = true;
+  window.safeToggle("modal-delete-student-group", false);
+  byId("delete-student-group-confirmation")?.focus();
+}
+
+window.openDeleteStudentGroupModal = (level, group) => {
+  if (!isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos para borrar grupos.");
+  const normalizedLevel = normalizeSchoolLevel(level);
+  const normalizedGroup = normalizeGroupName(group);
+  const members = studentCatalogCache.filter((student) => (
+    normalizeSchoolLevel(student.level || student.nivel) === normalizedLevel
+    && normalizeGroupName(student.grupo) === normalizedGroup
+  ));
+  if (!members.length) return window.showModalMsg("Borrar grupo", "El grupo ya no contiene alumnos.");
+  const selection = {scope: "group", level: normalizedLevel, group: normalizedGroup, count: members.length};
+  if (byId("delete-student-group-details")) {
+    byId("delete-student-group-details").textContent = `${normalizedLevel} · Grupo ${normalizedGroup} · ${members.length} ${members.length === 1 ? "registro" : "registros"}`;
+  }
+  if (byId("delete-student-group-warning")) {
+    byId("delete-student-group-warning").textContent = "Se eliminarán permanentemente todos los alumnos activos, dados de baja y movidos que pertenezcan a este grupo. Los datos y sus códigos QR no podrán recuperarse.";
+  }
+  if (byId("delete-student-group-submit-label")) byId("delete-student-group-submit-label").textContent = "Borrar grupo";
+  prepareStudentDeletionModal(selection);
+};
+
+window.openDeleteStudentCatalogModal = () => {
+  if (!isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos para borrar el catálogo.");
+  const count = studentCatalogCache.length;
+  if (!count) return window.showModalMsg("Borrar catálogo", "El catálogo de alumnos ya está vacío.");
+  if (byId("delete-student-group-details")) {
+    byId("delete-student-group-details").textContent = `CATÁLOGO COMPLETO · ${count} ${count === 1 ? "registro" : "registros"}`;
+  }
+  if (byId("delete-student-group-warning")) {
+    byId("delete-student-group-warning").textContent = "Se eliminará permanentemente todo el catálogo: alumnos activos, dados de baja y movidos de todos los niveles y grupos. Los datos y sus códigos QR no podrán recuperarse.";
+  }
+  if (byId("delete-student-group-submit-label")) byId("delete-student-group-submit-label").textContent = "Borrar catálogo";
+  prepareStudentDeletionModal({scope: "catalog", count});
+};
+
+window.validateDeleteStudentGroupConfirmation = () => {
+  const button = byId("btn-confirm-delete-student-group");
+  if (!button || !studentGroupBeingDeleted) return;
+  const expected = studentDeletionPhrase(studentGroupBeingDeleted);
+  const captured = normalizeText(byId("delete-student-group-confirmation")?.value, 50).toUpperCase();
+  button.disabled = captured !== expected;
+};
+
+window.closeDeleteStudentGroupModal = () => {
+  studentGroupBeingDeleted = null;
+  if (byId("delete-student-group-confirmation")) byId("delete-student-group-confirmation").value = "";
+  if (byId("delete-student-group-status")) byId("delete-student-group-status").textContent = "";
+  window.safeToggle("modal-delete-student-group", true);
+};
+
+window.submitDeleteStudentGroup = async () => {
+  const selection = studentGroupBeingDeleted;
+  const confirmation = normalizeText(byId("delete-student-group-confirmation")?.value, 50).toUpperCase();
+  if (!selection || confirmation !== studentDeletionPhrase(selection)) return;
+  const button = byId("btn-confirm-delete-student-group");
+  if (button) {
+    button.disabled = true;
+    const label = byId("delete-student-group-submit-label");
+    if (label) label.textContent = "Borrando…";
+  }
+  try {
+    const response = selection.scope === "catalog"
+      ? await api.clearStudents({schoolKey})
+      : await api.deleteStudentGroup({schoolKey, level: selection.level, group: selection.group});
+    const deleted = Number(response.data?.deletedStudents) || selection.count;
+    window.closeDeleteStudentGroupModal();
+    await loadStudents();
+    const target = selection.scope === "catalog" ? "del catálogo completo" : `del grupo ${selection.group}`;
+    window.showModalMsg(selection.scope === "catalog" ? "Catálogo eliminado" : "Grupo eliminado", `Se eliminaron permanentemente ${deleted} ${deleted === 1 ? "registro" : "registros"} ${target}.`);
+  } catch (error) {
+    if (byId("delete-student-group-status")) byId("delete-student-group-status").textContent = functionError(error);
+    window.validateDeleteStudentGroupConfirmation();
+  } finally {
+    if (button) {
+      const label = byId("delete-student-group-submit-label");
+      if (label) label.textContent = selection.scope === "catalog" ? "Borrar catálogo" : "Borrar grupo";
+      window.validateDeleteStudentGroupConfirmation();
+    }
+  }
+};
 
 window.renumberStudentGroup = (level, group) => window.showConfirmMsg(
   "Actualizar numeración y QR",
@@ -2228,19 +2884,34 @@ window.updateTeacherRole = async (id, role) => {
   }
 };
 
+function teacherIdSegment(value) {
+  return normalizeText(value, 100)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]/gi, "")
+    .toUpperCase();
+}
+
+window.previewNewTeacherId = () => {
+  const names = teacherIdSegment(byId("new-teacher-given-names")?.value).slice(0, 32);
+  const paternal = teacherIdSegment(byId("new-teacher-paternal-surname")?.value).slice(0, 2);
+  const maternal = teacherIdSegment(byId("new-teacher-maternal-surname")?.value).slice(0, 2);
+  const preview = byId("new-teacher-id-preview");
+  if (preview) preview.value = names && paternal.length === 2 && maternal.length === 2 ? `${names}${paternal}${maternal}` : "—";
+};
+
 window.createTeacher = async () => {
   if (!isAdmin() || !schoolKey || schoolKey === "SISTEMA") {
     return window.showModalMsg("Alta de personal", "Seleccione primero el plantel que desea administrar.");
   }
-  const name = normalizeText(byId("new-teacher-name")?.value, 100).toUpperCase();
-  const teacherId = normalizeCode(byId("new-teacher-id")?.value, 40);
+  const givenNames = normalizeText(byId("new-teacher-given-names")?.value, 60).toUpperCase();
+  const paternalSurname = normalizeText(byId("new-teacher-paternal-surname")?.value, 40).toUpperCase();
+  const maternalSurname = normalizeText(byId("new-teacher-maternal-surname")?.value, 40).toUpperCase();
   const role = String(byId("new-teacher-role")?.value || "docente");
-  const temporaryPassword = String(byId("new-teacher-password")?.value || "");
-  if (name.length < 5) return window.showModalMsg("Alta de personal", "Capture el nombre completo del docente.");
-  if (!/^[A-Z0-9._-]{4,40}$/.test(teacherId)) {
-    return window.showModalMsg("Alta de personal", "El usuario debe tener entre 4 y 40 caracteres alfanuméricos.");
+  if (teacherIdSegment(givenNames).length < 2) return window.showModalMsg("Alta de personal", "Capture el nombre o nombres del usuario.");
+  if (teacherIdSegment(paternalSurname).length < 2 || teacherIdSegment(maternalSurname).length < 2) {
+    return window.showModalMsg("Alta de personal", "Capture al menos dos letras de cada apellido.");
   }
-  if (!validPassword(temporaryPassword)) return window.showModalMsg("Alta de personal", "La contraseña temporal debe tener entre 8 y 72 caracteres e incluir letras y números.");
 
   const button = byId("btn-create-teacher");
   const originalLabel = button?.textContent;
@@ -2249,15 +2920,17 @@ window.createTeacher = async () => {
     button.textContent = "Guardando…";
   }
   try {
-    await api.createTeacher({schoolKey, name, teacherId, role, temporaryPassword});
-    byId("new-teacher-name").value = "";
-    byId("new-teacher-id").value = "";
-    byId("new-teacher-password").value = "";
+    const response = await api.createTeacher({schoolKey, givenNames, paternalSurname, maternalSurname, role});
+    const teacherId = response.data.teacher.id;
+    byId("new-teacher-given-names").value = "";
+    byId("new-teacher-paternal-surname").value = "";
+    byId("new-teacher-maternal-surname").value = "";
     byId("new-teacher-role").value = "docente";
+    window.previewNewTeacherId();
     await loadTeachers();
     window.showModalMsg(
       "Cuenta creada",
-      `La cuenta ${teacherId} fue creada. Entregue la contraseña temporal de forma privada; deberá cambiarla en el primer acceso.`,
+      `Usuario temporal: ${teacherId}. Contraseña temporal: usuarionuevo. Entréguelos de forma privada; en el primer acceso la persona sustituirá este usuario por su correo y creará una contraseña propia.`,
     );
   } catch (error) {
     window.showModalMsg("Alta de personal", functionError(error));
@@ -2270,7 +2943,7 @@ window.createTeacher = async () => {
 };
 
 window.openTeacherRepair = (teacherId, teacherName) => {
-  teacherBeingRepaired = normalizeCode(teacherId, 40);
+  teacherBeingRepaired = normalizeCode(teacherId, 160);
   byId("repair-teacher-name").value = normalizeText(teacherName, 100);
   byId("repair-teacher-password").value = "";
   byId("repair-teacher-label").textContent = `Cuenta seleccionada: ${normalizeText(teacherName, 100)}`;
@@ -2374,6 +3047,7 @@ const AUDIT_ACTION_LABELS = {
   premium_enabled: "Premium activado",
   premium_disabled: "Premium desactivado",
   teacher_created: "Usuario creado",
+  teacher_onboarding_completed: "Primer acceso completado",
   teacher_updated: "Usuario actualizado",
   teacher_role_changed: "Rol modificado",
   teacher_approved: "Usuario aprobado",
@@ -2382,16 +3056,19 @@ const AUDIT_ACTION_LABELS = {
   students_imported: "Alumnos importados",
   student_disabled: "Alumno dado de baja",
   student_enabled: "Alumno reactivado",
+  student_moved: "Grupo del alumno corregido",
+  student_group_deleted: "Grupo de alumnos eliminado",
   students_cleared: "Catálogo eliminado",
   student_group_renumbered: "Grupo renumerado",
   attendance_cleared: "Asistencias eliminadas",
   print_group_roster: "Solicitó imprimir lista",
   print_student_qr: "Solicitó imprimir QR",
   print_attendance_report: "Solicitó imprimir reporte",
+  export_attendance_xls: "Exportó reporte XLS",
 };
 
 function auditCategory(action) {
-  if (/print/.test(action)) return "print";
+  if (/print|export/.test(action)) return "print";
   if (/deleted|disabled|cleared/.test(action)) return "delete";
   if (/premium/.test(action)) return "premium";
   if (/teacher|role/.test(action)) return "security";
@@ -2706,7 +3383,7 @@ function attendanceCountsByStudent(report) {
   for (const attendance of report.rows || []) {
     const studentId = normalizeCode(attendance?.studentId, 40);
     const date = String(attendance?.date || "");
-    if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isTardyAbsence(attendance?.status)) continue;
     const key = `${studentId}|${date}`;
     if (recordedAttendances.has(key)) continue;
     recordedAttendances.add(key);
@@ -2750,10 +3427,15 @@ function createAttendanceMatrixTable(report, dates = report.dates) {
     row.append(createCell(student.name, "attendance-name-cell"));
     dates.forEach((date) => {
       const attendance = attendanceByStudentAndDate.get(`${student.id}|${date}`);
-      const cell = createCell(attendance ? "●" : "/", `attendance-mark-cell ${attendance ? "text-green-800" : "text-slate-500"}`);
+      const status = attendance ? normalizedAttendanceStatus(attendance.status) : "FALTA NORMAL";
+      const mark = status === "FALTA POR RETARDOS" ? "R" : status === "RETARDO" ? "T" : attendance ? "●" : "/";
+      const color = status === "FALTA POR RETARDOS"
+        ? "text-red-700"
+        : status === "RETARDO" ? "text-amber-700" : attendance ? "text-green-800" : "text-slate-500";
+      const cell = createCell(mark, `attendance-mark-cell ${color}`);
       cell.title = attendance
-        ? `${visibleReportDate(date, true)} · ${normalizedAttendanceStatus(attendance.status)} · ${attendance.time || "Sin hora"}`
-        : `${visibleReportDate(date, true)} · Falta`;
+        ? `${visibleReportDate(date, true)} · ${status} · ${attendance.time || "Sin hora"}`
+        : `${visibleReportDate(date, true)} · Falta normal`;
       cell.setAttribute("aria-label", cell.title);
       row.append(cell);
     });
@@ -2780,6 +3462,7 @@ function renderAttendanceReport(report) {
     preview.append(prompt);
     summary.textContent = "0 registros";
     window.safeToggle("btn-print-attendance", true);
+    window.safeToggle("btn-export-attendance-xls", true);
     return;
   }
   preview.append(createAttendanceReportHeader(report));
@@ -2788,10 +3471,11 @@ function renderAttendanceReport(report) {
   scroller.append(createAttendanceMatrixTable(report));
   const legend = document.createElement("p");
   legend.className = "p-3 text-right text-[9px] font-black uppercase text-slate-600";
-  legend.textContent = "● Asistencia · / Falta · Total: asistencias del periodo";
+  legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · / Falta normal · Total: asistencias del periodo";
   preview.append(scroller, legend);
   summary.textContent = `${report.students.length} ${report.students.length === 1 ? "alumno" : "alumnos"} · ${report.dates.length} ${report.dates.length === 1 ? "fecha" : "fechas"} · ${report.groups.length} ${report.groups.length === 1 ? "grupo" : "grupos"}${report.truncated ? " · historial limitado a 5000 registros" : ""}`;
   window.safeToggle("btn-print-attendance", report.students.length === 0 || report.dates.length === 0);
+  window.safeToggle("btn-export-attendance-xls", report.students.length === 0 || report.dates.length === 0);
 }
 
 window.loadAttendanceReport = async () => {
@@ -2803,7 +3487,14 @@ window.loadAttendanceReport = async () => {
   const selectedGroupKeys = new Set(groups.map((group) => group.key));
   const students = studentCatalogCache
     .filter((student) => !isStudentInactive(student) && selectedGroupKeys.has(reportGroupFromStudent(student)?.key))
-    .map((student) => ({id: normalizeCode(student.id, 40), name: studentDisplayName(student)}))
+    .map((student) => ({
+      id: normalizeCode(student.id, 40),
+      name: studentDisplayName(student),
+      attendanceIds: [...new Set([
+        student.id,
+        ...(Array.isArray(student.previousStudentIds) ? student.previousStudentIds : []),
+      ].map((id) => normalizeCode(id, 40)).filter(Boolean))],
+    }))
     .filter((student) => student.id && student.name)
     .sort((first, second) => first.name.localeCompare(second.name, "es", {sensitivity: "base"}));
   if (!students.length) return window.showModalMsg("Reporte", "Los grupos seleccionados no tienen alumnos activos.");
@@ -2811,14 +3502,16 @@ window.loadAttendanceReport = async () => {
   if (button) button.disabled = true;
   try {
     const response = await api.listAttendanceReport({schoolKey, from, to});
-    const selectedStudentIds = new Set(students.map((student) => student.id));
+    const currentStudentIdByAttendanceId = new Map(students.flatMap((student) => student.attendanceIds.map((id) => [id, student.id])));
     latestAttendanceReport = {
       from,
       to,
       groups,
       students,
       dates: attendanceReportDates(from, to),
-      rows: (response.data.rows || []).filter((row) => selectedStudentIds.has(row.studentId)),
+      rows: (response.data.rows || [])
+        .filter((row) => currentStudentIdByAttendanceId.has(normalizeCode(row.studentId, 40)))
+        .map((row) => ({...row, studentId: currentStudentIdByAttendanceId.get(normalizeCode(row.studentId, 40))})),
       truncated: response.data.truncated === true,
     };
     renderAttendanceReport(latestAttendanceReport);
@@ -2856,11 +3549,75 @@ window.printAttendanceReport = () => {
     );
     const legend = document.createElement("p");
     legend.className = "mt-2 text-right text-[8px] font-black uppercase";
-    legend.textContent = "● Asistencia · / Falta · Total: asistencias del periodo";
+    legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · / Falta normal · Total: asistencias del periodo";
     section.append(legend);
     content.append(section);
   });
   launchStudentPrint(content);
+};
+
+window.exportAttendanceReportXls = () => {
+  if (!latestAttendanceReport?.students?.length || !latestAttendanceReport?.dates?.length) {
+    return window.showModalMsg("Exportación", "Primero genere un reporte de asistencia.");
+  }
+  const xlsx = window.XLSX;
+  if (!xlsx?.utils?.aoa_to_sheet || !xlsx?.utils?.book_new || typeof xlsx.writeFile !== "function") {
+    return window.showModalMsg("Exportación", "El exportador de Excel no está disponible. Recargue la página e inténtelo nuevamente.");
+  }
+  try {
+    const exportData = createAttendanceExportData({
+      report: latestAttendanceReport,
+      schoolName,
+      schoolKey,
+      attendanceLabel: (attendance) => normalizedAttendanceStatus(attendance.status),
+    });
+    const worksheet = xlsx.utils.aoa_to_sheet(exportData.rows, {cellDates: true, dateNF: "dd/mm/yyyy"});
+    worksheet["!cols"] = [
+      {wch: 38},
+      ...Array.from({length: exportData.dateColumnCount}, () => ({wch: 11})),
+      {wch: 14},
+    ];
+    worksheet["!merges"] = [{
+      s: {r: 0, c: 0},
+      e: {r: 0, c: exportData.totalColumnIndex},
+    }];
+    worksheet["!autofilter"] = {
+      ref: xlsx.utils.encode_range({
+        s: {r: exportData.headerRowIndex, c: 0},
+        e: {r: exportData.lastRowIndex, c: exportData.totalColumnIndex},
+      }),
+    };
+    for (let index = 0; index < exportData.dateColumnCount; index += 1) {
+      const dateCell = worksheet[xlsx.utils.encode_cell({r: exportData.headerRowIndex, c: exportData.dateColumnStart + index})];
+      if (dateCell) dateCell.z = "dd/mm/yyyy";
+    }
+    for (let row = exportData.studentRowStart; row <= exportData.lastRowIndex; row += 1) {
+      const firstDateCell = xlsx.utils.encode_cell({r: row, c: exportData.dateColumnStart});
+      const lastDateCell = xlsx.utils.encode_cell({r: row, c: exportData.totalColumnIndex - 1});
+      const totalCellRef = xlsx.utils.encode_cell({r: row, c: exportData.totalColumnIndex});
+      worksheet[totalCellRef] = {
+        t: "n",
+        v: Number(exportData.rows[row][exportData.totalColumnIndex] || 0),
+        f: `COUNTIF(${firstDateCell}:${lastDateCell},"A TIEMPO")+COUNTIF(${firstDateCell}:${lastDateCell},"RETARDO")`,
+        z: "0",
+      };
+    }
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, "Asistencias");
+    const filename = attendanceExportFilename({schoolKey, from: latestAttendanceReport.from, to: latestAttendanceReport.to});
+    xlsx.writeFile(workbook, filename, {bookType: "xls", cellDates: true});
+    recordClientAudit(
+      "export_attendance_xls",
+      `${latestAttendanceReport.from}_${latestAttendanceReport.to}`,
+      `${latestAttendanceReport.from} a ${latestAttendanceReport.to}`,
+      `Exportó a XLS el reporte de ${latestAttendanceReport.students.length} alumnos y ${latestAttendanceReport.groups.length} grupos.`,
+      {studentCount: latestAttendanceReport.students.length, groupCount: latestAttendanceReport.groups.length},
+    );
+    return true;
+  } catch (error) {
+    window.showModalMsg("Exportación", functionError(error, "No fue posible generar el archivo XLS."));
+    return false;
+  }
 };
 
 window.clearAttendanceHistory = () => window.showConfirmMsg(
@@ -3174,12 +3931,17 @@ window.processQrVerification = async (rawId, options = {}) => {
     const level = normalizeSchoolLevel(student.level || student.nivel) || "SIN NIVEL";
     const group = normalizeGroupName(student.grupo) || "SIN GRUPO";
     const list = studentListNumber(student);
-    const inactive = isStudentInactive(student) ? " · BAJA" : "";
+    const moved = isMovedStudent(student);
+    const inactive = moved
+      ? ` · ELIMINADO · MOVIDO A ${normalizeSchoolLevel(student.movedToLevel)} · GRUPO ${normalizeGroupName(student.movedToGroup)}`
+      : isStudentInactive(student) ? " · BAJA" : "";
     showQrVerificationResult(
       studentDisplayName(student) || student.id,
       `${level} · Grupo ${group}${list ? ` · Lista ${String(list).padStart(2, "0")}` : ""}${inactive}`,
     );
-    setQrVerificationStatus(isStudentInactive(student) ? "Alumno identificado, actualmente dado de baja." : "Alumno identificado.");
+    setQrVerificationStatus(moved
+      ? "QR anterior identificado. Este lugar fue eliminado al corregir el grupo; use el QR nuevo del alumno."
+      : isStudentInactive(student) ? "Alumno identificado, actualmente dado de baja." : "Alumno identificado.");
     return true;
   } catch (error) {
     if (sessionVersion !== qrVerificationSessionVersion) return false;
@@ -3237,8 +3999,16 @@ window.processAttendance = async (rawId, options = {}) => {
     const response = await api.recordAttendance({schoolKey, studentId, captureMethod});
     if (response.data.created) {
       const attendanceState = normalizedAttendanceStatus(response.data.status);
-      setScannerStatus(`Asistencia registrada: ${studentName} · ${response.data.hora} · ${attendanceState}`, "success");
-      await playScanSound("success");
+      if (response.data.convertedToAbsence === true || attendanceState === "FALTA POR RETARDOS") {
+        const limit = Number(response.data.tardyLimit || currentSchool?.tardiesPerAbsence || 0);
+        const notice = `${studentName} alcanzó ${limit} ${limit === 1 ? "retardo" : "retardos"}. Se aplicó una FALTA POR RETARDOS, distinta de una falta normal.`;
+        setScannerStatus(notice, "error");
+        await playScanSound("error");
+        window.showModalMsg("Falta por retardos", notice);
+      } else {
+        setScannerStatus(`Asistencia registrada: ${studentName} · ${response.data.hora} · ${attendanceState}`, "success");
+        await playScanSound("success");
+      }
       return true;
     } else {
       setScannerStatus(`${studentName} ya tenía asistencia hoy.`, "error");
@@ -3281,23 +4051,52 @@ window.manualAttendance = async () => {
 };
 
 window.processPasswordChange = async () => {
+  const identityChangeRequired = loggedTeacher?.identityChangeRequired === true;
+  const email = normalizeText(byId("input-new-user-email")?.value, 160).toLowerCase();
   const currentPassword = String(byId("input-current-password")?.value || "");
   const newPassword = String(byId("input-new-password")?.value || "");
   const confirmation = String(byId("input-confirm-password")?.value || "");
+  if (identityChangeRequired && !/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(email)) {
+    return window.showModalMsg("Primer acceso", "Capture un correo personal o el correo de su cuenta de Google.");
+  }
   if (!currentPassword) return window.showModalMsg("Contraseña", "Capture la contraseña temporal actual.");
   if (!validPassword(newPassword) || newPassword !== confirmation) return window.showModalMsg("Contraseña", "Las contraseñas nuevas deben coincidir, tener entre 8 y 72 caracteres e incluir letras y números.");
+  const button = byId("btn-complete-first-access");
+  if (button) button.disabled = true;
   try {
-    const response = await api.changeTeacherPassword({currentPassword, newPassword});
-    loggedTeacher.passwordChangeRequired = false;
+    const response = identityChangeRequired
+      ? await api.completeTeacherOnboarding({email, currentPassword, newPassword})
+      : await api.changeTeacherPassword({currentPassword, newPassword});
+    loggedTeacher = response.data.teacher
+      ? {...loggedTeacher, ...response.data.teacher}
+      : {...loggedTeacher, passwordChangeRequired: false, identityChangeRequired: false};
+    if (byId("input-new-user-email")) byId("input-new-user-email").value = "";
     byId("input-current-password").value = "";
     byId("input-new-password").value = "";
     byId("input-confirm-password").value = "";
     window.safeToggle("modal-change-password", true);
     await signInWithCustomToken(auth, response.data.token);
   } catch (error) {
-    window.showModalMsg("Contraseña", functionError(error));
+    window.showModalMsg(identityChangeRequired ? "Primer acceso" : "Contraseña", functionError(error));
+  } finally {
+    if (button) button.disabled = false;
   }
 };
+
+function configureFirstAccessModal(identityChangeRequired) {
+  window.safeToggle("identity-change-fields", !identityChangeRequired);
+  if (byId("input-new-user-email")) byId("input-new-user-email").required = identityChangeRequired;
+  if (byId("change-password-description")) {
+    byId("change-password-description").textContent = identityChangeRequired
+      ? "Sustituya el usuario temporal por su correo personal o cuenta de Google y cree una contraseña propia."
+      : "La contraseña temporal debe cambiarse antes de continuar.";
+  }
+  if (byId("btn-complete-first-access")) {
+    byId("btn-complete-first-access").textContent = identityChangeRequired
+      ? "Guardar correo y contraseña"
+      : "Cambiar contraseña e iniciar";
+  }
+}
 
 function attendanceTimestamp(value) {
   return value?.toMillis?.() || 0;
@@ -3320,7 +4119,9 @@ function listenToAttendanceToday() {
   );
   unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
     const logs = snapshot.docs.map((entry) => entry.data()).sort((a, b) => attendanceTimestamp(b.timestamp) - attendanceTimestamp(a.timestamp));
-    byId("scan-count").textContent = `${logs.length} ${logs.length === 1 ? "ASISTENCIA" : "ASISTENCIAS"}`;
+    const tardyAbsences = logs.filter((log) => isTardyAbsence(log.status)).length;
+    const attendances = logs.length - tardyAbsences;
+    byId("scan-count").textContent = `${attendances} ${attendances === 1 ? "ASISTENCIA" : "ASISTENCIAS"}${tardyAbsences ? ` · ${tardyAbsences} ${tardyAbsences === 1 ? "FALTA POR RETARDOS" : "FALTAS POR RETARDOS"}` : ""}`;
     const list = byId("recent-logs");
     list.replaceChildren();
     for (const log of logs.slice(0, 10)) {
@@ -3336,7 +4137,7 @@ function listenToAttendanceToday() {
       description.append(name, time);
       const state = document.createElement("span");
       const attendanceState = normalizedAttendanceStatus(log.status);
-      state.className = `${attendanceState === "RETARDO" ? "text-red-700" : "text-green-700"} font-black uppercase text-xs`;
+      state.className = `${attendanceState === "FALTA POR RETARDOS" ? "text-red-700" : attendanceState === "RETARDO" ? "text-amber-700" : "text-green-700"} font-black uppercase text-xs`;
       state.textContent = attendanceState;
       item.append(description, state);
       list.append(item);
@@ -3354,6 +4155,7 @@ window.loadTeachers = loadTeachers;
 window.loadStudents = loadStudents;
 window.enterApp = enterApp;
 window.switchTab = switchTab;
+byId("move-student-level")?.addEventListener("change", window.populateMoveStudentGroupOptions);
 
 onAuthStateChanged(auth, async (user) => {
   setConnection(true);
@@ -3375,10 +4177,11 @@ onAuthStateChanged(auth, async (user) => {
     schoolKey = normalizeCode(claims.schoolKey, 40);
     const teacherId = normalizeCode(claims.teacherId, 160);
     if (claims.passwordChangeRequired === true) {
-      loggedTeacher = {id: teacherId, nombre: normalizeText(claims.name || teacherId), role: claims.role, passwordChangeRequired: true};
+      loggedTeacher = {id: teacherId, nombre: normalizeText(claims.name || teacherId), role: claims.role, passwordChangeRequired: true, identityChangeRequired: claims.identityChangeRequired === true};
       window.safeToggle("section-gateway", true);
+      configureFirstAccessModal(loggedTeacher.identityChangeRequired);
       window.safeToggle("modal-change-password", false);
-      byId("input-current-password")?.focus();
+      (loggedTeacher.identityChangeRequired ? byId("input-new-user-email") : byId("input-current-password"))?.focus();
       return;
     }
     const [schoolSnapshot, teacherSnapshot] = await Promise.all([

@@ -394,7 +394,7 @@
     });
     window.addEventListener("load", async () => {
       try {
-        const registration = await window.navigator.serviceWorker.register("./sw.js?v=36.38.0", {
+        const registration = await window.navigator.serviceWorker.register("./sw.js?v=36.40.0", {
           scope: "./",
           updateViaCache: "none",
         });

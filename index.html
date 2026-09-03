@@ -8,11 +8,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
-    <title>Control de Asistencia — VERSION 36.38</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=36.38.0">
-    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.38.0">
-    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.38.0">
-    <script src="./pwa-install.js?v=36.38.0"></script>
+    <title>Control de Asistencia — VERSION 36.40</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=36.40.0">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.40.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.40.0">
+    <script src="./pwa-install.js?v=36.40.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -118,7 +118,7 @@
     <div id="install-app-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-end sm:items-center justify-center p-3 sm:p-4 text-center">
         <div class="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl max-w-sm w-full p-7 sm:p-8 space-y-5 border-t-8 border-orange-500">
             <div class="flex items-center gap-4 text-left">
-                <img src="./icons/app-icon-192.png?v=36.38.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
+                <img src="./icons/app-icon-192.png?v=36.40.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
                 <div class="min-w-0 space-y-1">
                     <p id="install-app-platform" class="text-[9px] font-black uppercase tracking-[0.18em] text-orange-600">Acceso desde tu celular</p>
                     <h2 id="install-app-title" class="text-xl font-black leading-tight text-slate-800">Control de Asistencia</h2>
@@ -142,7 +142,7 @@
         </div>
     </div>
 
-    <div id="custom-modal" role="dialog" aria-modal="true" aria-labelledby="modal-msg-title" aria-describedby="modal-msg-body" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[900] hidden flex items-center justify-center p-4 text-center">
+    <div id="custom-modal" role="dialog" aria-modal="true" aria-labelledby="modal-msg-title" aria-describedby="modal-msg-body" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[990] hidden flex items-center justify-center p-4 text-center">
         <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full p-10 space-y-4 border-t-8 theme-border">
             <h3 id="modal-msg-title" class="text-lg font-black theme-text uppercase tracking-tight">Aviso</h3>
             <p id="modal-msg-body" aria-live="polite" class="text-sm text-slate-600 font-medium"></p>
@@ -152,6 +152,92 @@
                     <button type="button" id="btn-modal-cancel" class="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase shadow-lg hidden">Cancelar</button>
                     <button type="button" id="btn-modal-confirm" class="flex-1 theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Aceptar</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-school-calendar" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="school-calendar-title" aria-describedby="school-calendar-description" class="fixed inset-0 z-[980] hidden items-center justify-center bg-slate-950/80 p-2 backdrop-blur-sm sm:p-4">
+        <div class="flex h-[94dvh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl sm:h-[92dvh]">
+            <div class="flex flex-col gap-4 border-b border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div class="flex items-center gap-3 text-left">
+                    <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                        <i aria-hidden="true" class="fas fa-calendar-days text-xl"></i>
+                    </span>
+                    <div>
+                        <p class="text-[9px] font-black uppercase tracking-[0.16em] text-emerald-700">Sitio oficial</p>
+                        <h2 id="school-calendar-title" class="text-base font-black uppercase text-slate-900 sm:text-lg">Calendario escolar SEP México</h2>
+                        <p id="school-calendar-description" class="text-[10px] font-bold text-slate-500">Imagen oficial vigente para educación básica.</p>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <a href="https://calendarioescolar.sep.gob.mx/" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-xl bg-emerald-700 px-4 py-3 text-center text-[10px] font-black uppercase text-white shadow-sm sm:flex-none">
+                        <i aria-hidden="true" class="fas fa-arrow-up-right-from-square mr-2"></i>Abrir en SEP
+                    </a>
+                    <button type="button" id="btn-close-school-calendar" onclick="window.closeSchoolCalendar()" class="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-[10px] font-black uppercase text-slate-700 sm:flex-none">
+                        <i aria-hidden="true" class="fas fa-xmark mr-2"></i>Cerrar
+                    </button>
+                </div>
+            </div>
+            <div class="min-h-0 flex-1 overflow-auto bg-slate-100 p-3 sm:p-6">
+                <img id="school-calendar-image" data-src="https://www.planeacion.sep.gob.mx/Styles/imagenes/calendario/Calendario.png" alt="Calendario escolar oficial vigente de la Secretaría de Educación Pública de México" class="mx-auto h-auto w-full min-w-[48rem] max-w-6xl rounded-xl bg-white shadow-lg" loading="lazy" referrerpolicy="no-referrer">
+                <div id="school-calendar-error" role="status" class="mx-auto hidden max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center text-xs font-bold leading-relaxed text-amber-900">
+                    No fue posible cargar la imagen. Use “Abrir en SEP” para consultar el calendario directamente.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-delete-student-group" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="delete-student-group-title" class="fixed inset-0 z-[930] hidden flex items-center justify-center bg-black/70 p-4 text-center backdrop-blur-sm">
+        <div class="w-full max-w-md space-y-5 rounded-[2.5rem] border-t-8 border-red-700 bg-white p-8 shadow-2xl sm:p-10">
+            <div class="space-y-2">
+                <span class="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-4 border-red-200 bg-red-100 text-red-700">
+                    <i aria-hidden="true" class="fas fa-lock text-3xl"></i>
+                </span>
+                <h3 id="delete-student-group-title" class="text-lg font-black uppercase tracking-tight text-red-800">Borrado irreversible</h3>
+                <p id="delete-student-group-details" class="text-sm font-black uppercase text-slate-800"></p>
+            </div>
+            <div id="delete-student-group-warning" class="rounded-2xl border border-red-200 bg-red-50 p-4 text-left text-[10px] font-bold leading-relaxed text-red-900">
+                Se eliminarán permanentemente todos los alumnos activos, dados de baja y movidos que pertenezcan a este grupo. Los datos y sus códigos QR no podrán recuperarse.
+            </div>
+            <label for="delete-student-group-confirmation" class="block text-left text-[9px] font-black uppercase text-slate-600">Para desbloquear el borrado, escriba:
+                <strong id="delete-student-group-phrase" class="mt-1 block text-xs text-red-800"></strong>
+                <input id="delete-student-group-confirmation" type="text" autocomplete="off" spellcheck="false" oninput="window.validateDeleteStudentGroupConfirmation()" class="mt-2 w-full rounded-xl border-2 border-red-200 px-4 py-3 text-center text-xs font-black uppercase focus:border-red-600 focus:outline-none">
+            </label>
+            <p id="delete-student-group-status" role="status" aria-live="polite" class="min-h-5 text-xs font-bold text-red-700"></p>
+            <div class="flex gap-2">
+                <button type="button" onclick="window.closeDeleteStudentGroupModal()" class="flex-1 rounded-xl bg-slate-100 py-3 text-xs font-bold uppercase text-slate-600 shadow-lg">Cancelar</button>
+                <button type="button" id="btn-confirm-delete-student-group" onclick="window.submitDeleteStudentGroup()" disabled class="flex-1 rounded-xl bg-red-700 py-3 text-xs font-black uppercase text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-40"><i aria-hidden="true" class="fas fa-lock mr-2"></i><span id="delete-student-group-submit-label">Borrar grupo</span></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-move-student" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="move-student-title" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[920] hidden flex items-center justify-center p-4 text-center">
+        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-md w-full p-8 sm:p-10 space-y-6 border-t-8 theme-border">
+            <div class="space-y-2">
+                <i aria-hidden="true" class="fas fa-people-arrows text-4xl text-orange-500"></i>
+                <h3 id="move-student-title" class="text-lg font-black theme-text uppercase tracking-tight">Corregir grupo del alumno</h3>
+                <p id="move-student-name" class="text-sm font-black uppercase text-slate-800"></p>
+                <p id="move-student-origin" class="text-xs font-bold text-slate-500"></p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+                <label for="move-student-level" class="text-[9px] font-black uppercase text-slate-600">Nivel destino
+                    <select id="move-student-level" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-center text-xs font-black">
+                        <option value="PRE">Preescolar</option>
+                        <option value="PRI">Primaria</option>
+                        <option value="SEC">Secundaria</option>
+                        <option value="BAC">Bachillerato</option>
+                    </select>
+                </label>
+                <label for="move-student-group" class="text-[9px] font-black uppercase text-slate-600">Grupo destino
+                    <select id="move-student-group" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-center text-xs font-black uppercase">
+                        <option value="">Seleccione un grupo</option>
+                    </select>
+                </label>
+            </div>
+            <p class="rounded-2xl bg-amber-50 p-4 text-[10px] font-bold leading-relaxed text-amber-900">El lugar y QR anteriores quedarán marcados como movidos/eliminados. El alumno recibirá el número siguiente al último de la lista destino y un QR nuevo. No se reordenará ni se cambiará el QR de ningún otro alumno.</p>
+            <div class="flex gap-2">
+                <button type="button" onclick="window.closeMoveStudentModal()" class="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Cancelar</button>
+                <button type="button" id="btn-confirm-move-student" onclick="window.submitMoveStudent()" class="flex-1 theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Corregir grupo</button>
             </div>
         </div>
     </div>
@@ -204,15 +290,20 @@
             <div class="space-y-2">
                 <i class="fas fa-shield-alt text-4xl text-orange-500"></i>
                 <h3 id="change-password-title" class="text-xl font-black theme-text uppercase">Seguridad requerida</h3>
-                <p class="text-xs text-slate-600 font-bold">La contraseña temporal debe cambiarse antes de continuar.</p>
+                <p id="change-password-description" class="text-xs text-slate-600 font-bold">Sustituya el usuario temporal por su correo y cree una contraseña personal antes de continuar.</p>
             </div>
             <div class="space-y-4">
+                <div id="identity-change-fields" class="space-y-2">
+                    <label for="input-new-user-email" class="block text-[10px] font-black uppercase text-slate-600">Correo personal o cuenta de Google</label>
+                    <input id="input-new-user-email" type="email" autocomplete="email" maxlength="160" placeholder="NOMBRE@DOMINIO.COM" class="w-full rounded-3xl border-2 border-slate-100 px-6 py-4 text-center text-base font-black lowercase shadow-inner focus:border-blue-500">
+                    <p class="text-[9px] font-bold text-slate-500">Este correo sustituirá definitivamente al usuario temporal y será su nuevo usuario.</p>
+                </div>
                 <div class="pass-container"><input id="input-current-password" type="password" aria-label="Contraseña temporal actual" autocomplete="current-password" maxlength="72" placeholder="CONTRASEÑA TEMPORAL ACTUAL" class="w-full px-6 py-4 border-2 border-slate-100 rounded-3xl focus:border-blue-500 text-center text-lg font-black shadow-inner"><button type="button" class="toggle-eye" aria-label="Mostrar contraseña temporal actual" aria-pressed="false" onclick="window.togglePass('input-current-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
                 <div class="pass-container"><input id="input-new-password" type="password" aria-label="Contraseña nueva" autocomplete="new-password" minlength="8" maxlength="72" placeholder="CONTRASEÑA NUEVA" class="w-full px-6 py-4 border-2 border-slate-100 rounded-3xl focus:border-blue-500 text-center text-lg font-black shadow-inner"><button type="button" class="toggle-eye" aria-label="Mostrar contraseña nueva" aria-pressed="false" onclick="window.togglePass('input-new-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
                 <div class="pass-container"><input id="input-confirm-password" type="password" aria-label="Confirmar contraseña nueva" autocomplete="new-password" minlength="8" maxlength="72" placeholder="CONFIRMAR CONTRASEÑA" class="w-full px-6 py-4 border-2 border-slate-100 rounded-3xl focus:border-blue-500 text-center text-lg font-black shadow-inner"><button type="button" class="toggle-eye" aria-label="Mostrar confirmación" aria-pressed="false" onclick="window.togglePass('input-confirm-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
             </div>
             <p class="text-xs text-slate-600">Use al menos 8 caracteres, con letras y números.</p>
-            <button onclick="window.processPasswordChange()" class="w-full theme-primary text-white py-4 rounded-3xl font-black text-xs uppercase shadow-xl active:scale-95">Cambiar contraseña e iniciar</button>
+            <button id="btn-complete-first-access" onclick="window.processPasswordChange()" class="w-full theme-primary text-white py-4 rounded-3xl font-black text-xs uppercase shadow-xl active:scale-95 disabled:opacity-50">Guardar correo y contraseña</button>
         </div>
     </div>
 
@@ -251,14 +342,14 @@
             
             <div class="flex justify-center mb-2">
                 <div id="login-logo-placeholder" class="logo-container">
-                    <img src="./icons/app-icon-512.png?v=36.38.0" alt="Logotipo de la aplicación" class="logo-img">
+                    <img src="./icons/app-icon-512.png?v=36.40.0" alt="Logotipo de la aplicación" class="logo-img">
                 </div>
             </div>
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
-                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.38</h1>
+                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.40</h1>
                 <div class="-mt-4 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.38.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.38.0</button>
+                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.40.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.40.0</button>
                     <button type="button" id="btn-install-pwa" data-pwa-install-action aria-label="Instalar app" aria-hidden="true" class="hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-white shadow-lg active:scale-95 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">
                         <i aria-hidden="true" class="fas fa-download"></i>
                         <span data-pwa-install-label>Instalar app</span>
@@ -323,7 +414,7 @@
         <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center">
             <div class="flex items-center gap-4 text-left">
                 <div id="header-logo-container" class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5">
-                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.38.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
+                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.40.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
                 </div>
                 <div class="flex flex-col">
                     <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
@@ -337,11 +428,15 @@
                     </button>
                 </div>
             </div>
-            <nav class="flex gap-1 bg-slate-100 p-1 rounded-2xl items-center shadow-inner">
+            <nav aria-label="Menú principal" class="flex w-full flex-wrap items-center justify-center gap-1 rounded-2xl bg-slate-100 p-1 shadow-inner md:w-auto">
                 <button type="button" onclick="window.switchTab('scanner')" id="tab-scanner" aria-controls="section-scanner" class="px-5 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase">Escanear</button>
+                <button type="button" onclick="window.switchTab('incidents')" id="tab-incidents" aria-controls="section-incidents" class="hidden rounded-xl px-5 py-2.5 text-[10px] font-black uppercase text-violet-700 transition-all">Incidencias</button>
                 <button type="button" onclick="window.switchTab('admin')" id="tab-admin" aria-controls="section-admin" class="px-5 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase hidden text-orange-600">Gestión</button>
                 <button type="button" onclick="window.switchTab('global')" id="tab-super" aria-controls="section-global" class="px-5 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase hidden text-red-600">SGE Maestro</button>
-                <div class="h-6 w-px bg-slate-300 mx-2 text-center text-center"></div>
+                <button type="button" id="btn-school-calendar" onclick="window.openSchoolCalendar()" aria-haspopup="dialog" aria-controls="modal-school-calendar" aria-expanded="false" class="rounded-xl px-3 py-2.5 text-[10px] font-black uppercase text-emerald-700 transition-all hover:bg-emerald-100 sm:px-5">
+                    <i aria-hidden="true" class="fas fa-calendar-days mr-1.5"></i>Calendario SEP
+                </button>
+                <div aria-hidden="true" class="mx-1 h-6 w-px bg-slate-300 sm:mx-2"></div>
                 <button type="button" onclick="window.logout()" aria-label="Cerrar sesión" class="p-2.5 text-red-500 hover:text-red-700 transition-colors"><i aria-hidden="true" class="fas fa-power-off text-center"></i></button>
             </nav>
         </div>
@@ -385,6 +480,88 @@
             <div class="bg-white rounded-[3rem] border border-slate-200 overflow-hidden max-w-2xl mx-auto shadow-xl">
                 <div class="px-10 py-6 bg-slate-50 border-b flex justify-between items-center gap-4 text-center"><div><h3 id="attendance-date-label" class="font-black text-[10px] theme-text uppercase">FECHA ACTUAL</h3><p id="scanner-start-label" class="mt-1 text-[9px] font-bold uppercase text-slate-500">INICIO DE ESCANEO: SIN INICIAR</p></div><span id="scan-count" class="bg-orange-100 text-orange-700 text-[10px] font-black px-6 py-2 rounded-full italic">0 ASISTENCIAS</span></div>
                 <ul id="recent-logs" class="divide-y divide-slate-100 max-h-96 overflow-y-auto scroll-custom"><li class="p-14 text-center text-slate-300 italic font-bold uppercase">Sin actividad</li></ul>
+            </div>
+        </section>
+
+        <!-- BITÁCORA DE INCIDENCIAS DEL DOCENTE -->
+        <section id="section-incidents" class="hidden space-y-8 animate-fadeIn">
+            <div class="overflow-hidden rounded-[2.5rem] border border-violet-200 bg-white shadow-2xl">
+                <div class="bg-gradient-to-r from-violet-800 to-indigo-700 p-6 text-white sm:p-8">
+                    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <p class="text-[9px] font-black uppercase tracking-[0.18em] text-violet-200">Bitácora del docente</p>
+                            <h2 class="mt-1 text-xl font-black uppercase">Registro de incidencias del grupo</h2>
+                            <p class="mt-2 max-w-3xl text-xs font-medium leading-relaxed text-violet-100">Incluye los datos de referencia del formato de incidencias relevantes SEP/AEFCM. Es un control interno y no sustituye el aviso inmediato ni el formato que solicite la autoridad educativa local.</p>
+                        </div>
+                        <span id="incident-open-count" class="self-start rounded-full bg-white/15 px-4 py-2 text-[10px] font-black uppercase">0 abiertas</span>
+                    </div>
+                </div>
+
+                <form id="incident-form" class="space-y-7 p-5 text-left sm:p-8" onsubmit="window.createIncident(event)">
+                    <fieldset class="space-y-4">
+                        <legend class="border-b border-slate-200 pb-2 text-xs font-black uppercase text-slate-800">1. Datos del reporte</legend>
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                            <label class="text-[9px] font-black uppercase text-slate-600">CCT<input id="incident-cct" readonly class="mt-1 w-full rounded-xl border bg-slate-100 px-3 py-3 font-black text-slate-700"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Tipo de reporte<input id="incident-report-type" readonly value="Inicial" class="mt-1 w-full rounded-xl border bg-slate-100 px-3 py-3 font-bold text-slate-700"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Folio<input id="incident-folio" readonly value="Se generará al guardar" class="mt-1 w-full rounded-xl border bg-slate-100 px-3 py-3 font-bold text-slate-700"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Persona que reporta<input id="incident-reporter" readonly class="mt-1 w-full rounded-xl border bg-slate-100 px-3 py-3 font-bold text-slate-700"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Fecha inicial *<input id="incident-date" type="date" required class="mt-1 w-full rounded-xl border px-3 py-3 font-bold"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Hora *<input id="incident-time" type="time" required class="mt-1 w-full rounded-xl border px-3 py-3 font-bold"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Grupo *<select id="incident-group" required onchange="window.populateIncidentStudents()" class="mt-1 w-full rounded-xl border bg-white px-3 py-3 font-black"><option value="">Seleccione un grupo</option></select></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Prioridad *<select id="incident-priority" required class="mt-1 w-full rounded-xl border bg-white px-3 py-3 font-black"><option value="media">Media</option><option value="baja">Baja</option><option value="alta">Alta</option><option value="urgente">Urgente</option></select></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Tipo de afectación *<select id="incident-affectation" required onchange="window.updateIncidentAffectedFields()" class="mt-1 w-full rounded-xl border bg-white px-3 py-3 font-black"><option value="alumno">Alumna o alumno</option><option value="personal">Personal</option><option value="servicio">Servicio del plantel</option><option value="infraestructura">Infraestructura</option><option value="mobiliario_equipo">Mobiliario o equipo</option></select></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Tipo de incidencia *<select id="incident-type" required class="mt-1 w-full rounded-xl border bg-white px-3 py-3 font-black"><option value="asistencia">Asistencia</option><option value="conducta">Conducta</option><option value="convivencia">Convivencia escolar</option><option value="acoso_violencia">Acoso o violencia</option><option value="accidente_salud">Accidente o salud</option><option value="aprendizaje">Aprendizaje</option><option value="proteccion_civil">Protección civil</option><option value="servicio">Servicio del plantel</option><option value="infraestructura">Infraestructura</option><option value="mobiliario_equipo">Mobiliario o equipo</option><option value="otro">Otro</option></select></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="space-y-4">
+                        <legend class="border-b border-slate-200 pb-2 text-xs font-black uppercase text-slate-800">2. Persona, servicio o bien afectado</legend>
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                            <label id="incident-student-field" class="text-[9px] font-black uppercase text-slate-600 lg:col-span-2">Alumna o alumno del grupo<select id="incident-student" onchange="window.selectIncidentStudent()" class="mt-1 w-full rounded-xl border bg-white px-3 py-3 font-bold"><option value="">Seleccione o capture el nombre</option></select></label>
+                            <label id="incident-function-field" class="text-[9px] font-black uppercase text-slate-600">Función de la persona afectada<select id="incident-affected-function" class="mt-1 w-full rounded-xl border bg-white px-3 py-3 font-bold"><option value="alumno">Alumna o alumno</option><option value="docente">Docente</option><option value="directivo">Directivo</option><option value="administrativo">Administrativo</option><option value="apoyo">Personal de apoyo</option><option value="madre_padre_tutor">Madre, padre o tutor</option><option value="otra">Otra</option></select></label>
+                            <label id="incident-age-field" class="text-[9px] font-black uppercase text-slate-600">Edad<input id="incident-affected-age" type="number" min="2" max="120" inputmode="numeric" class="mt-1 w-full rounded-xl border px-3 py-3 font-bold" placeholder="Opcional"></label>
+                            <label id="incident-name-field" class="text-[9px] font-black uppercase text-slate-600 sm:col-span-2">Nombre de la persona afectada *<input id="incident-affected-name" maxlength="160" class="mt-1 w-full rounded-xl border px-3 py-3 font-bold uppercase" placeholder="Nombre completo"></label>
+                            <label id="incident-service-field" class="hidden text-[9px] font-black uppercase text-slate-600 sm:col-span-2">Infraestructura, servicio, mobiliario o equipo afectado *<input id="incident-affected-service" maxlength="160" class="mt-1 w-full rounded-xl border px-3 py-3 font-bold" placeholder="Describa el elemento afectado"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="space-y-4">
+                        <legend class="border-b border-slate-200 pb-2 text-xs font-black uppercase text-slate-800">3. Identificación del plantel</legend>
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <label class="text-[9px] font-black uppercase text-slate-600 lg:col-span-2">Nombre de la escuela<input id="incident-school-name" readonly class="mt-1 w-full rounded-xl border bg-slate-100 px-3 py-3 font-bold text-slate-700"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Turno *<select id="incident-shift" required class="mt-1 w-full rounded-xl border bg-white px-3 py-3 font-bold"><option value="">Seleccione</option><option value="matutino">Matutino</option><option value="vespertino">Vespertino</option><option value="nocturno">Nocturno</option><option value="discontinuo">Discontinuo</option><option value="tiempo_completo">Tiempo completo</option><option value="otro">Otro</option></select></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Municipio o alcaldía *<input id="incident-municipality" required maxlength="120" class="mt-1 w-full rounded-xl border px-3 py-3 font-bold"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Unidad administrativa<input id="incident-administrative-unit" maxlength="160" class="mt-1 w-full rounded-xl border px-3 py-3 font-bold" placeholder="Si aplica"></label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Dirección operativa o regional<input id="incident-regional-office" maxlength="160" class="mt-1 w-full rounded-xl border px-3 py-3 font-bold" placeholder="Si aplica"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="space-y-4">
+                        <legend class="border-b border-slate-200 pb-2 text-xs font-black uppercase text-slate-800">4. Hechos y atención</legend>
+                        <label class="block text-[9px] font-black uppercase text-slate-600">Descripción objetiva de los hechos *<textarea id="incident-description" required minlength="3" maxlength="2000" rows="5" class="mt-1 w-full rounded-2xl border px-4 py-3 text-sm font-medium leading-relaxed" placeholder="Indique qué ocurrió, dónde, quiénes estuvieron presentes y datos verificables. Evite juicios o diagnósticos."></textarea></label>
+                        <label class="block text-[9px] font-black uppercase text-slate-600">Medidas inmediatas adoptadas *<textarea id="incident-immediate-actions" required minlength="3" maxlength="1200" rows="3" class="mt-1 w-full rounded-2xl border px-4 py-3 text-sm font-medium leading-relaxed" placeholder="Describa la atención, canalización, resguardo o aviso realizado."></textarea></label>
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <label class="flex items-center gap-3 rounded-2xl border bg-slate-50 p-4 text-[10px] font-black uppercase text-slate-700"><input id="incident-guardian-notified" type="checkbox" class="h-5 w-5 accent-violet-700">Se notificó a madre, padre o tutor</label>
+                            <label class="text-[9px] font-black uppercase text-slate-600">Próxima fecha de seguimiento<input id="incident-next-follow-up" type="date" class="mt-1 w-full rounded-xl border px-3 py-3 font-bold"></label>
+                        </div>
+                    </fieldset>
+
+                    <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-[10px] font-bold leading-relaxed text-amber-900"><i aria-hidden="true" class="fas fa-shield-halved mr-2"></i>Registre únicamente datos necesarios. Ante riesgo, violencia, abuso, emergencia médica o posible delito, active de inmediato el protocolo y los canales oficiales aplicables; no espere a completar esta bitácora.</div>
+                    <p id="incident-form-status" role="status" aria-live="polite" class="min-h-5 text-center text-xs font-bold text-slate-600"></p>
+                    <button id="btn-create-incident" type="submit" class="w-full rounded-2xl bg-violet-700 py-4 text-xs font-black uppercase text-white shadow-xl disabled:opacity-50"><i aria-hidden="true" class="fas fa-clipboard-check mr-2"></i>Guardar incidencia</button>
+                </form>
+            </div>
+
+            <div class="rounded-[2.5rem] border border-slate-200 bg-white p-5 shadow-xl sm:p-8">
+                <div class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+                    <div><p class="text-[9px] font-black uppercase tracking-[0.16em] text-violet-700">Seguimiento</p><h2 class="text-lg font-black uppercase text-slate-900">Mis incidencias registradas</h2></div>
+                    <div class="grid grid-cols-2 gap-2 sm:flex">
+                        <label class="text-[8px] font-black uppercase text-slate-500">Estado<select id="incident-status-filter" onchange="window.renderIncidentList()" class="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-[10px] font-bold"><option value="">Todos</option><option value="abierta">Abiertas</option><option value="seguimiento">En seguimiento</option><option value="resuelta">Resueltas</option></select></label>
+                        <label class="text-[8px] font-black uppercase text-slate-500">Grupo<select id="incident-group-filter" onchange="window.renderIncidentList()" class="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-[10px] font-bold"><option value="">Todos</option></select></label>
+                    </div>
+                </div>
+                <p id="incident-list-status" role="status" aria-live="polite" class="py-5 text-center text-xs font-bold text-slate-500">Abra esta sección para consultar la bitácora.</p>
+                <div id="incident-list" class="space-y-4"></div>
             </div>
         </section>
 
@@ -479,25 +656,30 @@
                     <div class="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-xl max-w-3xl mx-auto space-y-5">
                         <div>
                             <h3 class="font-black theme-text uppercase text-base">Alta directa de personal</h3>
-                            <p class="text-xs text-slate-600 mt-2">Crea un usuario estable y una contraseña temporal. Todos los usuarios adicionales deberán cambiarla al ingresar por primera vez.</p>
+                            <p class="text-xs text-slate-600 mt-2">El sistema genera el usuario temporal con el nombre y las dos primeras letras de cada apellido.</p>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="md:col-span-2 space-y-1">
-                                <label for="new-teacher-name" class="text-xs font-black text-slate-600 uppercase">Nombre completo</label>
-                                <input id="new-teacher-name" type="text" autocomplete="name" maxlength="100" placeholder="NOMBRE DEL DOCENTE" class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl uppercase font-bold text-center focus:border-blue-500">
+                                <label for="new-teacher-given-names" class="text-xs font-black text-slate-600 uppercase">Nombre o nombres</label>
+                                <input id="new-teacher-given-names" type="text" autocomplete="given-name" maxlength="60" oninput="window.previewNewTeacherId()" placeholder="NOMBRE(S)" class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl uppercase font-bold text-center focus:border-blue-500">
                             </div>
                             <div class="space-y-1">
-                                <label for="new-teacher-id" class="text-xs font-black text-slate-600 uppercase">Usuario o ID</label>
-                                <input id="new-teacher-id" type="text" autocomplete="off" autocapitalize="characters" minlength="4" maxlength="40" placeholder="USUARIO" class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl uppercase font-black text-center focus:border-blue-500">
+                                <label for="new-teacher-paternal-surname" class="text-xs font-black text-slate-600 uppercase">Apellido paterno</label>
+                                <input id="new-teacher-paternal-surname" type="text" autocomplete="family-name" maxlength="40" oninput="window.previewNewTeacherId()" placeholder="APELLIDO PATERNO" class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl uppercase font-bold text-center focus:border-blue-500">
                             </div>
-                            <div class="md:col-span-2 space-y-1">
-                                <label for="new-teacher-password" class="text-xs font-black text-slate-600 uppercase">Contraseña</label>
-                                <div class="pass-container"><input id="new-teacher-password" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="CONTRASEÑA" required class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl font-black text-center focus:border-blue-500"><button type="button" class="toggle-eye" aria-label="Mostrar contraseña" aria-pressed="false" onclick="window.togglePass('new-teacher-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
-                                <p class="text-[10px] text-slate-500 mt-1">Use de 8 a 72 caracteres, con letras y números. Será temporal y deberá cambiarse en el primer acceso.</p>
+                            <div class="space-y-1">
+                                <label for="new-teacher-maternal-surname" class="text-xs font-black text-slate-600 uppercase">Apellido materno</label>
+                                <input id="new-teacher-maternal-surname" type="text" autocomplete="additional-name" maxlength="40" oninput="window.previewNewTeacherId()" placeholder="APELLIDO MATERNO" class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl uppercase font-bold text-center focus:border-blue-500">
                             </div>
-                            <div class="md:col-span-2 space-y-1">
-                                <label for="new-teacher-password-confirm" class="text-xs font-black text-slate-600 uppercase">Confirmar Contraseña</label>
-                                <div class="pass-container"><input id="new-teacher-password-confirm" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="CONFIRMAR CONTRASEÑA" required class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl font-black text-center focus:border-blue-500"><button type="button" class="toggle-eye" aria-label="Mostrar confirmación de contraseña" aria-pressed="false" onclick="window.togglePass('new-teacher-password-confirm', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
+                            <div class="space-y-1">
+                                <label for="new-teacher-id-preview" class="text-xs font-black text-slate-600 uppercase">Usuario temporal</label>
+                                <input id="new-teacher-id-preview" type="text" readonly value="—" class="w-full rounded-2xl border-2 border-blue-100 bg-blue-50 px-5 py-3 text-center font-black uppercase text-blue-900">
+                                <p class="mt-1 text-[10px] text-slate-500">Si el usuario ya existe, Firebase agregará un número consecutivo.</p>
+                            </div>
+                            <div class="space-y-1">
+                                <label for="new-teacher-password-preview" class="text-xs font-black text-slate-600 uppercase">Contraseña temporal</label>
+                                <input id="new-teacher-password-preview" type="text" readonly value="usuarionuevo" class="w-full rounded-2xl border-2 border-amber-200 bg-amber-50 px-5 py-3 text-center font-black text-amber-900">
+                                <p class="mt-1 text-[10px] font-bold text-amber-700">El usuario deberá cambiarla en su primer acceso.</p>
                             </div>
                             <div class="space-y-1">
                                 <label for="new-teacher-role" class="text-xs font-black text-slate-600 uppercase">Rol inicial</label>
@@ -553,6 +735,7 @@
                             <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Hasta<input id="report-date-to" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
                             <button id="btn-load-attendance" type="button" onclick="window.loadAttendanceReport()" class="rounded-2xl theme-accent px-7 py-3 font-black uppercase text-white disabled:opacity-50">Consultar</button>
                             <button id="btn-print-attendance" type="button" onclick="window.printAttendanceReport()" class="hidden rounded-2xl bg-slate-800 px-7 py-3 font-black uppercase text-white"><i class="fas fa-print mr-2"></i>Imprimir</button>
+                            <button id="btn-export-attendance-xls" type="button" onclick="window.exportAttendanceReportXls()" class="hidden rounded-2xl bg-emerald-700 px-7 py-3 font-black uppercase text-white"><i class="fas fa-file-excel mr-2"></i>Exportar XLS</button>
                             <div class="basis-full rounded-2xl border border-slate-200 bg-slate-50 p-4">
                                 <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                                     <p class="text-[9px] font-black uppercase text-slate-600">Grupos que aparecerán en el reporte</p>
@@ -596,6 +779,11 @@
                                 <div class="grid grid-cols-2 gap-4 text-center text-center">
                                     <div class="text-center"><label for="edit-tolerance" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Tolerancia (m)</label><input id="edit-tolerance" type="number" min="0" max="120" placeholder="10" class="w-full px-2 py-2 border rounded-xl text-center"></div>
                                     <div class="text-center"><label for="edit-class-duration" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Módulo (m)</label><input id="edit-class-duration" type="number" min="1" max="240" placeholder="50" class="w-full px-2 py-2 border rounded-xl text-center"></div>
+                                </div>
+                                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
+                                    <label for="edit-tardies-per-absence" class="text-[9px] font-black text-amber-900 block mb-2 uppercase">Número de retardos igual a una falta</label>
+                                    <input id="edit-tardies-per-absence" type="number" min="0" max="30" step="1" value="0" aria-describedby="tardies-per-absence-help" class="w-full px-3 py-3 border border-amber-200 rounded-xl text-center font-black">
+                                    <p id="tardies-per-absence-help" class="mt-2 text-[9px] font-bold leading-relaxed text-amber-800">Al completar este número, el último retardo se aplicará como falta por retardos. Use 0 para desactivar.</p>
                                 </div>
                             </div>
                             <div class="flex flex-col justify-center text-center">
@@ -740,6 +928,7 @@
             }
             currentStudentForQR = studentData; // Store student data globally
             const modal = document.getElementById('modal-print-single-qr');
+            document.getElementById('print-qr-title').innerText = studentData.modalTitle || 'QR de Alumno';
             document.getElementById('print-qr-student-name').innerText = studentData.nombreCompleto || 'ALUMNO NUEVO';
             document.getElementById('print-qr-student-details').innerText = `${studentData.nivel || ''} - ${studentData.grupo || ''} - Lista: ${studentData.lista || 'N/A'}`;
             
@@ -826,6 +1015,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.38.0"></script>
+    <script type="module" src="./app.js?v=36.40.0"></script>
 </body>
 </html>

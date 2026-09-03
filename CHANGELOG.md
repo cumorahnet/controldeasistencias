@@ -1,5 +1,100 @@
 # CHANGELOG
 
+## 03/09/2026 — Alta y primer acceso de usuarios
+
+- El administrador captura nombre(s), apellido paterno y apellido materno; el sistema genera un usuario temporal con esos datos y resuelve duplicados mediante un consecutivo.
+- Las cuentas nuevas reciben la contraseña temporal `usuarionuevo` y quedan bloqueadas hasta completar el primer acceso.
+- El alta administrativa no solicita correo: genera un usuario temporal a partir del nombre y los apellidos.
+- En el primer acceso, la persona sustituye el usuario temporal por su correo personal o cuenta de Google y crea una contraseña propia.
+- La migración conserva el perfil y el rol, elimina las credenciales temporales y almacena únicamente el hash de la contraseña nueva en el área privada de Firebase.
+
+## 03/09/2026 — Bitácora de incidencias docentes
+
+- Se agregó al menú docente el acceso **Incidencias** con los datos de referencia del formato de incidencias relevantes SEP/AEFCM.
+- Cada docente puede registrar incidencias de grupos y alumnos activos, generar un folio y conservar seguimiento hasta su resolución.
+- Las incidencias y sus notas se procesan mediante funciones protegidas; cada docente consulta únicamente sus propios registros.
+- La pantalla advierte que la bitácora es un control interno y no sustituye los avisos, protocolos o formatos de la autoridad educativa competente.
+
+<!-- cdc-session:session-20260903013246-994ca5 -->
+## Sesión 03/09/2026, 10:17 a.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 5 cambio(s): 0 creado(s), 5 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- app.js
+- firebase-debug.log
+- functions/index.js
+- index.html
+- tests/admin-features.test.cjs
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20260902174228-39f534 -->
+## Sesión 02/09/2026, 01:13 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 8 cambio(s): 0 creado(s), 8 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- app.js
+- attendance-report-export.js
+- functions/attendance-utils.js
+- functions/index.js
+- functions/tests/attendance-utils.test.js
+- index.html
+- tests/admin-features.test.cjs
+- tests/pwa-install.test.cjs
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20260902014029-da486f -->
+## Sesión 01/09/2026, 10:28 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 10 cambio(s): 3 creado(s), 7 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting..cache
+- app.js
+- attendance-report-export.js
+- camera-data-scanner.js
+- firebase-debug.log
+- index.html
+- sw.js
+- tests/admin-features.test.cjs
+- tests/camera-data-scanner.test.cjs
+- tests/pwa-install.test.cjs
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
 <!-- cdc-session:session-20260828195822-e11df2 -->
 ## Sesión 28/08/2026, 05:45 p.m.
 

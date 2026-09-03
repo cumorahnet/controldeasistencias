@@ -1,7 +1,7 @@
 "use strict";
 
 const {createHash, randomBytes, scryptSync, timingSafeEqual} = require("node:crypto");
-const {attendanceStatus, clockMinutes, resolveAttendanceSchedule} = require("./attendance-utils");
+const {applyTardyPolicy, attendanceStatus, clockMinutes, resolveAttendanceSchedule, tardyLimit} = require("./attendance-utils");
 const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
 const {FieldPath, FieldValue, Timestamp, getFirestore} = require("firebase-admin/firestore");
@@ -17,6 +17,13 @@ const MASTER_ROLES = new Set(["admin_maestro", "director"]);
 const ALLOWED_ROLES = new Set(["docente", "porteria", "admin_jr", ...MASTER_ROLES]);
 const ADMIN_ROLES = new Set(["admin_jr", ...MASTER_ROLES]);
 const ATTENDANCE_ROLES = new Set(["docente", "porteria", ...ADMIN_ROLES]);
+const DEFAULT_NEW_USER_PASSWORD = "usuarionuevo";
+const INCIDENT_ROLES = new Set(["docente"]);
+const INCIDENT_PRIORITIES = new Set(["baja", "media", "alta", "urgente"]);
+const INCIDENT_AFFECTATIONS = new Set(["alumno", "personal", "servicio", "infraestructura", "mobiliario_equipo"]);
+const INCIDENT_TYPES = new Set(["asistencia", "conducta", "convivencia", "acoso_violencia", "accidente_salud", "aprendizaje", "proteccion_civil", "servicio", "infraestructura", "mobiliario_equipo", "otro"]);
+const INCIDENT_STATUSES = new Set(["abierta", "seguimiento", "resuelta"]);
+const INCIDENT_FUNCTIONS = new Set(["alumno", "docente", "directivo", "administrativo", "apoyo", "madre_padre_tutor", "otra"]);
 
 function publicDataRef() {
   return db.collection("artifacts").doc(ROOT).collection("public").doc("data");
@@ -53,6 +60,100 @@ function normalizeCode(value, maxLength = 80) {
 
 function normalizeText(value, maxLength = 160) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, maxLength);
+}
+
+function teacherIdSegment(value) {
+  return normalizeText(value, 100)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^A-Z0-9]/gi, "")
+      .toUpperCase();
+}
+
+function temporaryTeacherId(givenNames, paternalSurname, maternalSurname) {
+  const names = teacherIdSegment(givenNames);
+  const paternal = teacherIdSegment(paternalSurname);
+  const maternal = teacherIdSegment(maternalSurname);
+  if (names.length < 2) throw new HttpsError("invalid-argument", "Capture el nombre o nombres del usuario.");
+  if (paternal.length < 2 || maternal.length < 2) {
+    throw new HttpsError("invalid-argument", "Capture al menos dos letras de cada apellido.");
+  }
+  return `${names.slice(0, 32)}${paternal.slice(0, 2)}${maternal.slice(0, 2)}`;
+}
+
+function requireText(value, label, maxLength = 500) {
+  const text = normalizeText(value, maxLength);
+  if (text.length < 3) throw new HttpsError("invalid-argument", `Capture ${label}.`);
+  return text;
+}
+
+function requireDate(value, label = "fecha") {
+  const date = normalizeText(value, 10);
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new HttpsError("invalid-argument", `La ${label} no es válida.`);
+  }
+  return date;
+}
+
+function optionalDate(value, label = "fecha") {
+  return normalizeText(value, 10) ? requireDate(value, label) : "";
+}
+
+function requireTime(value) {
+  const time = normalizeText(value, 5);
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new HttpsError("invalid-argument", "La hora del reporte no es válida.");
+  return time;
+}
+
+function requireChoice(value, choices, label) {
+  const choice = normalizeText(value, 40).toLowerCase();
+  if (!choices.has(choice)) throw new HttpsError("invalid-argument", `Seleccione ${label}.`);
+  return choice;
+}
+
+function timestampIso(value) {
+  return value?.toDate?.().toISOString?.() || "";
+}
+
+function publicIncident(document) {
+  const data = document.data() || {};
+  return {
+    id: document.id,
+    folio: normalizeCode(data.folio, 40),
+    reportedDate: normalizeText(data.reportedDate, 10),
+    reportedTime: normalizeText(data.reportedTime, 5),
+    priority: requireChoice(data.priority, INCIDENT_PRIORITIES, "una prioridad"),
+    affectationType: requireChoice(data.affectationType, INCIDENT_AFFECTATIONS, "un tipo de afectación"),
+    incidentType: requireChoice(data.incidentType, INCIDENT_TYPES, "un tipo de incidencia"),
+    status: INCIDENT_STATUSES.has(data.status) ? data.status : "abierta",
+    level: normalizeCode(data.level, 3),
+    group: normalizeCode(data.group, 12),
+    affectedFunction: normalizeText(data.affectedFunction, 40),
+    affectedPersonName: normalizeText(data.affectedPersonName, 160),
+    affectedAge: Number.isInteger(data.affectedAge) ? data.affectedAge : null,
+    affectedStudentId: normalizeCode(data.affectedStudentId, 40),
+    affectedService: normalizeText(data.affectedService, 160),
+    description: normalizeText(data.description, 2000),
+    immediateActions: normalizeText(data.immediateActions, 1200),
+    reporterName: normalizeText(data.reporterName, 160),
+    administrativeUnit: normalizeText(data.administrativeUnit, 160),
+    regionalOffice: normalizeText(data.regionalOffice, 160),
+    municipality: normalizeText(data.municipality, 120),
+    shift: normalizeText(data.shift, 30),
+    guardianNotified: data.guardianNotified === true,
+    nextFollowUpDate: normalizeText(data.nextFollowUpDate, 10),
+    createdAt: timestampIso(data.createdAt),
+    updatedAt: timestampIso(data.updatedAt),
+    history: Array.isArray(data.history) ? data.history.slice(-25).map((entry) => ({
+      status: INCIDENT_STATUSES.has(entry?.status) ? entry.status : "seguimiento",
+      note: normalizeText(entry?.note, 1200),
+      guardianNotified: entry?.guardianNotified === true,
+      nextFollowUpDate: normalizeText(entry?.nextFollowUpDate, 10),
+      authorName: normalizeText(entry?.authorName, 160),
+      recordedAt: timestampIso(entry?.recordedAt) || normalizeText(entry?.recordedAt, 40),
+    })) : [],
+  };
 }
 
 function safeAuditMetadata(value) {
@@ -135,6 +236,12 @@ function requireIdentifier(value, label = "identificador") {
     throw new HttpsError("invalid-argument", `El ${label} debe ser un correo electrónico válido o un identificador de 4 a 40 caracteres.`);
   }
   return normalized;
+}
+
+function requireDocumentId(value, label = "identificador") {
+  const id = normalizeText(value, 80);
+  if (!/^[A-Za-z0-9_-]{4,80}$/.test(id)) throw new HttpsError("invalid-argument", `El ${label} no es válido.`);
+  return id;
 }
 
 function requireEmail(value, label = "correo electrónico") {
@@ -273,6 +380,7 @@ function safeSchoolProfile(snapshot) {
     recessReturnTime: String(data.recessReturnTime || ""),
     tolerance: Number(data.tolerance || 0),
     classDuration: Number(data.classDuration || 0),
+    tardiesPerAbsence: tardyLimit(data.tardiesPerAbsence),
     isPremium: premium,
     allowBranding: premium,
     verificationStatus: new Set(["verified", "unverified", "disputed"]).has(data.verificationStatus) ? data.verificationStatus : "unverified",
@@ -373,9 +481,9 @@ async function assertAnotherMasterAdministrator(schoolKey, excludedTeacherId) {
   }
 }
 
-function teacherClaims(schoolKey, teacherId, teacher, passwordChangeRequired = false) {
+function teacherClaims(schoolKey, teacherId, teacher, passwordChangeRequired = false, identityChangeRequired = false) {
   const role = ALLOWED_ROLES.has(teacher.role) ? teacher.role : "docente";
-  return {schoolKey, teacherId, role, name: normalizeText(teacher.nombre || teacher.name || teacherId, 80), passwordChangeRequired};
+  return {schoolKey, teacherId, role, name: normalizeText(teacher.nombre || teacher.name || teacherId, 80), passwordChangeRequired, identityChangeRequired};
 }
 
 async function createTeacherSessionToken(authUid, claims) {
@@ -671,18 +779,30 @@ exports.loginTeacher = onCall(async (request) => {
   const authUid = teacher.authUid || credentialSnapshot.get("authUid") || teacherUid(schoolKey, teacherId);
   const isInitialAdministrator = MASTER_ROLES.has(teacher.role) && normalizeCode(schoolSnapshot.get("initialAdminId"), 160) === teacherId;
   const passwordChangeRequired = isInitialAdministrator ? false : credentialSnapshot.get("mustChange") === true || teacher.passwordChangeRequired === true;
+  // El correo no se solicita durante el alta administrativa. Se exige hasta
+  // el primer acceso, cuando sustituye definitivamente al usuario temporal.
+  // temporaryLogin recupera también las cuentas creadas durante la versión
+  // que omitió por error este paso.
+  const identityChangeRequired = passwordChangeRequired
+    && (credentialSnapshot.get("identityChangeRequired") === true
+      || teacher.identityChangeRequired === true
+      || teacher.temporaryLogin === true);
   const sessionData = {};
   if (teacher.authUid !== authUid) sessionData.authUid = authUid;
   if (teacher.passwordChangeRequired !== passwordChangeRequired) sessionData.passwordChangeRequired = passwordChangeRequired;
+  if (teacher.identityChangeRequired !== identityChangeRequired) sessionData.identityChangeRequired = identityChangeRequired;
   const sessionUpdates = [];
   if (Object.keys(sessionData).length) sessionUpdates.push(teacherSnapshot.ref.set({...sessionData, updatedAt: FieldValue.serverTimestamp()}, {merge: true}));
+  if (credentialSnapshot.get("identityChangeRequired") !== identityChangeRequired) {
+    sessionUpdates.push(credentialSnapshot.ref.set({identityChangeRequired}, {merge: true}));
+  }
   if (isInitialAdministrator && credentialSnapshot.get("mustChange") !== false) {
     sessionUpdates.push(credentialSnapshot.ref.set({mustChange: false, madePermanentAt: FieldValue.serverTimestamp()}, {merge: true}));
   }
   if (sessionUpdates.length) await Promise.all(sessionUpdates);
-  const claims = teacherClaims(schoolKey, teacherId, teacher, passwordChangeRequired);
+  const claims = teacherClaims(schoolKey, teacherId, teacher, passwordChangeRequired, identityChangeRequired);
   const token = await createTeacherSessionToken(authUid, claims);
-  return {token, teacher: {id: teacherId, nombre: claims.name, role: claims.role, passwordChangeRequired}};
+  return {token, teacher: {id: teacherId, nombre: claims.name, role: claims.role, passwordChangeRequired, identityChangeRequired}};
 });
 
 exports.registerTeacherSelf = onCall(async (request) => {
@@ -708,10 +828,12 @@ exports.listTeachers = onCall(async (request) => {
 exports.createTeacher = onCall(async (request) => {
   const token = await assertRole(request, ADMIN_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
-  const teacherId = requireIdentifier(request.data?.teacherId, "usuario");
-  const name = normalizeText(request.data?.name, 100).toUpperCase();
+  const givenNames = normalizeText(request.data?.givenNames, 60).toUpperCase();
+  const paternalSurname = normalizeText(request.data?.paternalSurname, 40).toUpperCase();
+  const maternalSurname = normalizeText(request.data?.maternalSurname, 40).toUpperCase();
+  const name = `${givenNames} ${paternalSurname} ${maternalSurname}`;
+  const baseTeacherId = temporaryTeacherId(givenNames, paternalSurname, maternalSurname);
   const role = String(request.data?.role || "docente");
-  const temporaryPassword = requirePassword(request.data?.temporaryPassword, "contraseña temporal");
 
   if (name.length < 5) throw new HttpsError("invalid-argument", "Capture el nombre completo del docente.");
   if (!ALLOWED_ROLES.has(role)) throw new HttpsError("invalid-argument", "El rol solicitado no es válido.");
@@ -720,19 +842,35 @@ exports.createTeacher = onCall(async (request) => {
   }
 
   const schoolRef = schoolsRef().doc(schoolKey);
-  const ref = schoolCollection(schoolKey, "maestros").doc(teacherId);
-  const credentialRef = teacherCredentialRef(schoolKey, teacherId);
   const authUid = newTeacherUid();
+  let teacherId = baseTeacherId;
   await db.runTransaction(async (transaction) => {
-    const [school, existing] = await Promise.all([transaction.get(schoolRef), transaction.get(ref)]);
+    const school = await transaction.get(schoolRef);
     if (!school.exists) throw new HttpsError("not-found", "La CCT no está registrada.");
-    if (existing.exists) throw new HttpsError("already-exists", "Ese ID ya está registrado.");
+    let ref = null;
+    for (let suffix = 1; suffix <= 99; suffix += 1) {
+      const candidateId = suffix === 1 ? baseTeacherId : `${baseTeacherId.slice(0, 38)}${suffix}`;
+      const candidateRef = schoolCollection(schoolKey, "maestros").doc(candidateId);
+      const existing = await transaction.get(candidateRef);
+      if (!existing.exists) {
+        teacherId = candidateId;
+        ref = candidateRef;
+        break;
+      }
+    }
+    if (!ref) throw new HttpsError("resource-exhausted", "No fue posible generar un usuario temporal único.");
+    const credentialRef = teacherCredentialRef(schoolKey, teacherId);
     transaction.create(ref, {
       nombre: name,
+      nombres: givenNames,
+      apellidoPaterno: paternalSurname,
+      apellidoMaterno: maternalSurname,
       role,
       status: "active",
       authUid,
       passwordChangeRequired: true,
+      identityChangeRequired: true,
+      temporaryLogin: true,
       createdAt: FieldValue.serverTimestamp(),
       createdBy: token.teacherId || token.role,
     });
@@ -740,8 +878,9 @@ exports.createTeacher = onCall(async (request) => {
       schoolKey,
       teacherId,
       authUid,
-      passwordHash: hashSecret(temporaryPassword),
+      passwordHash: hashSecret(DEFAULT_NEW_USER_PASSWORD),
       mustChange: true,
+      identityChangeRequired: true,
       createdAt: FieldValue.serverTimestamp(),
     });
   });
@@ -754,7 +893,7 @@ exports.createTeacher = onCall(async (request) => {
     summary: `Creó la cuenta con rol ${role}.`,
     metadata: {role},
   });
-  return {ok: true, teacher: {id: teacherId, nombre: name, role, passwordChangeRequired: true}};
+  return {ok: true, teacher: {id: teacherId, nombre: name, role, passwordChangeRequired: true, identityChangeRequired: true}};
 });
 
 exports.changeTeacherPassword = onCall(async (request) => {
@@ -781,11 +920,17 @@ exports.changeTeacherPassword = onCall(async (request) => {
     authUid: token.sub,
     passwordHash: hashSecret(newPassword),
     mustChange: false,
+    identityChangeRequired: false,
     changedAt: FieldValue.serverTimestamp(),
   }, {merge: true});
-  batch.set(teacherRef, {passwordChangeRequired: false, updatedAt: FieldValue.serverTimestamp()}, {merge: true});
+  batch.set(teacherRef, {
+    passwordChangeRequired: false,
+    identityChangeRequired: false,
+    temporaryLogin: false,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, {merge: true});
   await batch.commit();
-  const claims = teacherClaims(schoolKey, teacherId, teacher, false);
+  const claims = teacherClaims(schoolKey, teacherId, teacher, false, false);
   const customToken = await createTeacherSessionToken(token.sub, claims);
   return {ok: true, token: customToken};
 });
@@ -832,8 +977,98 @@ exports.updateOwnSchedule = onCall(async (request) => {
   return {ok: true, schedule};
 });
 
+exports.completeTeacherOnboarding = onCall(async (request) => {
+  const token = assertSignedIn(request);
+  if (token.role === "super") throw new HttpsError("failed-precondition", "Esta operación no aplica al usuario maestro global.");
+  await assertActiveTeacher(token, true);
+  const schoolKey = assertSameSchool(token, token.schoolKey);
+  const currentTeacherId = requireIdentifier(token.teacherId, "usuario temporal");
+  const email = requireEmail(request.data?.email, "correo personal o cuenta de Google");
+  const newTeacherId = normalizeCode(email, 160);
+  const currentPassword = String(request.data?.currentPassword || "");
+  const newPassword = requirePassword(request.data?.newPassword, "contraseña nueva");
+  if (newTeacherId === currentTeacherId) {
+    throw new HttpsError("invalid-argument", "El correo nuevo debe ser diferente del usuario temporal.");
+  }
+
+  const currentTeacherRef = schoolCollection(schoolKey, "maestros").doc(currentTeacherId);
+  const currentCredentialRef = teacherCredentialRef(schoolKey, currentTeacherId);
+  const newTeacherRef = schoolCollection(schoolKey, "maestros").doc(newTeacherId);
+  const newCredentialRef = teacherCredentialRef(schoolKey, newTeacherId);
+  let migratedTeacher = null;
+  await db.runTransaction(async (transaction) => {
+    const [currentTeacher, currentCredential, existingTeacher, existingCredential] = await Promise.all([
+      transaction.get(currentTeacherRef),
+      transaction.get(currentCredentialRef),
+      transaction.get(newTeacherRef),
+      transaction.get(newCredentialRef),
+    ]);
+    if (!currentTeacher.exists || !currentCredential.exists) {
+      throw new HttpsError("not-found", "La cuenta temporal ya no existe. Inicie sesión nuevamente.");
+    }
+    const teacher = currentTeacher.data() || {};
+    if (teacher.authUid && teacher.authUid !== token.sub) throw new HttpsError("permission-denied", "La sesión fue reemplazada.");
+    const identityPending = teacher.identityChangeRequired === true
+      || currentCredential.get("identityChangeRequired") === true
+      || teacher.temporaryLogin === true;
+    if (!identityPending) {
+      throw new HttpsError("failed-precondition", "La identidad de esta cuenta ya fue confirmada.");
+    }
+    if (!secretMatches(currentPassword, currentCredential.get("passwordHash"))) {
+      throw new HttpsError("permission-denied", "La contraseña temporal actual es incorrecta.");
+    }
+    if (secretMatches(newPassword, currentCredential.get("passwordHash"))) {
+      throw new HttpsError("invalid-argument", "La contraseña nueva debe ser diferente de la contraseña temporal.");
+    }
+    if (existingTeacher.exists || existingCredential.exists) {
+      throw new HttpsError("already-exists", "Ese correo ya está registrado en el plantel.");
+    }
+    migratedTeacher = {
+      ...teacher,
+      email,
+      loginId: newTeacherId,
+      passwordChangeRequired: false,
+      identityChangeRequired: false,
+      temporaryLogin: false,
+      previousTemporaryId: currentTeacherId,
+      identityChangedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    transaction.create(newTeacherRef, migratedTeacher);
+    transaction.create(newCredentialRef, {
+      schoolKey,
+      teacherId: newTeacherId,
+      loginEmail: email,
+      authUid: token.sub,
+      passwordHash: hashSecret(newPassword),
+      mustChange: false,
+      identityChangeRequired: false,
+      createdAt: currentCredential.get("createdAt") || FieldValue.serverTimestamp(),
+      changedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.delete(currentTeacherRef);
+    transaction.delete(currentCredentialRef);
+  });
+  const claims = teacherClaims(schoolKey, newTeacherId, migratedTeacher, false, false);
+  const customToken = await createTeacherSessionToken(token.sub, claims);
+  await writeAuditLog({...token, teacherId: newTeacherId, name: claims.name}, {
+    action: "teacher_onboarding_completed",
+    schoolKey,
+    targetType: "teacher",
+    targetId: newTeacherId,
+    targetLabel: claims.name,
+    summary: "Sustituyó el usuario temporal por su correo y creó su contraseña personal.",
+    metadata: {previousTemporaryId: currentTeacherId},
+  });
+  return {
+    ok: true,
+    token: customToken,
+    teacher: {id: newTeacherId, email, nombre: claims.name, role: claims.role, passwordChangeRequired: false, identityChangeRequired: false},
+  };
+});
+
 exports.changeTeacherId = onCall(async () => {
-  throw new HttpsError("failed-precondition", "El ID de usuario ya no funciona como contraseña. Utilice el cambio de contraseña.");
+  throw new HttpsError("failed-precondition", "Utilice el proceso seguro de primer acceso para confirmar el correo y la contraseña.");
 });
 
 exports.listAuditLogs = onCall(async (request) => {
@@ -899,6 +1134,7 @@ exports.updateSchool = onCall(async (request) => {
     recessReturnTime: String(input.recessReturnTime || "").slice(0, 5),
     tolerance: Math.max(0, Math.min(120, Number(input.tolerance || 0))),
     classDuration: Math.max(1, Math.min(240, Number(input.classDuration || 50))),
+    tardiesPerAbsence: tardyLimit(input.tardiesPerAbsence),
     updatedAt: FieldValue.serverTimestamp(),
     updatedBy: token.teacherId || token.role,
   };
@@ -1116,7 +1352,10 @@ exports.recordAttendance = onCall(async (request) => {
   if (!studentSnapshot.exists) throw new HttpsError("not-found", "El alumno no está registrado.");
   const student = studentSnapshot.data() || {};
   if (student.active === false || normalizeText(student.status, 20).toLowerCase() === "inactive") {
-    throw new HttpsError("failed-precondition", "El alumno está dado de baja y su QR no puede registrar asistencia.");
+    const moved = normalizeText(student.status, 20).toLowerCase() === "moved" || student.movedToStudentId;
+    throw new HttpsError("failed-precondition", moved
+      ? "Este QR pertenece al lugar eliminado del grupo anterior. Use el QR nuevo del alumno."
+      : "El alumno está dado de baja y su QR no puede registrar asistencia.");
   }
   const now = new Date();
   const fecha = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(now);
@@ -1131,23 +1370,50 @@ exports.recordAttendance = onCall(async (request) => {
   }
   const entryTime = schedule.entryTime;
   const tolerance = schedule.tolerance;
-  const status = attendanceStatus(hora, entryTime, tolerance);
+  const arrivalStatus = attendanceStatus(hora, entryTime, tolerance);
   const captureMethod = request.data?.captureMethod === "manual" ? "manual" : "qr";
+  const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
   const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${studentId}`);
-  const created = await db.runTransaction(async (transaction) => {
-    const existing = await transaction.get(attendanceRef);
-    if (existing.exists) return false;
+  const priorStudentIds = Array.isArray(student.previousStudentIds)
+    ? student.previousStudentIds.map((value) => normalizeCode(value, 40)).filter((value) => /^[A-Z0-9._-]{4,40}$/.test(value))
+    : [];
+  const attendanceRefs = [...new Set([studentId, ...priorStudentIds])]
+      .map((id) => schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${id}`));
+  const result = await db.runTransaction(async (transaction) => {
+    const [currentStudent, existingAttendances] = await Promise.all([
+      transaction.get(studentRef),
+      Promise.all(attendanceRefs.map((reference) => transaction.get(reference))),
+    ]);
+    const existing = existingAttendances.find((snapshot) => snapshot.exists);
+    if (existing) return {created: false, status: normalizeText(existing.get("status"), 30), convertedToAbsence: false};
+    if (!currentStudent.exists) throw new HttpsError("not-found", "El alumno no está registrado.");
+    const currentStudentData = currentStudent.data() || {};
+    if (currentStudentData.active === false || normalizeText(currentStudentData.status, 20).toLowerCase() === "inactive" || normalizeText(currentStudentData.status, 20).toLowerCase() === "moved") {
+      const moved = normalizeText(currentStudentData.status, 20).toLowerCase() === "moved" || currentStudentData.movedToStudentId;
+      throw new HttpsError("failed-precondition", moved
+        ? "Este QR pertenece al lugar eliminado del grupo anterior. Use el QR nuevo del alumno."
+        : "El alumno está dado de baja y su QR no puede registrar asistencia.");
+    }
+    const policy = applyTardyPolicy({
+      arrivalStatus,
+      tardiesPerAbsence: school.tardiesPerAbsence,
+      pendingTardies: currentStudentData.pendingTardies,
+    });
     transaction.create(attendanceRef, {
       alumnoId: studentId,
-      nombre: normalizeText(student.nombres, 100),
-      apellido: normalizeText(student.paterno, 80),
-      materno: normalizeText(student.materno, 80),
-      studentIdRevision: normalizeText(student.studentIdRevision, 40),
+      nombre: normalizeText(currentStudentData.nombres, 100),
+      apellido: normalizeText(currentStudentData.paterno, 80),
+      materno: normalizeText(currentStudentData.materno, 80),
+      studentIdRevision: normalizeText(currentStudentData.studentIdRevision, 40),
       profesorId: token.teacherId,
       profesorNombre: normalizeText(token.name, 100),
       fecha,
       hora,
-      status,
+      status: policy.status,
+      arrivalStatus,
+      absenceType: policy.convertedToAbsence ? "tardy_limit" : "",
+      tardySequence: arrivalStatus === "RETARDO" ? policy.pendingTardies || policy.tardyLimit : 0,
+      tardyLimitApplied: policy.tardyLimit,
       scheduleLevel: studentLevel,
       scheduleGroup: studentGroup,
       entryTimeApplied: entryTime,
@@ -1155,9 +1421,23 @@ exports.recordAttendance = onCall(async (request) => {
       captureMethod,
       timestamp: FieldValue.serverTimestamp(),
     });
-    return true;
+    if (arrivalStatus === "RETARDO" && policy.tardyLimit > 0) {
+      transaction.set(studentRef, {
+        pendingTardies: policy.pendingTardies,
+        tardyAbsences: Number(currentStudentData.tardyAbsences || 0) + (policy.convertedToAbsence ? 1 : 0),
+        tardyStatusUpdatedAt: FieldValue.serverTimestamp(),
+        ...(policy.convertedToAbsence ? {lastTardyAbsenceAt: FieldValue.serverTimestamp()} : {}),
+      }, {merge: true});
+    }
+    return {
+      created: true,
+      status: policy.status,
+      convertedToAbsence: policy.convertedToAbsence,
+      pendingTardies: policy.pendingTardies,
+      tardyLimit: policy.tardyLimit,
+    };
   });
-  return {created, fecha, hora, status};
+  return {...result, fecha, hora};
 });
 
 exports.deleteStudent = onCall(async (request) => {
@@ -1192,6 +1472,9 @@ exports.setStudentActive = onCall(async (request) => {
   const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
   const student = await studentRef.get();
   if (!student.exists) throw new HttpsError("not-found", "El alumno ya no existe.");
+  if (active && student.get("movedToStudentId")) {
+    throw new HttpsError("failed-precondition", "Este registro conserva un lugar anterior de la lista y no puede reactivarse. Use el registro vigente del alumno.");
+  }
   await studentRef.update({
     active,
     status: active ? "active" : "inactive",
@@ -1207,6 +1490,119 @@ exports.setStudentActive = onCall(async (request) => {
     summary: active ? "Reactivó al alumno y su QR." : "Dio de baja al alumno; su QR dejó de registrar asistencia.",
   });
   return {ok: true, active};
+});
+
+exports.moveStudent = onCall(async (request) => {
+  const token = await assertRole(request, ADMIN_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
+  const destinationLevel = normalizeSchoolLevel(request.data?.level);
+  const destinationGroup = normalizeGroupName(request.data?.group);
+  const studentsRef = schoolCollection(schoolKey, "alumnos");
+  const sourceRef = studentsRef.doc(studentId);
+  const destinationQuery = studentsRef.where("grupo", "==", destinationGroup);
+  const result = await db.runTransaction(async (transaction) => {
+    const [sourceSnapshot, destinationSnapshot] = await Promise.all([
+      transaction.get(sourceRef),
+      transaction.get(destinationQuery),
+    ]);
+    if (!sourceSnapshot.exists) throw new HttpsError("not-found", "El alumno ya no existe.");
+    const source = sourceSnapshot.data() || {};
+    if (source.active === false || new Set(["inactive", "moved"]).has(normalizeText(source.status, 20).toLowerCase())) {
+      throw new HttpsError("failed-precondition", "Solo puede corregir el grupo de un alumno activo.");
+    }
+    const sourceLevel = normalizeSchoolLevel(source.level || source.nivel);
+    const sourceGroup = normalizeGroupName(source.grupo);
+    if (sourceLevel === destinationLevel && sourceGroup === destinationGroup) {
+      throw new HttpsError("failed-precondition", "Seleccione un grupo diferente al grupo actual.");
+    }
+    const destinationStudents = destinationSnapshot.docs
+        .map((document) => ({id: document.id, ...document.data()}))
+        .filter((candidate) => normalizeSchoolLevel(candidate.level || candidate.nivel) === destinationLevel);
+    if (!destinationStudents.length) {
+      throw new HttpsError("not-found", "El grupo destino ya no existe. Actualice la lista y seleccione otro grupo.");
+    }
+    const duplicate = destinationStudents.find((candidate) => (
+      candidate.active !== false
+      && !new Set(["inactive", "moved"]).has(normalizeText(candidate.status, 20).toLowerCase())
+      && ["paterno", "materno", "nombres"].every((field) => normalizeText(candidate[field], 100).toUpperCase() === normalizeText(source[field], 100).toUpperCase())
+    ));
+    if (duplicate) throw new HttpsError("already-exists", "El alumno ya tiene un registro activo en el grupo destino.");
+    const lastListNumber = destinationStudents.reduce((highest, candidate) => {
+      const value = Number.parseInt(String(candidate.lista || ""), 10);
+      return Number.isSafeInteger(value) && value > 0 ? Math.max(highest, value) : highest;
+    }, 0);
+    const listNumber = lastListNumber + 1;
+    if (listNumber > 99) throw new HttpsError("failed-precondition", "El grupo destino no tiene un número de lista disponible.");
+    const list = String(listNumber).padStart(2, "0");
+    const newStudentId = buildStudentId(destinationLevel, destinationGroup, listNumber, source);
+    const newStudentRef = studentsRef.doc(newStudentId);
+    if (newStudentId === studentId || destinationSnapshot.docs.some((document) => document.id === newStudentId)) {
+      throw new HttpsError("already-exists", "No fue posible generar el identificador del alumno en el grupo destino.");
+    }
+    const previousStudentIds = [...new Set([
+      ...(Array.isArray(source.previousStudentIds) ? source.previousStudentIds : []),
+      studentId,
+    ].map((value) => normalizeCode(value, 40)).filter(Boolean))].slice(-20);
+    transaction.update(sourceRef, {
+      active: false,
+      status: "moved",
+      movedToStudentId: newStudentId,
+      movedToLevel: destinationLevel,
+      movedToGroup: destinationGroup,
+      movedAt: FieldValue.serverTimestamp(),
+      movedBy: token.teacherId || token.role,
+      statusUpdatedAt: FieldValue.serverTimestamp(),
+      statusUpdatedBy: token.teacherId || token.role,
+    });
+    transaction.create(newStudentRef, {
+      paterno: normalizeText(source.paterno, 80).toUpperCase(),
+      materno: normalizeText(source.materno, 80).toUpperCase(),
+      nombres: normalizeText(source.nombres, 100).toUpperCase(),
+      level: destinationLevel,
+      grupo: destinationGroup,
+      lista: list,
+      active: true,
+      status: "active",
+      manualId: false,
+      pendingTardies: Math.max(0, Math.trunc(Number(source.pendingTardies) || 0)),
+      tardyAbsences: Math.max(0, Math.trunc(Number(source.tardyAbsences) || 0)),
+      previousStudentIds,
+      movedFromStudentId: studentId,
+      movedFromLevel: sourceLevel,
+      movedFromGroup: sourceGroup,
+      movedFromList: normalizeText(source.lista, 10),
+      createdAt: FieldValue.serverTimestamp(),
+      createdBy: token.teacherId || token.role,
+    });
+    return {
+      studentId: newStudentId,
+      name: [source.paterno, source.materno, source.nombres].map((value) => normalizeText(value, 100)).filter(Boolean).join(" "),
+      level: destinationLevel,
+      group: destinationGroup,
+      list,
+      sourceLevel,
+      sourceGroup,
+      sourceList: normalizeText(source.lista, 10),
+    };
+  });
+  await writeAuditLog(token, {
+    action: "student_moved",
+    schoolKey,
+    targetType: "student",
+    targetId: result.studentId,
+    targetLabel: result.name,
+    summary: `Corrigió el grupo del alumno de ${result.sourceLevel} · ${result.sourceGroup} a ${result.level} · ${result.group}; conservó el lugar anterior como eliminado.`,
+    metadata: {
+      sourceStudentId: studentId,
+      sourceLevel: result.sourceLevel,
+      sourceGroup: result.sourceGroup,
+      destinationLevel: result.level,
+      destinationGroup: result.group,
+      destinationList: result.list,
+    },
+  });
+  return {ok: true, ...result};
 });
 
 exports.renumberStudentGroup = onCall({timeoutSeconds: 540, memory: "512MiB"}, async (request) => {
@@ -1230,13 +1626,35 @@ exports.renumberStudentGroup = onCall({timeoutSeconds: 540, memory: "512MiB"}, a
   }
   if (!groupStudents.length) throw new HttpsError("not-found", "El grupo no contiene alumnos para renumerar.");
   if (groupStudents.length > 99) throw new HttpsError("failed-precondition", "Un grupo no puede contener más de 99 alumnos.");
-  groupStudents.sort((first, second) => compareStudentNames({...first.data, id: first.id}, {...second.data, id: second.id}));
-
-  const desiredStudents = groupStudents.map((student, index) => ({
-    ...student,
-    list: String(index + 1).padStart(2, "0"),
-    newId: student.data.manualId === true ? student.id : buildStudentId(level, group, index + 1, student.data),
-  }));
+  const movedStudents = groupStudents.filter((student) => normalizeText(student.data.status, 20).toLowerCase() === "moved" || student.data.movedToStudentId);
+  const reservedListNumbers = new Set();
+  for (const student of movedStudents) {
+    const listNumber = Number.parseInt(String(student.data.lista || ""), 10);
+    if (!Number.isSafeInteger(listNumber) || listNumber < 1 || listNumber > 99 || reservedListNumbers.has(listNumber)) {
+      throw new HttpsError("failed-precondition", "Los lugares eliminados del grupo contienen una numeración inválida o repetida.");
+    }
+    reservedListNumbers.add(listNumber);
+  }
+  const studentsToRenumber = groupStudents
+      .filter((student) => !movedStudents.includes(student))
+      .sort((first, second) => compareStudentNames({...first.data, id: first.id}, {...second.data, id: second.id}));
+  const availableListNumbers = Array.from({length: 99}, (_, index) => index + 1)
+      .filter((listNumber) => !reservedListNumbers.has(listNumber));
+  const desiredStudents = [
+    ...movedStudents.map((student) => ({
+      ...student,
+      list: String(Number.parseInt(String(student.data.lista), 10)).padStart(2, "0"),
+      newId: student.id,
+    })),
+    ...studentsToRenumber.map((student) => {
+      const listNumber = availableListNumbers.shift();
+      return {
+        ...student,
+        list: String(listNumber).padStart(2, "0"),
+        newId: student.data.manualId === true ? student.id : buildStudentId(level, group, listNumber, student.data),
+      };
+    }),
+  ];
   const revision = createHash("sha256").update(desiredStudents.map((student) => [
     student.newId,
     normalizeText(student.data.paterno, 80),
@@ -1318,7 +1736,7 @@ exports.renumberStudentGroup = onCall({timeoutSeconds: 540, memory: "512MiB"}, a
     targetType: "student_group",
     targetId: `${level}-${group}`,
     targetLabel: `${level} · Grupo ${group}`,
-    summary: `Renumeró ${desiredStudents.length} alumnos y actualizó sus identificadores QR.`,
+    summary: `Renumeró ${studentsToRenumber.length} alumnos y conservó ${movedStudents.length} lugares eliminados sin modificar sus QR.`,
     metadata: {
       students: desiredStudents.length,
       changedIds: desiredStudents.filter((student) => student.id !== student.newId).length,
@@ -1372,6 +1790,34 @@ exports.clearStudents = onCall(async (request) => {
   return {ok: true};
 });
 
+exports.deleteStudentGroup = onCall(async (request) => {
+  const token = await assertRole(request, ADMIN_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const level = normalizeSchoolLevel(request.data?.level);
+  const group = normalizeGroupName(request.data?.group);
+  const snapshot = await schoolCollection(schoolKey, "alumnos").where("grupo", "==", group).get();
+  const groupStudents = snapshot.docs.filter((document) => {
+    const student = document.data() || {};
+    return normalizeSchoolLevel(student.level || student.nivel) === level;
+  });
+  if (!groupStudents.length) throw new HttpsError("not-found", "El grupo ya no existe o no contiene alumnos.");
+  for (let index = 0; index < groupStudents.length; index += 400) {
+    const batch = db.batch();
+    groupStudents.slice(index, index + 400).forEach((document) => batch.delete(document.ref));
+    await batch.commit();
+  }
+  await writeAuditLog(token, {
+    action: "student_group_deleted",
+    schoolKey,
+    targetType: "student_group",
+    targetId: `${level}-${group}`,
+    targetLabel: `${level} · Grupo ${group}`,
+    summary: `Eliminó permanentemente el grupo ${level} · ${group} y sus ${groupStudents.length} registros de alumnos.`,
+    metadata: {level, group, deletedStudents: groupStudents.length},
+  });
+  return {ok: true, level, group, deletedStudents: groupStudents.length};
+});
+
 exports.listAttendanceReport = onCall(async (request) => {
   const token = await assertRole(request, ADMIN_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
@@ -1399,10 +1845,185 @@ exports.listAttendanceReport = onCall(async (request) => {
       teacherName: normalizeText(data.profesorNombre, 100),
       date: normalizeText(data.fecha, 10),
       time: normalizeText(data.hora, 8),
-      status: normalizeText(data.status, 20).toUpperCase() === "RETARDO" ? "RETARDO" : "A TIEMPO",
+      status: new Set(["RETARDO", "FALTA POR RETARDOS"]).has(normalizeText(data.status, 30).toUpperCase())
+        ? normalizeText(data.status, 30).toUpperCase()
+        : "A TIEMPO",
     };
   }).sort((first, second) => first.date.localeCompare(second.date) || first.time.localeCompare(second.time));
   return {rows, truncated: snapshot.size === 5000};
+});
+
+exports.createIncident = onCall(async (request) => {
+  const token = await assertRole(request, INCIDENT_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const level = normalizeSchoolLevel(request.data?.level);
+  const group = normalizeGroupName(request.data?.group);
+  const reportedDate = requireDate(request.data?.reportedDate, "fecha del reporte");
+  const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
+  if (reportedDate > today) throw new HttpsError("invalid-argument", "La fecha del reporte no puede ser futura.");
+  const reportedTime = requireTime(request.data?.reportedTime);
+  const priority = requireChoice(request.data?.priority, INCIDENT_PRIORITIES, "una prioridad");
+  const affectationType = requireChoice(request.data?.affectationType, INCIDENT_AFFECTATIONS, "un tipo de afectación");
+  const incidentType = requireChoice(request.data?.incidentType, INCIDENT_TYPES, "un tipo de incidencia");
+  const personAffected = new Set(["alumno", "personal"]).has(affectationType);
+  const affectedFunction = personAffected
+    ? requireChoice(request.data?.affectedFunction, INCIDENT_FUNCTIONS, "la función de la persona afectada")
+    : "";
+  const affectedStudentId = affectationType === "alumno" ? normalizeCode(request.data?.affectedStudentId, 40) : "";
+  const affectedAgeValue = Number(request.data?.affectedAge);
+  const affectedAge = Number.isInteger(affectedAgeValue) && affectedAgeValue >= 2 && affectedAgeValue <= 120 ? affectedAgeValue : null;
+  const description = requireText(request.data?.description, "una descripción de los hechos", 2000);
+  const immediateActions = requireText(request.data?.immediateActions, "las medidas inmediatas adoptadas", 1200);
+  const municipality = requireText(request.data?.municipality, "el municipio o alcaldía", 120);
+  const shift = requireText(request.data?.shift, "el turno", 30).toLowerCase();
+  if (!new Set(["matutino", "vespertino", "nocturno", "discontinuo", "tiempo_completo", "otro"]).has(shift)) {
+    throw new HttpsError("invalid-argument", "Seleccione un turno válido.");
+  }
+
+  const [groupSnapshot, schoolSnapshot] = await Promise.all([
+    schoolCollection(schoolKey, "alumnos").where("grupo", "==", group).get(),
+    schoolsRef().doc(schoolKey).get(),
+  ]);
+  const groupStudents = groupSnapshot.docs.filter((document) => {
+    const student = document.data() || {};
+    return normalizeSchoolLevel(student.level || student.nivel) === level
+      && student.active !== false
+      && !new Set(["inactive", "moved"]).has(normalizeText(student.status, 20).toLowerCase());
+  });
+  if (!groupStudents.length) throw new HttpsError("failed-precondition", "El grupo seleccionado ya no tiene alumnos activos.");
+
+  let affectedPersonName = personAffected ? normalizeText(request.data?.affectedPersonName, 160).toUpperCase() : "";
+  if (affectedStudentId) {
+    const studentDocument = groupStudents.find((document) => document.id === affectedStudentId);
+    if (!studentDocument) throw new HttpsError("failed-precondition", "El alumno seleccionado ya no pertenece al grupo indicado.");
+    const student = studentDocument.data() || {};
+    affectedPersonName = [student.paterno, student.materno, student.nombres]
+        .map((value) => normalizeText(value, 100))
+        .filter(Boolean)
+        .join(" ");
+  }
+  if (affectationType === "alumno" && !affectedPersonName) {
+    throw new HttpsError("invalid-argument", "Seleccione o capture el nombre de la persona afectada.");
+  }
+  const affectedService = personAffected ? "" : normalizeText(request.data?.affectedService, 160);
+  if (!personAffected && affectedService.length < 3) {
+    throw new HttpsError("invalid-argument", "Describa la infraestructura, servicio, mobiliario o equipo afectado.");
+  }
+
+  const incidentRef = schoolCollection(schoolKey, "incidencias").doc();
+  const folio = `INC-${reportedDate.slice(0, 4)}-${incidentRef.id.slice(0, 8).toUpperCase()}`;
+  const now = Timestamp.now();
+  const data = {
+    folio,
+    schoolKey,
+    schoolName: normalizeText(schoolSnapshot.get("name") || schoolKey, 160),
+    teacherId: token.teacherId,
+    reporterName: normalizeText(token.name, 160),
+    reportType: "inicial",
+    reportedDate,
+    reportedTime,
+    priority,
+    affectationType,
+    incidentType,
+    status: "abierta",
+    level,
+    group,
+    affectedFunction,
+    affectedPersonName,
+    affectedAge,
+    affectedStudentId,
+    affectedService,
+    description,
+    immediateActions,
+    administrativeUnit: normalizeText(request.data?.administrativeUnit, 160),
+    regionalOffice: normalizeText(request.data?.regionalOffice, 160),
+    municipality,
+    shift,
+    guardianNotified: request.data?.guardianNotified === true,
+    nextFollowUpDate: optionalDate(request.data?.nextFollowUpDate, "fecha de seguimiento"),
+    history: [{
+      status: "abierta",
+      note: immediateActions,
+      guardianNotified: request.data?.guardianNotified === true,
+      nextFollowUpDate: optionalDate(request.data?.nextFollowUpDate, "fecha de seguimiento"),
+      authorId: token.teacherId,
+      authorName: normalizeText(token.name, 160),
+      recordedAt: now,
+    }],
+    createdAt: now,
+    updatedAt: now,
+  };
+  await incidentRef.create(data);
+  await writeAuditLog(token, {
+    action: "incident_created",
+    schoolKey,
+    targetType: "incident",
+    targetId: incidentRef.id,
+    targetLabel: folio,
+    summary: `Registró una incidencia ${priority} de ${level} · Grupo ${group}.`,
+    metadata: {level, group, priority, incidentType},
+  });
+  return {incident: publicIncident(await incidentRef.get())};
+});
+
+exports.listIncidents = onCall(async (request) => {
+  const token = await assertRole(request, INCIDENT_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const snapshot = await schoolCollection(schoolKey, "incidencias")
+      .where("teacherId", "==", token.teacherId)
+      .get();
+  const incidents = snapshot.docs
+      .map(publicIncident)
+      .sort((first, second) => `${second.reportedDate}T${second.reportedTime}`.localeCompare(`${first.reportedDate}T${first.reportedTime}`))
+      .slice(0, 300);
+  return {incidents, truncated: snapshot.size > incidents.length};
+});
+
+exports.updateIncident = onCall(async (request) => {
+  const token = await assertRole(request, INCIDENT_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const incidentId = requireDocumentId(request.data?.incidentId, "folio interno de la incidencia");
+  const status = requireChoice(request.data?.status, INCIDENT_STATUSES, "un estado");
+  const note = requireText(request.data?.note, "una nota de seguimiento", 1200);
+  const nextFollowUpDate = optionalDate(request.data?.nextFollowUpDate, "fecha de seguimiento");
+  const guardianNotified = request.data?.guardianNotified === true;
+  const incidentRef = schoolCollection(schoolKey, "incidencias").doc(incidentId);
+  let folio = incidentId;
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(incidentRef);
+    if (!snapshot.exists) throw new HttpsError("not-found", "La incidencia ya no existe.");
+    const incident = snapshot.data() || {};
+    if (incident.teacherId !== token.teacherId) throw new HttpsError("permission-denied", "Solo puede actualizar incidencias registradas por usted.");
+    folio = normalizeCode(incident.folio, 40) || incidentId;
+    const history = Array.isArray(incident.history) ? incident.history.slice(-24) : [];
+    history.push({
+      status,
+      note,
+      guardianNotified,
+      nextFollowUpDate,
+      authorId: token.teacherId,
+      authorName: normalizeText(token.name, 160),
+      recordedAt: Timestamp.now(),
+    });
+    transaction.update(incidentRef, {
+      status,
+      guardianNotified,
+      nextFollowUpDate,
+      history,
+      updatedAt: Timestamp.now(),
+      ...(status === "resuelta" ? {resolvedAt: Timestamp.now()} : {}),
+    });
+  });
+  await writeAuditLog(token, {
+    action: "incident_updated",
+    schoolKey,
+    targetType: "incident",
+    targetId: incidentId,
+    targetLabel: folio,
+    summary: `Actualizó el seguimiento de ${folio} a estado ${status}.`,
+    metadata: {status, guardianNotified},
+  });
+  return {incident: publicIncident(await incidentRef.get())};
 });
 
 exports.clearAttendance = onCall(async (request) => {
@@ -1548,6 +2169,7 @@ exports.correctSchoolCct = onCall({timeoutSeconds: 540, memory: "512MiB"}, async
     copyCollection(schoolCollection(oldSchoolKey, "alumnos"), schoolCollection(newSchoolKey, "alumnos")),
     copyCollection(schoolCollection(oldSchoolKey, "maestros"), schoolCollection(newSchoolKey, "maestros")),
     copyCollection(schoolCollection(oldSchoolKey, "asistencias"), schoolCollection(newSchoolKey, "asistencias")),
+    copyCollection(schoolCollection(oldSchoolKey, "incidencias"), schoolCollection(newSchoolKey, "incidencias")),
   ]);
 
   const credentials = await privateDataRef().collection("teacher_credentials").where("schoolKey", "==", oldSchoolKey).get();
@@ -1589,6 +2211,7 @@ exports.correctSchoolCct = onCall({timeoutSeconds: 540, memory: "512MiB"}, async
     deleteCollection(schoolCollection(oldSchoolKey, "alumnos")),
     deleteCollection(schoolCollection(oldSchoolKey, "maestros")),
     deleteCollection(schoolCollection(oldSchoolKey, "asistencias")),
+    deleteCollection(schoolCollection(oldSchoolKey, "incidencias")),
     deleteCollection(privateDataRef().collection("teacher_credentials").where("schoolKey", "==", oldSchoolKey)),
   ]);
   await writeAuditLog(token, {
@@ -1627,6 +2250,7 @@ exports.deleteSchool = onCall(async (request) => {
     deleteCollection(schoolCollection(schoolKey, "alumnos")),
     deleteCollection(schoolCollection(schoolKey, "maestros")),
     deleteCollection(schoolCollection(schoolKey, "asistencias")),
+    deleteCollection(schoolCollection(schoolKey, "incidencias")),
     deleteCollection(privateDataRef().collection("teacher_credentials").where("schoolKey", "==", schoolKey)),
     deleteCollection(privateDataRef().collection("login_challenges").where("schoolKey", "==", schoolKey)),
   ]);
