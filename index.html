@@ -8,11 +8,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
-    <title>Control de Asistencia — VERSION 36.40</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=36.40.0">
-    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.40.0">
-    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.40.0">
-    <script src="./pwa-install.js?v=36.40.0"></script>
+    <title>Control de Asistencia — VERSION 36.41</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=36.41.0">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.41.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.41.0">
+    <script src="./pwa-install.js?v=36.41.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -118,7 +118,7 @@
     <div id="install-app-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-end sm:items-center justify-center p-3 sm:p-4 text-center">
         <div class="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl max-w-sm w-full p-7 sm:p-8 space-y-5 border-t-8 border-orange-500">
             <div class="flex items-center gap-4 text-left">
-                <img src="./icons/app-icon-192.png?v=36.40.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
+                <img src="./icons/app-icon-192.png?v=36.41.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
                 <div class="min-w-0 space-y-1">
                     <p id="install-app-platform" class="text-[9px] font-black uppercase tracking-[0.18em] text-orange-600">Acceso desde tu celular</p>
                     <h2 id="install-app-title" class="text-xl font-black leading-tight text-slate-800">Control de Asistencia</h2>
@@ -303,7 +303,30 @@
                 <div class="pass-container"><input id="input-confirm-password" type="password" aria-label="Confirmar contraseña nueva" autocomplete="new-password" minlength="8" maxlength="72" placeholder="CONFIRMAR CONTRASEÑA" class="w-full px-6 py-4 border-2 border-slate-100 rounded-3xl focus:border-blue-500 text-center text-lg font-black shadow-inner"><button type="button" class="toggle-eye" aria-label="Mostrar confirmación" aria-pressed="false" onclick="window.togglePass('input-confirm-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
             </div>
             <p class="text-xs text-slate-600">Use al menos 8 caracteres, con letras y números.</p>
-            <button id="btn-complete-first-access" onclick="window.processPasswordChange()" class="w-full theme-primary text-white py-4 rounded-3xl font-black text-xs uppercase shadow-xl active:scale-95 disabled:opacity-50">Guardar correo y contraseña</button>
+            <div class="space-y-3">
+                <button id="btn-complete-first-access" onclick="window.processPasswordChange()" class="w-full theme-primary text-white py-4 rounded-3xl font-black text-xs uppercase shadow-xl active:scale-95 disabled:opacity-50">Guardar correo y contraseña</button>
+                <button id="btn-exit-first-access" type="button" onclick="window.exitFirstAccess()" class="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 text-[10px] font-black uppercase text-slate-600 active:scale-95">Salir y hacerlo después</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RECUPERACIÓN DE ACCESO DOCENTE -->
+    <div id="modal-teacher-recovery" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="teacher-recovery-title" aria-describedby="teacher-recovery-description" class="fixed inset-0 z-[970] hidden items-center justify-center bg-slate-900/90 p-4 text-center backdrop-blur-md">
+        <div class="w-full max-w-md space-y-6 rounded-[3rem] border-t-[12px] border-blue-600 bg-white p-8 shadow-2xl sm:p-10">
+            <div class="space-y-2">
+                <i class="fas fa-envelope-circle-check text-4xl text-blue-600" aria-hidden="true"></i>
+                <h3 id="teacher-recovery-title" class="text-xl font-black uppercase theme-text">Recuperar acceso</h3>
+                <p id="teacher-recovery-description" class="text-xs font-bold leading-relaxed text-slate-600">Escriba el correo personal que registró en su primer acceso. Recibirá un enlace de Firebase para crear una contraseña nueva; ese mismo correo es su usuario.</p>
+            </div>
+            <div class="space-y-2 text-left">
+                <label for="teacher-recovery-email" class="block text-[10px] font-black uppercase text-slate-600">Correo registrado</label>
+                <input id="teacher-recovery-email" type="email" autocomplete="email" maxlength="160" placeholder="NOMBRE@DOMINIO.COM" class="w-full rounded-3xl border-2 border-slate-100 px-6 py-4 text-center text-base font-black lowercase shadow-inner focus:border-blue-500">
+                <p class="text-[9px] font-bold leading-relaxed text-slate-500">Si todavía usa el usuario temporal y no registró un correo, solicite al administrador del plantel un restablecimiento.</p>
+            </div>
+            <div class="flex flex-col gap-3">
+                <button id="btn-send-teacher-recovery" type="button" onclick="window.recoverTeacherPassword()" class="w-full rounded-3xl bg-blue-700 py-4 text-xs font-black uppercase text-white shadow-xl disabled:cursor-wait disabled:opacity-50">Enviar enlace de recuperación</button>
+                <button type="button" onclick="window.closeTeacherRecovery()" class="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 text-[10px] font-black uppercase text-slate-600">Salir</button>
+            </div>
         </div>
     </div>
 
@@ -330,7 +353,7 @@
                 <p id="schedule-setup-status" role="status" aria-live="polite" class="min-h-5 text-center text-xs font-bold text-slate-600"></p>
             </div>
             <div class="flex flex-col gap-2">
-                <button id="btn-save-own-schedule" type="button" onclick="window.saveOwnSchedule()" class="w-full theme-primary text-white py-4 rounded-3xl font-black text-xs uppercase shadow-xl disabled:opacity-50">Guardar horario y continuar</button>
+                <button id="btn-save-own-schedule" type="button" onclick="window.saveOwnSchedule()" class="w-full theme-primary text-white py-4 rounded-3xl font-black text-xs uppercase shadow-xl disabled:opacity-50">Guardar horario</button>
                 <button id="btn-close-schedule" type="button" onclick="window.closeScheduleSetup()" class="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold uppercase text-[10px]">Cerrar</button>
             </div>
         </div>
@@ -342,14 +365,14 @@
             
             <div class="flex justify-center mb-2">
                 <div id="login-logo-placeholder" class="logo-container">
-                    <img src="./icons/app-icon-512.png?v=36.40.0" alt="Logotipo de la aplicación" class="logo-img">
+                    <img src="./icons/app-icon-512.png?v=36.41.0" alt="Logotipo de la aplicación" class="logo-img">
                 </div>
             </div>
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
-                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.40</h1>
+                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.41</h1>
                 <div class="-mt-4 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.40.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.40.0</button>
+                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.41.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.41.0</button>
                     <button type="button" id="btn-install-pwa" data-pwa-install-action aria-label="Instalar app" aria-hidden="true" class="hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-white shadow-lg active:scale-95 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">
                         <i aria-hidden="true" class="fas fa-download"></i>
                         <span data-pwa-install-label>Instalar app</span>
@@ -402,7 +425,7 @@
                 <input id="input-login-id" type="text" aria-label="Usuario personal" autocomplete="username" maxlength="160" placeholder="USUARIO O CORREO" class="w-full px-4 py-4 border-2 border-slate-100 rounded-3xl focus:border-orange-500 text-center text-xl font-black shadow-inner">
                 <div class="pass-container"><input id="input-login-password" type="password" aria-label="Contraseña personal" autocomplete="current-password" maxlength="72" placeholder="CONTRASEÑA" class="w-full px-4 py-4 border-2 border-slate-100 rounded-3xl focus:border-orange-500 text-center text-xl font-black shadow-inner"><button type="button" class="toggle-eye" aria-label="Mostrar contraseña" aria-pressed="false" onclick="window.togglePass('input-login-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
                 <button onclick="window.attemptLogin()" class="w-full theme-accent text-white font-black py-5 rounded-3xl shadow-xl uppercase">Acceder</button>
-                <button type="button" onclick="window.explainTeacherRecovery()" class="text-blue-700 font-bold text-xs underline">Olvidé mi contraseña</button>
+                <button type="button" onclick="window.openTeacherRecovery()" class="text-blue-700 font-bold text-xs underline">Olvidé mi usuario o contraseña</button>
                 <button type="button" onclick="window.claimSchoolCct()" class="text-amber-700 font-bold text-xs underline">Reclamar esta CCT</button>
                 <button onclick="window.resetGateway()" class="text-xs text-slate-500 font-bold uppercase underline">Cambiar CCT</button>
             </div>
@@ -414,7 +437,7 @@
         <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center">
             <div class="flex items-center gap-4 text-left">
                 <div id="header-logo-container" class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5">
-                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.40.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
+                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.41.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
                 </div>
                 <div class="flex flex-col">
                     <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
@@ -456,6 +479,14 @@
             <div class="max-w-md mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200">
                 <div class="theme-primary p-6 text-white text-center"><h2 class="text-lg font-black uppercase tracking-wide">Pase de Lista</h2><p id="current-schedule-label" class="mt-2 text-[9px] font-black uppercase opacity-80">Sin horario configurado</p></div>
                 <div class="p-8 space-y-6">
+                    <div id="teacher-attendance-group-panel" class="hidden space-y-3 rounded-[2rem] border border-blue-200 bg-blue-50 p-5 text-left">
+                        <label for="attendance-group" class="block text-[10px] font-black uppercase text-blue-900">Grupo para pasar lista</label>
+                        <select id="attendance-group" onchange="window.selectAttendanceGroup()" class="w-full rounded-2xl border-2 border-blue-100 bg-white px-4 py-3 text-center text-sm font-black uppercase focus:border-blue-500">
+                            <option value="">Seleccione un grupo</option>
+                        </select>
+                        <p id="attendance-group-status" role="status" aria-live="polite" class="min-h-5 text-center text-[10px] font-bold leading-relaxed text-blue-800">Seleccione el grupo antes de encender la cámara o registrar manualmente.</p>
+                        <button id="btn-configure-attendance-group" type="button" onclick="window.openSelectedAttendanceSchedule()" class="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-[9px] font-black uppercase text-blue-800">Configurar horario del grupo</button>
+                    </div>
                     <div id="qr-reader-home">
                         <div id="qr-reader" aria-label="Lector de código QR" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[350px]"></div>
                     </div>
@@ -1015,6 +1046,6 @@
             }
         });
     </script>
-    <script type="module" src="./app.js?v=36.40.0"></script>
+    <script type="module" src="./app.js?v=36.41.0"></script>
 </body>
 </html>

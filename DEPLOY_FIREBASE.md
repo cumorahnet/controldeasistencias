@@ -10,8 +10,9 @@ Realiza un respaldo de Firestore antes del primer despliegue. La primera autenti
 
 1. Instala Firebase CLI y autentícate con una cuenta autorizada.
 2. Habilita el proveedor **Correo/contraseña** en Firebase Authentication.
-3. Crea en Authentication la cuenta que administrará el directorio maestro.
-4. En `functions/`, ejecuta `npm install`.
+3. En Authentication > Plantillas, configura y prueba la plantilla **Restablecimiento de contraseña** y verifica que el dominio del hosting esté autorizado.
+4. Crea en Authentication la cuenta que administrará el directorio maestro.
+5. En `functions/`, ejecuta `npm install`.
 
 ## 3. Asignar el rol maestro
 

@@ -495,6 +495,25 @@ async function createTeacherSessionToken(authUid, claims) {
   }
 }
 
+async function configureTeacherEmailRecovery(authUid, email, options = {}) {
+  const firebaseAuth = getAuth();
+  const profile = {email};
+  if (options.password) profile.password = options.password;
+  if (options.displayName) profile.displayName = normalizeText(options.displayName, 80);
+  try {
+    await firebaseAuth.updateUser(authUid, profile);
+  } catch (error) {
+    if (error?.code !== "auth/user-not-found") throw error;
+    await firebaseAuth.createUser({uid: authUid, ...profile});
+  }
+}
+
+function confirmedTeacherEmail(teacherId, teacher = {}, credential = {}) {
+  if (teacher.identityChangeRequired === true || teacher.temporaryLogin === true || credential.identityChangeRequired === true) return "";
+  const email = normalizeText(teacher.email || credential.loginEmail || teacherId, 160).toLowerCase();
+  return /^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(email) ? email : "";
+}
+
 async function getValidChallenge(request, challengeId, schoolKey) {
   const id = String(challengeId || "").trim();
   if (!/^[a-f0-9]{64}$/.test(id)) throw new HttpsError("permission-denied", "La autorización institucional no es válida.");
@@ -805,6 +824,109 @@ exports.loginTeacher = onCall(async (request) => {
   return {token, teacher: {id: teacherId, nombre: claims.name, role: claims.role, passwordChangeRequired, identityChangeRequired}};
 });
 
+exports.prepareTeacherPasswordRecovery = onCall(async (request) => {
+  const schoolKey = normalizeCode(request.data?.schoolKey, 40);
+  const email = requireEmail(request.data?.email, "correo registrado");
+  const teacherId = normalizeCode(email, 160);
+  await enforceRateLimit(request, "teacher_password_recovery", `${schoolKey}:${teacherId}`, 3, 60 * 60 * 1000);
+
+  const [school, teacherSnapshot, credentialSnapshot] = await Promise.all([
+    schoolsRef().doc(schoolKey).get(),
+    schoolCollection(schoolKey, "maestros").doc(teacherId).get(),
+    teacherCredentialRef(schoolKey, teacherId).get(),
+  ]);
+  const teacher = teacherSnapshot.data() || {};
+  const credential = credentialSnapshot.data() || {};
+  const registeredEmail = confirmedTeacherEmail(teacherId, teacher, credential);
+  const recoverable = school.exists
+    && String(school.get("status") || "active") === "active"
+    && teacherSnapshot.exists
+    && credentialSnapshot.exists
+    && teacher.status !== "disabled"
+    && teacher.status !== "pending"
+    && teacher.passwordChangeRequired === false
+    && credential.mustChange !== true
+    && registeredEmail === email;
+
+  if (recoverable) {
+    const authUid = teacher.authUid || credential.authUid || teacherUid(schoolKey, teacherId);
+    try {
+      await configureTeacherEmailRecovery(authUid, email, {displayName: teacher.nombre || teacher.name || teacherId});
+    } catch (error) {
+      // No se revela si la cuenta existe ni si el correo ya está vinculado.
+      console.error("No fue posible preparar la recuperación docente.", {schoolKey, code: error?.code || "unknown"});
+    }
+  }
+  return {ok: true};
+});
+
+exports.loginTeacherWithEmail = onCall(async (request) => {
+  const token = assertSignedIn(request);
+  if (token.firebase?.sign_in_provider !== "password" || token.role) {
+    throw new HttpsError("permission-denied", "La validación por correo no es válida.");
+  }
+  const email = requireEmail(token.email, "correo validado");
+  const teacherId = normalizeCode(email, 160);
+  const schoolKey = normalizeCode(request.data?.schoolKey, 40);
+  const password = requirePassword(request.data?.password, "contraseña nueva");
+  const [school, teacherSnapshot, credentialSnapshot] = await Promise.all([
+    schoolsRef().doc(schoolKey).get(),
+    schoolCollection(schoolKey, "maestros").doc(teacherId).get(),
+    teacherCredentialRef(schoolKey, teacherId).get(),
+  ]);
+  if (!school.exists || String(school.get("status") || "active") !== "active") {
+    throw new HttpsError("permission-denied", "El plantel no está disponible.");
+  }
+  if (!teacherSnapshot.exists || !credentialSnapshot.exists) {
+    throw new HttpsError("permission-denied", "El correo no corresponde a una cuenta del plantel.");
+  }
+  const teacher = teacherSnapshot.data() || {};
+  const credential = credentialSnapshot.data() || {};
+  if (teacher.status === "pending" || teacher.status === "disabled") {
+    throw new HttpsError("permission-denied", "La cuenta no está activa.");
+  }
+  if (teacher.passwordChangeRequired !== false || teacher.identityChangeRequired === true
+    || teacher.temporaryLogin === true || credential.mustChange === true || credential.identityChangeRequired === true) {
+    throw new HttpsError("failed-precondition", "Complete el primer acceso con la contraseña temporal proporcionada por el administrador.");
+  }
+  if (confirmedTeacherEmail(teacherId, teacher, credential) !== email) {
+    throw new HttpsError("permission-denied", "El correo validado no corresponde a la cuenta.");
+  }
+  const authUid = teacher.authUid || credential.authUid || teacherUid(schoolKey, teacherId);
+  if (authUid !== token.sub) throw new HttpsError("permission-denied", "La cuenta de correo no corresponde a este acceso.");
+
+  const passwordChanged = !secretMatches(password, credential.passwordHash);
+  if (passwordChanged) {
+    const batch = db.batch();
+    batch.set(credentialSnapshot.ref, {
+      passwordHash: hashSecret(password),
+      mustChange: false,
+      identityChangeRequired: false,
+      recoveredAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+    batch.set(teacherSnapshot.ref, {
+      passwordChangeRequired: false,
+      identityChangeRequired: false,
+      temporaryLogin: false,
+      accessRecoveredAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+    await batch.commit();
+    await clearFailedAttempts(request, "teacher_password_failures", `${schoolKey}:${teacherId}`).catch(() => {});
+    await writeAuditLog({...token, schoolKey, teacherId, role: teacher.role, name: teacher.nombre}, {
+      action: "teacher_password_recovered",
+      schoolKey,
+      targetType: "teacher",
+      targetId: teacherId,
+      targetLabel: normalizeText(teacher.nombre || teacherId, 120),
+      summary: "Recuperó el acceso mediante el correo registrado.",
+    });
+  }
+  const claims = teacherClaims(schoolKey, teacherId, teacher, false, false);
+  const customToken = await createTeacherSessionToken(authUid, claims);
+  return {ok: true, token: customToken, teacher: {id: teacherId, nombre: claims.name, role: claims.role}};
+});
+
 exports.registerTeacherSelf = onCall(async (request) => {
   throw new HttpsError("failed-precondition", "El autorregistro está desactivado. El administrador del plantel debe crear la cuenta.");
 });
@@ -912,6 +1034,15 @@ exports.changeTeacherPassword = onCall(async (request) => {
   }
   if (secretMatches(newPassword, credential.get("passwordHash"))) {
     throw new HttpsError("invalid-argument", "La contraseña nueva debe ser diferente de la contraseña temporal.");
+  }
+  const loginEmail = confirmedTeacherEmail(teacherId, teacher, credential.data() || {});
+  if (loginEmail) {
+    try {
+      await configureTeacherEmailRecovery(token.sub, loginEmail, {password: newPassword, displayName: teacher.nombre || teacher.name || teacherId});
+    } catch (error) {
+      console.error("No fue posible sincronizar la contraseña docente con Firebase Authentication.", {schoolKey, code: error?.code || "unknown"});
+      throw new HttpsError("unavailable", "No fue posible actualizar el acceso por correo. Inténtelo nuevamente.");
+    }
   }
   const batch = db.batch();
   batch.set(credentialRef, {
@@ -1364,6 +1495,13 @@ exports.recordAttendance = onCall(async (request) => {
   const school = schoolSnapshot.data() || {};
   const studentLevel = normalizeSchoolLevel(student.level || student.nivel);
   const studentGroup = normalizeGroupName(student.grupo);
+  if (token.role === "docente") {
+    const selectedLevel = normalizeSchoolLevel(request.data?.scheduleLevel);
+    const selectedGroup = normalizeGroupName(request.data?.scheduleGroup);
+    if (selectedLevel !== studentLevel || selectedGroup !== studentGroup) {
+      throw new HttpsError("failed-precondition", "El alumno no pertenece al grupo seleccionado para el pase de lista.");
+    }
+  }
   const schedule = resolveAttendanceSchedule({teacher, school, role: token.role, level: studentLevel, group: studentGroup});
   if (schedule.requiresTeacherSetup) {
     throw new HttpsError("failed-precondition", `Configure primero la hora de pase de lista para ${studentLevel} · Grupo ${studentGroup}.`);

@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 03/09/2026 — Selección de grupo para el pase de lista
+
+- El alta y el primer ingreso docente ya no obligan a configurar horarios de clase.
+- Antes de pasar lista, el docente selecciona el grupo que atenderá; la búsqueda manual y los códigos QR quedan limitados a ese grupo.
+- Si el grupo elegido todavía no tiene horario propio, la aplicación abre su configuración en ese momento, pero permite cerrarla y completarla después.
+- Cada docente puede guardar y modificar horarios independientes para varios grupos.
+
+## 03/09/2026 — Recuperación de acceso docente
+
+- El acceso docente permite recuperar tanto el usuario como la contraseña usando el correo confirmado durante el primer ingreso.
+- Firebase envía el enlace de restablecimiento y la aplicación sincroniza la contraseña nueva con la credencial privada del plantel después de validar correo, CCT y estado de la cuenta.
+- La preparación de la recuperación usa límites de solicitudes y respuestas genéricas para no revelar si un correo está registrado.
+- El cambio obligatorio de primer acceso incorpora **Salir y hacerlo después**, que cierra por completo la sesión sin permitir omitir el cambio de identidad y contraseña.
+
 ## 03/09/2026 — Alta y primer acceso de usuarios
 
 - El administrador captura nombre(s), apellido paterno y apellido materno; el sistema genera un usuario temporal con esos datos y resuelve duplicados mediante un consecutivo.

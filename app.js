@@ -24,8 +24,8 @@ import {
   getFunctions,
   httpsCallable,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
-import {createCameraDataScanner} from "./camera-data-scanner.js?v=36.40.0";
-import {attendanceExportFilename, createAttendanceExportData} from "./attendance-report-export.js?v=36.40.0";
+import {createCameraDataScanner} from "./camera-data-scanner.js?v=36.41.0";
+import {attendanceExportFilename, createAttendanceExportData} from "./attendance-report-export.js?v=36.41.0";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBLH2OuKVr8ez5_9GeRJBcnHFlhfgeHD1o",
@@ -38,7 +38,7 @@ const firebaseConfig = {
 
 const APP_ROOT_PATH = "listadeasistencia";
 const DEFAULT_ACCENT = "#3b82f6";
-const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.40.0";
+const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.41.0";
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
@@ -49,6 +49,8 @@ const api = Object.fromEntries([
   "requestSchoolRegistration",
   "createSchool",
   "loginTeacher",
+  "prepareTeacherPasswordRecovery",
+  "loginTeacherWithEmail",
   "listTeachers",
   "createTeacher",
   "repairTeacherAccount",
@@ -96,11 +98,12 @@ let unsubscribeAttendance = null;
 let unsubscribeSchoolProfile = null;
 let modalPreviousFocus = null;
 let schoolCalendarPreviousFocus = null;
+let teacherRecoveryPreviousFocus = null;
 let teacherBeingRepaired = "";
 let studentRegistrationInFlight = false;
 let studentBeingMoved = "";
 let studentGroupBeingDeleted = null;
-let scheduleSetupRequired = false;
+let selectedAttendanceGroupKey = "";
 let selectedManualStudentId = "";
 let audioContext = null;
 let audioUnlockPromise = null;
@@ -441,6 +444,11 @@ window.showConfirmMsg = (title, message, onConfirm) => {
 };
 
 document.addEventListener("keydown", (event) => {
+  const recoveryModal = byId("modal-teacher-recovery");
+  if (event.key === "Escape" && recoveryModal && !recoveryModal.classList.contains("hidden")) {
+    window.closeTeacherRecovery?.();
+    return;
+  }
   const modal = byId("custom-modal");
   if (!modal || modal.classList.contains("hidden")) return;
   if (event.key === "Escape") return closeModal();
@@ -618,6 +626,7 @@ window.resetGateway = () => {
     "input-school-key",
     "input-login-id",
     "input-login-password",
+    "teacher-recovery-email",
     "super-email",
     "super-password",
     "register-school-name",
@@ -646,7 +655,7 @@ window.logout = async () => {
   qrScannerMode = "attendance";
   placeSharedQrReader("qr-reader-home");
   loggedTeacher = null;
-  scheduleSetupRequired = false;
+  selectedAttendanceGroupKey = "";
   selectedManualStudentId = "";
   studentCatalogCache = [];
   incidentCache = [];
@@ -657,6 +666,7 @@ window.logout = async () => {
   hideManualStudentResults();
   document.querySelectorAll("header, main").forEach((element) => element.classList.add("hidden"));
   window.safeToggle("modal-change-password", true);
+  window.safeToggle("modal-teacher-recovery", true);
   window.safeToggle("modal-teacher-schedule", true);
   window.safeToggle("modal-move-student", true);
   window.safeToggle("modal-delete-student-group", true);
@@ -665,6 +675,8 @@ window.logout = async () => {
   window.resetGateway();
   await signOut(auth).catch(() => {});
 };
+
+window.exitFirstAccess = () => window.logout();
 
 function createCell(text, className = "") {
   const cell = document.createElement("td");
@@ -840,6 +852,7 @@ function matchingManualStudents(value, limit = 8) {
   if (!terms.length) return [];
   return studentCatalogCache
     .filter((student) => !isStudentInactive(student))
+    .filter((student) => studentMatchesSelectedAttendanceGroup(student))
     .filter((student) => {
       const name = normalizedStudentSearch(studentDisplayName(student));
       return terms.every((term) => name.includes(term));
@@ -858,7 +871,7 @@ function hideManualStudentResults() {
 
 window.selectManualStudent = (studentId) => {
   const student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === normalizeCode(studentId, 40));
-  if (!student || isStudentInactive(student)) return;
+  if (!student || isStudentInactive(student) || !studentMatchesSelectedAttendanceGroup(student)) return;
   selectedManualStudentId = normalizeCode(student.id, 40);
   const input = byId("input-manual-student-search");
   if (input) input.value = studentDisplayName(student);
@@ -1176,6 +1189,7 @@ async function loadStudents(useCache = false) {
       studentCatalogCache = snapshot.docs.map((entry) => ({...entry.data(), id: entry.id}));
     }
     populateScheduleGroupOptions();
+    populateAttendanceGroupOptions();
     const term = normalizeText(byId("student-search")?.value).toUpperCase();
     const students = studentCatalogCache.filter((student) => !term
       || normalizeCode(student.id, 40).includes(term)
@@ -1305,6 +1319,20 @@ function selectedScheduleGroup() {
   }
 }
 
+function selectedAttendanceGroup() {
+  const value = String(byId("attendance-group")?.value || selectedAttendanceGroupKey || "");
+  const separator = value.indexOf("|");
+  if (separator < 0) return null;
+  try {
+    return {
+      level: normalizeSchoolLevel(decodeURIComponent(value.slice(0, separator))),
+      group: normalizeGroupName(decodeURIComponent(value.slice(separator + 1))),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function configuredGroupSchedule(level, group) {
   return (Array.isArray(loggedTeacher?.groupSchedules) ? loggedTeacher.groupSchedules : []).find((item) => (
     normalizeSchoolLevel(item?.level) === normalizeSchoolLevel(level)
@@ -1313,11 +1341,100 @@ function configuredGroupSchedule(level, group) {
   ));
 }
 
-function teacherNeedsInitialScheduleSetup() {
-  if (loggedTeacher?.role !== "docente") return false;
-  const activeStudents = studentCatalogCache.filter((student) => !isStudentInactive(student));
-  if (!activeStudents.length) return false;
-  return !activeStudents.some((student) => configuredGroupSchedule(student.level || student.nivel, student.grupo));
+function studentMatchesSelectedAttendanceGroup(student) {
+  if (loggedTeacher?.role !== "docente") return true;
+  const selection = selectedAttendanceGroup();
+  return Boolean(selection
+    && normalizeSchoolLevel(student?.level || student?.nivel) === selection.level
+    && normalizeGroupName(student?.grupo) === selection.group);
+}
+
+function updateAttendanceGroupStatus() {
+  const status = byId("attendance-group-status");
+  const label = byId("current-schedule-label");
+  const configureButton = byId("btn-configure-attendance-group");
+  if (loggedTeacher?.role !== "docente") return;
+  const selection = selectedAttendanceGroup();
+  if (!selection) {
+    if (status) status.textContent = "Seleccione el grupo antes de encender la cámara o registrar manualmente.";
+    if (label) label.textContent = "Seleccione un grupo";
+    if (configureButton) configureButton.textContent = "Configurar horario del grupo";
+    return;
+  }
+  const schedule = configuredGroupSchedule(selection.level, selection.group);
+  if (!schedule) {
+    if (status) status.textContent = `${selection.level} · Grupo ${selection.group} todavía no tiene horario. Configúrelo para comenzar el pase de lista.`;
+    if (label) label.textContent = `${selection.level} · Grupo ${selection.group} · horario pendiente`;
+    if (configureButton) configureButton.textContent = "Configurar horario ahora";
+    return;
+  }
+  if (status) status.textContent = `${selection.level} · Grupo ${selection.group} listo para pasar lista a las ${schedule.entryTime}.`;
+  if (label) label.textContent = `${selection.level} · Grupo ${selection.group} · Pase ${schedule.entryTime} · tolerancia ${Number(schedule.tolerance || 0)} min`;
+  if (configureButton) configureButton.textContent = "Modificar horario del grupo";
+}
+
+function populateAttendanceGroupOptions() {
+  const panel = byId("teacher-attendance-group-panel");
+  const select = byId("attendance-group");
+  const teacher = loggedTeacher?.role === "docente";
+  window.safeToggle("teacher-attendance-group-panel", !teacher);
+  if (!teacher || !panel || !select) return;
+  const groups = new Map();
+  for (const student of studentCatalogCache) {
+    if (isStudentInactive(student)) continue;
+    const level = normalizeSchoolLevel(student.level || student.nivel);
+    const group = normalizeGroupName(student.grupo);
+    if (level && group) groups.set(scheduleGroupKey(level, group), {level, group});
+  }
+  const options = [...groups.entries()].sort(([, first], [, second]) => {
+    const levelOrder = (STUDENT_LEVEL_ORDER.get(first.level) ?? 99) - (STUDENT_LEVEL_ORDER.get(second.level) ?? 99);
+    return levelOrder || first.group.localeCompare(second.group, "es", {numeric: true, sensitivity: "base"});
+  });
+  select.replaceChildren(new Option(options.length ? "Seleccione un grupo" : "No hay grupos registrados", ""));
+  for (const [value, item] of options) {
+    const pending = configuredGroupSchedule(item.level, item.group) ? "" : " · CONFIGURAR HORARIO";
+    select.add(new Option(`${STUDENT_LEVEL_LABELS[item.level] || item.level} · Grupo ${item.group}${pending}`, value));
+  }
+  if (options.some(([value]) => value === selectedAttendanceGroupKey)) select.value = selectedAttendanceGroupKey;
+  else selectedAttendanceGroupKey = "";
+  select.disabled = options.length === 0;
+  updateAttendanceGroupStatus();
+}
+
+window.selectAttendanceGroup = async () => {
+  if (isScannerRunning) await window.stopScanner();
+  selectedAttendanceGroupKey = String(byId("attendance-group")?.value || "");
+  selectedManualStudentId = "";
+  if (byId("input-manual-student-search")) byId("input-manual-student-search").value = "";
+  if (byId("manual-student-selection")) byId("manual-student-selection").textContent = "Busque y seleccione un alumno.";
+  hideManualStudentResults();
+  updateAttendanceGroupStatus();
+  const selection = selectedAttendanceGroup();
+  if (selection && !configuredGroupSchedule(selection.level, selection.group)) {
+    window.openScheduleSetup(true, {level: selection.level, grupo: selection.group});
+  }
+};
+
+window.openSelectedAttendanceSchedule = () => {
+  const selection = selectedAttendanceGroup();
+  if (!selection) return window.showModalMsg("Pase de lista", "Seleccione primero el grupo que desea atender.");
+  window.openScheduleSetup(true, {level: selection.level, grupo: selection.group});
+};
+
+function attendanceGroupReady(openConfiguration = false) {
+  if (loggedTeacher?.role !== "docente") return null;
+  const selection = selectedAttendanceGroup();
+  if (!selection) {
+    updateAttendanceGroupStatus();
+    if (openConfiguration) window.showModalMsg("Pase de lista", "Seleccione el grupo antes de comenzar.");
+    return false;
+  }
+  if (!configuredGroupSchedule(selection.level, selection.group)) {
+    updateAttendanceGroupStatus();
+    if (openConfiguration) window.openScheduleSetup(true, {level: selection.level, grupo: selection.group});
+    return false;
+  }
+  return selection;
 }
 
 function selectStudentScheduleGroup(student) {
@@ -1332,28 +1449,23 @@ function selectStudentScheduleGroup(student) {
 
 window.openScheduleSetup = (required = false, student = null) => {
   populateScheduleGroupOptions();
-  scheduleSetupRequired = Boolean(required || teacherNeedsInitialScheduleSetup());
   selectStudentScheduleGroup(student);
   const select = byId("schedule-group");
   if (!select || select.disabled || !select.value) {
     return window.showModalMsg("Horario", "No hay grupos con alumnos registrados. Solicite al administrador que registre primero a los alumnos.");
   }
   const status = byId("schedule-setup-status");
-  if (status) status.textContent = scheduleSetupRequired
-    ? "Debe guardar al menos un horario antes de comenzar el pase de lista."
-    : "Seleccione un grupo para consultar o modificar su horario.";
-  window.safeToggle("btn-close-schedule", scheduleSetupRequired);
+  if (status) status.textContent = required
+    ? "Configure el horario de este grupo para poder pasar lista. Puede cerrar y hacerlo después."
+    : "Seleccione cualquiera de sus grupos para consultar o modificar su horario. Puede hacerlo en cualquier momento.";
+  window.safeToggle("btn-close-schedule", false);
   window.safeToggle("modal-teacher-schedule", false);
   byId("schedule-entry-time")?.focus();
 };
 
 window.closeScheduleSetup = () => {
-  if (scheduleSetupRequired && teacherNeedsInitialScheduleSetup()) {
-    if (byId("schedule-setup-status")) byId("schedule-setup-status").textContent = "Guarde un horario para continuar.";
-    return;
-  }
-  scheduleSetupRequired = false;
   window.safeToggle("modal-teacher-schedule", true);
+  updateAttendanceGroupStatus();
 };
 
 function populateScheduleGroupOptions() {
@@ -1447,9 +1559,10 @@ window.saveOwnSchedule = async () => {
       normalizeSchoolLevel(item?.level) !== saved.level || normalizeGroupName(item?.group) !== saved.group);
     loggedTeacher = {...loggedTeacher, groupSchedules: [...groupSchedules, saved]};
     populateScheduleForm();
-    scheduleSetupRequired = false;
+    populateAttendanceGroupOptions();
+    updateAttendanceGroupStatus();
     window.safeToggle("modal-teacher-schedule", true);
-    setScannerStatus(`Horario guardado para ${saved.level} · Grupo ${saved.group}. Ya puede registrar asistencias.`, "success");
+    setScannerStatus(`Horario guardado para ${saved.level} · Grupo ${saved.group}.`, "success");
     window.showModalMsg("Horario", `El horario de ${saved.level} · Grupo ${saved.group} fue guardado.`);
   } catch (error) {
     if (byId("schedule-setup-status")) byId("schedule-setup-status").textContent = functionError(error);
@@ -1826,9 +1939,9 @@ async function switchTab(tab) {
   window.safeToggle("section-incidents", tab !== "incidents");
   window.safeToggle("section-admin", tab !== "admin");
   window.safeToggle("section-global", tab !== "global");
-  if (tab === "scanner" && teacherNeedsInitialScheduleSetup()) {
-    if (isScannerRunning) await window.stopScanner();
-    window.openScheduleSetup(true);
+  if (tab === "scanner" && loggedTeacher?.role === "docente") {
+    populateAttendanceGroupOptions();
+    updateAttendanceGroupStatus();
   } else if (tab === "scanner") await window.initScanner();
   else if (isScannerRunning) await window.stopScanner();
   if (tab === "admin" && loggedTeacher.role === "super") {
@@ -2033,10 +2146,72 @@ window.explainInstitutionalRecovery = () => window.showModalMsg(
   "La clave institucional no se envía por correo. Solicita al administrador maestro global que establezca una clave nueva para el plantel.",
 );
 
-window.explainTeacherRecovery = () => window.showModalMsg(
-  "Recuperar contraseña",
-  "Solicite al administrador del plantel una contraseña temporal nueva. Desde Personal puede elegir el botón de llave de su cuenta y restablecerla.",
-);
+window.openTeacherRecovery = () => {
+  const modal = byId("modal-teacher-recovery");
+  const emailInput = byId("teacher-recovery-email");
+  if (!modal) return;
+  teacherRecoveryPreviousFocus = document.activeElement;
+  const currentLogin = normalizeText(byId("input-login-id")?.value, 160).toLowerCase();
+  if (emailInput && /^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(currentLogin)) emailInput.value = currentLogin;
+  window.safeToggle("modal-teacher-recovery", false);
+  emailInput?.focus();
+};
+
+window.closeTeacherRecovery = () => {
+  window.safeToggle("modal-teacher-recovery", true);
+  teacherRecoveryPreviousFocus?.focus?.();
+  teacherRecoveryPreviousFocus = null;
+};
+
+window.recoverTeacherPassword = async () => {
+  const emailInput = byId("teacher-recovery-email");
+  const email = normalizeText(emailInput?.value, 160).toLowerCase();
+  if (!email || !emailInput?.checkValidity()) {
+    emailInput?.focus();
+    return window.showModalMsg("Recuperar acceso", "Capture el correo electrónico que registró en su primer acceso.");
+  }
+  if (!schoolKey) {
+    window.closeTeacherRecovery();
+    return window.showModalMsg("Recuperar acceso", "Primero capture y valide la CCT del plantel.");
+  }
+
+  const button = byId("btn-send-teacher-recovery");
+  const originalLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Enviando…";
+  }
+  try {
+    await api.prepareTeacherPasswordRecovery({schoolKey, email});
+    auth.languageCode = "es";
+    await sendPasswordResetEmail(auth, email);
+    if (byId("input-login-id")) byId("input-login-id").value = email;
+    window.closeTeacherRecovery();
+    window.showModalMsg(
+      "Revisa tu correo",
+      "Si el correo está registrado en este plantel, recibirá un enlace de Firebase. Después de crear la contraseña nueva, vuelva aquí e ingrese usando ese correo como usuario.",
+    );
+  } catch (error) {
+    const code = String(error?.code || "");
+    if (code.includes("resource-exhausted") || code === "auth/too-many-requests") {
+      window.showModalMsg("Recuperar acceso", "Se realizaron demasiados intentos. Espere unos minutos antes de solicitar otro enlace.");
+    } else if (code === "auth/network-request-failed" || code.includes("unavailable")) {
+      window.showModalMsg("Recuperar acceso", "No fue posible conectarse con Firebase. Revise su conexión e inténtelo nuevamente.");
+    } else {
+      // Respuesta deliberadamente genérica para no revelar si una cuenta existe.
+      window.closeTeacherRecovery();
+      window.showModalMsg(
+        "Revisa tu correo",
+        "Si el correo está registrado en este plantel, recibirá un enlace para recuperar el acceso.",
+      );
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel || "Enviar enlace de recuperación";
+    }
+  }
+};
 
 window.claimSchoolCct = () => {
   if (!schoolKey) return window.showModalMsg("Reclamar CCT", "Primero capture y valide la CCT que desea reclamar.");
@@ -2067,6 +2242,25 @@ window.verifySchoolAccess = async () => {
   }
 };
 
+async function attemptTeacherEmailLogin(teacherId, password) {
+  const email = normalizeText(teacherId, 160).toLowerCase();
+  if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(email)) return false;
+  try {
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const tokenResult = await credential.user.getIdTokenResult(true);
+    if (tokenResult.claims.role) {
+      await signOut(auth).catch(() => {});
+      return false;
+    }
+    const response = await api.loginTeacherWithEmail({schoolKey, password});
+    await signInWithCustomToken(auth, response.data.token);
+    return true;
+  } catch {
+    await signOut(auth).catch(() => {});
+    return false;
+  }
+}
+
 window.attemptLogin = async () => {
   const teacherId = normalizeCode(byId("input-login-id")?.value, 160);
   const password = String(byId("input-login-password")?.value || "");
@@ -2076,6 +2270,10 @@ window.attemptLogin = async () => {
     byId("input-login-password").value = "";
     await signInWithCustomToken(auth, response.data.token);
   } catch (error) {
+    if (await attemptTeacherEmailLogin(teacherId, password)) {
+      byId("input-login-password").value = "";
+      return;
+    }
     window.showModalMsg("Acceso", functionError(error));
   }
 };
@@ -3048,6 +3246,7 @@ const AUDIT_ACTION_LABELS = {
   premium_disabled: "Premium desactivado",
   teacher_created: "Usuario creado",
   teacher_onboarding_completed: "Primer acceso completado",
+  teacher_password_recovered: "Acceso recuperado por correo",
   teacher_updated: "Usuario actualizado",
   teacher_role_changed: "Rol modificado",
   teacher_approved: "Usuario aprobado",
@@ -3704,10 +3903,7 @@ async function startSharedQrScanner(mode, camera = {facingMode: "environment"}) 
 
 window.initScanner = async () => {
   if (isScannerTransitioning || isScannerRunning || !loggedTeacher) return;
-  if (teacherNeedsInitialScheduleSetup()) {
-    window.openScheduleSetup(true);
-    return;
-  }
+  if (loggedTeacher.role === "docente" && !attendanceGroupReady(false)) return;
   showScannerStartTime();
   try {
     const started = await startSharedQrScanner("attendance");
@@ -3967,6 +4163,7 @@ window.closeVerifyQrModal = async () => {
 };
 
 window.toggleCamera = async () => {
+  if (!isScannerRunning && loggedTeacher?.role === "docente" && !attendanceGroupReady(true)) return;
   const context = await unlockAudio();
   if (!context || context.state !== "running") {
     setScannerStatus("Toque nuevamente Encender cámara para habilitar el sonido.", "error");
@@ -3977,6 +4174,8 @@ window.toggleCamera = async () => {
 
 window.processAttendance = async (rawId, options = {}) => {
   if (!loggedTeacher) return false;
+  const attendanceGroup = loggedTeacher.role === "docente" ? attendanceGroupReady(true) : null;
+  if (loggedTeacher.role === "docente" && !attendanceGroup) return false;
   const studentId = normalizeCode(rawId, 40);
   if (!/^[A-Z0-9._-]{4,40}$/.test(studentId)) {
     setScannerStatus("Se detectó un QR, pero su contenido no es válido para un alumno.", "error");
@@ -3986,9 +4185,10 @@ window.processAttendance = async (rawId, options = {}) => {
   const student = studentCatalogCache.find((item) => normalizeCode(item.id, 40) === studentId);
   const captureMethod = options.captureMethod === "manual" ? "manual" : "qr";
   const studentName = studentDisplayName(student) || studentId;
-  if (loggedTeacher.role === "docente" && student && !configuredGroupSchedule(student.level || student.nivel, student.grupo)) {
-    setScannerStatus(`Configure el horario de ${studentName} antes de registrar su asistencia.`, "error");
-    window.openScheduleSetup(true, student);
+  if (loggedTeacher.role === "docente" && (!student || !studentMatchesSelectedAttendanceGroup(student))) {
+    const selectedLabel = `${attendanceGroup.level} · Grupo ${attendanceGroup.group}`;
+    setScannerStatus(`${studentName} no pertenece a ${selectedLabel}.`, "error");
+    await playScanSound("error");
     return false;
   }
   if (attendanceInFlight.has(studentId)) return false;
@@ -3996,7 +4196,13 @@ window.processAttendance = async (rawId, options = {}) => {
   setScannerStatus(`${captureMethod === "manual" ? "Alumno seleccionado" : "QR detectado"}: ${studentName}. Validando asistencia…`);
   await playScanSound("scan");
   try {
-    const response = await api.recordAttendance({schoolKey, studentId, captureMethod});
+    const response = await api.recordAttendance({
+      schoolKey,
+      studentId,
+      captureMethod,
+      scheduleLevel: attendanceGroup?.level || "",
+      scheduleGroup: attendanceGroup?.group || "",
+    });
     if (response.data.created) {
       const attendanceState = normalizedAttendanceStatus(response.data.status);
       if (response.data.convertedToAbsence === true || attendanceState === "FALTA POR RETARDOS") {
@@ -4027,6 +4233,7 @@ window.processAttendance = async (rawId, options = {}) => {
 };
 
 window.manualAttendance = async () => {
+  if (loggedTeacher?.role === "docente" && !attendanceGroupReady(true)) return;
   const input = byId("input-manual-student-search");
   const value = normalizedStudentSearch(input?.value);
   if (!value) return;
@@ -4166,6 +4373,10 @@ onAuthStateChanged(auth, async (user) => {
   try {
     const tokenResult = await user.getIdTokenResult(true);
     const claims = tokenResult.claims;
+    if (!claims.role && claims.firebase?.sign_in_provider === "password") {
+      window.safeToggle("section-gateway", false);
+      return;
+    }
     if (!claims.role) throw new Error("La sesión no contiene un rol autorizado.");
     if (claims.role === "super") {
       loggedTeacher = {id: "MASTER", nombre: normalizeText(claims.name || "SGE GLOBAL"), role: "super", passwordChangeRequired: false};
