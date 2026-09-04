@@ -62,6 +62,7 @@ const api = Object.fromEntries([
   "approveTeacher",
   "deleteTeacher",
   "recordAttendance",
+  "justifyAttendance",
   "deleteStudent",
   "setStudentActive",
   "moveStudent",
@@ -320,6 +321,7 @@ function compareStudentsByList(first, second) {
 }
 const validPassword = (value) => String(value || "").length >= 8 && String(value || "").length <= 72 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(value)) && /\d/.test(String(value));
 const isAdmin = () => ["admin_maestro", "director", "admin_jr", "super"].includes(loggedTeacher?.role);
+const canViewAttendanceReports = () => ["docente", "porteria", "admin_jr", "director", "admin_maestro", "super"].includes(loggedTeacher?.role);
 const isMaster = () => ["admin_maestro", "director", "super"].includes(loggedTeacher?.role);
 const normalizedAttendanceStatus = (value) => {
   const status = normalizeText(value, 30).toUpperCase();
@@ -1921,7 +1923,7 @@ async function enterApp() {
   byId("user-display-name").textContent = loggedTeacher.nombre;
   byId("user-display-role").textContent = String(loggedTeacher.role || "docente").replace("_", " ");
   const superUser = loggedTeacher.role === "super";
-  window.safeToggle("tab-admin", !isAdmin());
+  window.safeToggle("tab-admin", !canViewAttendanceReports());
   window.safeToggle("tab-super", !superUser);
   window.safeToggle("tab-scanner", superUser);
   window.safeToggle("tab-incidents", loggedTeacher.role !== "docente");
@@ -1939,7 +1941,7 @@ async function switchTab(tab) {
   const allowed = new Set(["scanner", "incidents", "admin", "global"]);
   if (!allowed.has(tab)) return;
   if (tab === "incidents" && loggedTeacher?.role !== "docente") return window.showModalMsg("Acceso", "Esta bitácora está disponible para cuentas docentes.");
-  if (tab === "admin" && !isAdmin()) return window.showModalMsg("Acceso", "No tiene permisos de administración.");
+  if (tab === "admin" && !canViewAttendanceReports()) return window.showModalMsg("Acceso", "No tiene permisos para consultar reportes.");
   if (tab === "global" && loggedTeacher?.role !== "super") return window.showModalMsg("Acceso", "Esta sección requiere el rol maestro global.");
   window.safeToggle("section-scanner", tab !== "scanner");
   window.safeToggle("section-incidents", tab !== "incidents");
@@ -1954,6 +1956,20 @@ async function switchTab(tab) {
     window.safeToggle("super-school-selector", false);
     window.safeToggle("school-management-cards", true);
     await window.loadSchoolsForSelection();
+  } else if (tab === "admin" && !isAdmin()) {
+    window.safeToggle("super-school-selector", true);
+    window.safeToggle("school-management-cards", true);
+    window.safeToggle("maint-cat-alumnos", true);
+    window.safeToggle("maint-cat-maestros", true);
+    window.safeToggle("maint-cat-institucion", true);
+    window.safeToggle("maint-cat-reportes", false);
+    window.safeToggle("div-mantenimiento-alumnos", true);
+    window.safeToggle("div-mantenimiento-maestros", true);
+    window.safeToggle("div-mantenimiento-institucion", true);
+    window.safeToggle("div-mantenimiento-reportes", false);
+    window.safeToggle("student-search-panel", true);
+    window.safeToggle("general-table-container", true);
+    await loadReportGroupOptions();
   } else if (tab === "admin") {
     window.safeToggle("super-school-selector", true);
     window.safeToggle("school-management-cards", false);
@@ -3581,13 +3597,17 @@ function attendanceCountsByStudent(report) {
   for (const attendance of report.rows || []) {
     const studentId = normalizeCode(attendance?.studentId, 40);
     const date = String(attendance?.date || "");
-    if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isTardyAbsence(attendance?.status)) continue;
+    if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isTardyAbsence(attendance?.status) || isJustifiedAbsence(attendance) || /^FALTA\b/i.test(normalizeText(attendance?.status, 40))) continue;
     const key = `${studentId}|${date}`;
     if (recordedAttendances.has(key)) continue;
     recordedAttendances.add(key);
     counts.set(studentId, (counts.get(studentId) || 0) + 1);
   }
   return counts;
+}
+
+function isJustifiedAbsence(attendance) {
+  return attendance?.justified === true || normalizedAttendanceStatus(attendance?.status) === "FALTA JUSTIFICADA";
 }
 
 const ATTENDANCE_PRINT_DATES_PER_PAGE = 50;
@@ -3626,13 +3646,14 @@ function createAttendanceMatrixTable(report, dates = report.dates) {
     dates.forEach((date) => {
       const attendance = attendanceByStudentAndDate.get(`${student.id}|${date}`);
       const status = attendance ? normalizedAttendanceStatus(attendance.status) : "FALTA NORMAL";
-      const mark = status === "FALTA POR RETARDOS" ? "R" : status === "RETARDO" ? "T" : attendance ? "●" : "/";
-      const color = status === "FALTA POR RETARDOS"
+      const justified = isJustifiedAbsence(attendance);
+      const mark = justified ? "J" : status === "FALTA POR RETARDOS" ? "R" : status === "RETARDO" ? "T" : attendance ? "●" : "/";
+      const color = justified ? "text-blue-700" : status === "FALTA POR RETARDOS"
         ? "text-red-700"
         : status === "RETARDO" ? "text-amber-700" : attendance ? "text-green-800" : "text-slate-500";
       const cell = createCell(mark, `attendance-mark-cell ${color}`);
       cell.title = attendance
-        ? `${visibleReportDate(date, true)} · ${status} · ${attendance.time || "Sin hora"}`
+        ? `${visibleReportDate(date, true)} · ${justified ? "FALTA JUSTIFICADA" : status} · ${attendance.time || "Sin hora"}`
         : `${visibleReportDate(date, true)} · Falta normal`;
       cell.setAttribute("aria-label", cell.title);
       row.append(cell);
@@ -3669,7 +3690,7 @@ function renderAttendanceReport(report) {
   scroller.append(createAttendanceMatrixTable(report));
   const legend = document.createElement("p");
   legend.className = "p-3 text-right text-[9px] font-black uppercase text-slate-600";
-  legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · / Falta normal · Total: asistencias del periodo";
+  legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · J Falta justificada · / Falta normal · Total: asistencias del periodo";
   preview.append(scroller, legend);
   summary.textContent = `${report.students.length} ${report.students.length === 1 ? "alumno" : "alumnos"} · ${report.dates.length} ${report.dates.length === 1 ? "fecha" : "fechas"} · ${report.groups.length} ${report.groups.length === 1 ? "grupo" : "grupos"}${report.truncated ? " · historial limitado a 5000 registros" : ""}`;
   window.safeToggle("btn-print-attendance", report.students.length === 0 || report.dates.length === 0);
@@ -3720,6 +3741,33 @@ window.loadAttendanceReport = async () => {
   }
 };
 
+window.justifySelectedAbsence = async ({studentId, date}) => {
+  const student = studentCatalogCache.find((entry) => normalizeCode(entry.id, 40) === normalizeCode(studentId, 40));
+  if (!student || isStudentInactive(student)) return window.showModalMsg("Justificar falta", "Seleccione un alumno activo del plantel.");
+  const button = byId("btn-submit-justify-absence");
+  if (button) button.disabled = true;
+  try {
+    await api.justifyAttendance({schoolKey, studentId: student.id, date});
+    window.closeJustifyAbsenceModal();
+    window.showModalMsg("Falta justificada", "La falta quedó marcada con J para fines informativos y seguirá contando como falta.");
+    if (byId("report-date-from")?.value && byId("report-date-to")?.value) await window.loadAttendanceReport();
+  } catch (error) {
+    window.showModalMsg("Justificar falta", functionError(error));
+  } finally {
+    if (button) button.disabled = false;
+  }
+};
+
+window.searchJustificationStudents = (query) => studentCatalogCache
+  .filter((student) => !isStudentInactive(student))
+  .map((student) => ({
+    id: normalizeCode(student.id, 40),
+    name: studentDisplayName(student),
+    level: normalizeSchoolLevel(student.level || student.nivel),
+    group: normalizeGroupName(student.grupo),
+  }))
+  .filter((student) => student.name.toLowerCase().includes(query) || student.id.toLowerCase().includes(query));
+
 window.printAttendanceReport = () => {
   if (!latestAttendanceReport?.students?.length || !latestAttendanceReport?.dates?.length) {
     return window.showModalMsg("Impresión", "Primero genere un reporte de asistencia.");
@@ -3747,7 +3795,7 @@ window.printAttendanceReport = () => {
     );
     const legend = document.createElement("p");
     legend.className = "mt-2 text-right text-[8px] font-black uppercase";
-    legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · / Falta normal · Total: asistencias del periodo";
+    legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · J Falta justificada · / Falta normal · Total: asistencias del periodo";
     section.append(legend);
     content.append(section);
   });

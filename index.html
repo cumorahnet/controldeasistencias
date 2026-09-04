@@ -767,6 +767,13 @@
                             <button id="btn-load-attendance" type="button" onclick="window.loadAttendanceReport()" class="rounded-2xl theme-accent px-7 py-3 font-black uppercase text-white disabled:opacity-50">Consultar</button>
                             <button id="btn-print-attendance" type="button" onclick="window.printAttendanceReport()" class="hidden rounded-2xl bg-slate-800 px-7 py-3 font-black uppercase text-white"><i class="fas fa-print mr-2"></i>Imprimir</button>
                             <button id="btn-export-attendance-xls" type="button" onclick="window.exportAttendanceReportXls()" class="hidden rounded-2xl bg-emerald-700 px-7 py-3 font-black uppercase text-white"><i class="fas fa-file-excel mr-2"></i>Exportar XLS</button>
+                            <div class="basis-full rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                    <p class="text-[9px] font-black uppercase text-slate-600">Grupos que aparecerán en el reporte</p>
+                                    <div class="flex gap-2"><button type="button" onclick="window.toggleAllReportGroups(true)" class="rounded-lg border bg-white px-3 py-1 text-[8px] font-black uppercase text-slate-600">Todos</button><button type="button" onclick="window.toggleAllReportGroups(false)" class="rounded-lg border bg-white px-3 py-1 text-[8px] font-black uppercase text-slate-600">Ninguno</button></div>
+                                </div>
+                                <div id="report-group-options" class="grid grid-cols-1 gap-2 text-left sm:grid-cols-2 lg:grid-cols-3"><p class="text-xs text-slate-500">Cargando grupos…</p></div>
+                            </div>
                             <button id="btn-open-justify-absence" type="button" onclick="window.openJustifyAbsenceModal()" class="rounded-2xl bg-orange-500 px-7 py-3 font-black uppercase text-white"><i class="fas fa-file-invoice mr-2"></i>Justificar Falta</button>
                         </div>
                         <p id="attendance-report-summary" class="my-4 text-right text-[10px] font-black uppercase text-slate-500">0 registros</p>
@@ -1072,28 +1079,19 @@
                 studentSearchInput.oninput = function() {
                     const query = this.value.trim().toLowerCase();
                     studentResultsDiv.innerHTML = '';
-                    if (query.length > 2) { // Simulate search after 2 characters
-                        const dummyStudents = [
-                            { id: 'S001', name: 'JUAN PEREZ LOPEZ', nivel: 'PRI', grupo: '1A' },
-                            { id: 'S002', name: 'MARIA GARCIA RUIZ', nivel: 'PRI', grupo: '1A' },
-                            { id: 'S003', name: 'PEDRO MARTINEZ SANCHEZ', nivel: 'SEC', grupo: '3B' },
-                            { id: 'S004', name: 'ANA HERNANDEZ GOMEZ', nivel: 'PRE', grupo: '3C' },
-                        ];
-                        
-                        const filteredStudents = dummyStudents.filter(s => 
-                            s.name.toLowerCase().includes(query) || s.id.toLowerCase().includes(query)
-                        );
+                    if (query.length > 2) {
+                        const filteredStudents = window.searchJustificationStudents(query);
 
                         if (filteredStudents.length > 0) {
                             studentResultsDiv.classList.remove('hidden');
                             filteredStudents.forEach(student => {
                                 const item = document.createElement('div');
                                 item.className = 'p-2 cursor-pointer hover:bg-blue-50';
-                                item.textContent = `${student.name} (${student.id}) - ${student.nivel} ${student.grupo}`;
+                                item.textContent = `${student.name} (${student.id}) - ${student.level} ${student.group}`;
                                 item.onclick = () => {
                                     window.selectedJustifyStudentId = student.id;
                                     window.selectedJustifyStudentName = student.name;
-                                    studentNameDisplay.textContent = `${student.name} (${student.id}) - ${student.nivel} ${student.grupo}`;
+                                    studentNameDisplay.textContent = `${student.name} (${student.id}) - ${student.level} ${student.group}`;
                                     selectedStudentDisplay.classList.remove('hidden');
                                     studentSearchInput.value = student.name; // Fill input with selected name
                                     studentResultsDiv.classList.add('hidden'); // Hide results
@@ -1146,94 +1144,10 @@
                 return;
             }
 
-            // This is the placeholder for the actual logic that would interact with app.js
-            // app.js would then update the Firebase record for the specific student and date
-            // to mark the absence as "justified" (e.g., changing 'F' to 'J' in the DB but still counting it as an absence).
-            window.showCustomModal(
-                'Falta Justificada (Simulación)',
-                `La falta del alumno "${studentName}" (ID: ${studentId}) del día ${date} ha sido marcada como justificada en la interfaz. La sumatoria de faltas NO se verá afectada.`,
-                'Entendido', null, () => {
-                    window.closeJustifyAbsenceModal();
-                }
-            );
-            console.log(`Simulación: Justificando falta para ${studentName} (ID: ${studentId}) en la fecha ${date}. La sumatoria de faltas NO cambia.`);
-            // The actual backend call would be something like:
-            // firebase.firestore().collection('attendance').doc(studentId).collection('dates').doc(date)
-            // .update({ status: 'F', justified: true }) // Update the record, keeping 'F' but adding 'justified' flag
-            // .then(() => { /* show success and close modal */ })
-            // .catch(error => { /* show error */ });
+            window.justifySelectedAbsence({studentId, date});
         };
 
 
-        // Asegura que las funciones de recuperación de contraseña estén definidas,
-        // al menos como marcadores de posición para la interfaz de usuario, si app.js no las define.
-        if (typeof window.openTeacherRecovery === 'undefined') {
-            window.openTeacherRecovery = function() {
-                const modal = document.getElementById('modal-teacher-recovery');
-                if (modal) {
-                    modal.classList.remove('hidden');
-                    document.getElementById('teacher-recovery-email').value = ''; // Limpiar campo de correo
-                    document.getElementById('teacher-recovery-email').focus(); // Enfocar para accesibilidad
-                }
-            };
-        }
-
-        if (typeof window.closeTeacherRecovery === 'undefined') {
-            window.closeTeacherRecovery = function() {
-                const modal = document.getElementById('modal-teacher-recovery');
-                if (modal) {
-                    modal.classList.add('hidden');
-                }
-            };
-        }
-
-        if (typeof window.recoverTeacherPassword === 'undefined') {
-            window.recoverTeacherPassword = function() {
-                const emailInput = document.getElementById('teacher-recovery-email');
-                const email = emailInput ? emailInput.value.trim() : '';
-
-                if (email && email.includes('@') && email.includes('.')) {
-                    window.showCustomModal(
-                        'Información de Recuperación',
-                        `La funcionalidad real para enviar el correo de recuperación de contraseña para "${email}" debe ser implementada en el lado del servidor o en 'app.js' con la integración de un servicio de autenticación. Este mensaje es una simulación.`,
-                        'Entendido'
-                    );
-                    window.closeTeacherRecovery();
-                } else {
-                    window.showCustomModal('Correo Inválido', 'Por favor, ingrese un correo electrónico válido para continuar con la recuperación.', 'Aceptar');
-                }
-            };
-        }
-
-        // Placeholder for processPasswordChange with reload to fix blank screen
-        if (typeof window.processPasswordChange === 'undefined') {
-            window.processPasswordChange = function() {
-                // Aquí iría la lógica real para actualizar el usuario y la contraseña.
-                // Después de una operación exitosa, forzar una recarga para refrescar la interfaz.
-                document.getElementById('modal-change-password').classList.add('hidden'); // Ocultar el modal
-                window.showCustomModal('Éxito', 'Su correo y contraseña han sido actualizados. La página se recargará.', 'Aceptar', null, () => {
-                    location.reload(); // Recarga la página
-                });
-            };
-        }
-
-        if (typeof window.exitFirstAccess === 'undefined') {
-            window.exitFirstAccess = function() {
-                document.getElementById('modal-change-password').classList.add('hidden');
-                // Puedes redirigir o hacer otra acción aquí si es necesario al "salir y hacerlo después".
-                // Por ahora, simplemente cierra el modal.
-            };
-        }
-
-        // Placeholder for WhatsApp contact for Premium Upsell
-        if (typeof window.contactSupportWhatsApp === 'undefined') {
-            window.contactSupportWhatsApp = function() {
-                const message = encodeURIComponent("Hola, me gustaría saber más sobre la versión Premium de Control de Asistencia.");
-                const phoneNumber = "5215512345678"; // Replace with actual WhatsApp number
-                const whatsappUrl = `https://wa.me/${phoneNumber}?text=${message}`;
-                window.open(whatsappUrl, '_blank');
-            };
-        }
     </script>
     <script type="module" src="./app.js?v=36.46.0"></script>
 </body>

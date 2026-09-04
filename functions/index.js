@@ -1578,6 +1578,66 @@ exports.recordAttendance = onCall(async (request) => {
   return {...result, fecha, hora};
 });
 
+exports.justifyAttendance = onCall(async (request) => {
+  const token = await assertRole(request, ATTENDANCE_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
+  const date = requireDate(request.data?.date, "fecha de la falta");
+  const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
+  if (date > today) throw new HttpsError("invalid-argument", "La fecha de la falta no puede ser futura.");
+
+  const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
+  const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${date}_${studentId}`);
+  const result = await db.runTransaction(async (transaction) => {
+    const [studentSnapshot, attendanceSnapshot] = await Promise.all([
+      transaction.get(studentRef),
+      transaction.get(attendanceRef),
+    ]);
+    if (!studentSnapshot.exists) throw new HttpsError("not-found", "El alumno no está registrado.");
+    const student = studentSnapshot.data() || {};
+    if (student.active === false || ["inactive", "moved"].includes(normalizeText(student.status, 20).toLowerCase())) {
+      throw new HttpsError("failed-precondition", "El alumno no está activo.");
+    }
+    if (attendanceSnapshot.exists) {
+      const status = normalizeText(attendanceSnapshot.get("status"), 30).toUpperCase();
+      if (!["FALTA POR RETARDOS", "FALTA JUSTIFICADA"].includes(status)) {
+        throw new HttpsError("failed-precondition", "La fecha seleccionada tiene una asistencia o retardo registrado.");
+      }
+      transaction.set(attendanceRef, {
+        justified: true,
+        justifiedAt: FieldValue.serverTimestamp(),
+        justifiedBy: token.teacherId || token.role,
+      }, {merge: true});
+      return {status, created: false};
+    }
+    transaction.create(attendanceRef, {
+      alumnoId: studentId,
+      nombre: normalizeText(student.nombres, 100),
+      apellido: normalizeText(student.paterno, 80),
+      materno: normalizeText(student.materno, 80),
+      fecha: date,
+      hora: "",
+      status: "FALTA JUSTIFICADA",
+      absenceType: "justified",
+      justified: true,
+      justifiedBy: token.teacherId || token.role,
+      scheduleLevel: normalizeSchoolLevel(student.level || student.nivel),
+      scheduleGroup: normalizeGroupName(student.grupo),
+      timestamp: FieldValue.serverTimestamp(),
+    });
+    return {status: "FALTA JUSTIFICADA", created: true};
+  });
+  await writeAuditLog(token, {
+    action: "attendance_justified",
+    schoolKey,
+    targetType: "attendance",
+    targetId: `${date}_${studentId}`,
+    targetLabel: ["FALTA JUSTIFICADA", studentId, date].join(" · "),
+    summary: "Marcó una falta como justificada para fines informativos; no se contó como asistencia.",
+  });
+  return {...result, date, studentId};
+});
+
 exports.deleteStudent = onCall(async (request) => {
   const token = await assertRole(request, ADMIN_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
@@ -1957,7 +2017,7 @@ exports.deleteStudentGroup = onCall(async (request) => {
 });
 
 exports.listAttendanceReport = onCall(async (request) => {
-  const token = await assertRole(request, ADMIN_ROLES);
+  const token = await assertRole(request, ATTENDANCE_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const from = normalizeText(request.data?.from, 10);
   const to = normalizeText(request.data?.to, 10);
@@ -1983,9 +2043,10 @@ exports.listAttendanceReport = onCall(async (request) => {
       teacherName: normalizeText(data.profesorNombre, 100),
       date: normalizeText(data.fecha, 10),
       time: normalizeText(data.hora, 8),
-      status: new Set(["RETARDO", "FALTA POR RETARDOS"]).has(normalizeText(data.status, 30).toUpperCase())
+      status: new Set(["RETARDO", "FALTA POR RETARDOS", "FALTA JUSTIFICADA"]).has(normalizeText(data.status, 30).toUpperCase())
         ? normalizeText(data.status, 30).toUpperCase()
         : "A TIEMPO",
+      justified: data.justified === true,
     };
   }).sort((first, second) => first.date.localeCompare(second.date) || first.time.localeCompare(second.time));
   return {rows, truncated: snapshot.size === 5000};

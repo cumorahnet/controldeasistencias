@@ -91,6 +91,18 @@ test("el XLS no suma las faltas por retardos como asistencias", () => {
   assert.deepEqual(exported.rows.at(-1).slice(1), ["RETARDO", "FALTA POR RETARDOS", "FALTA NORMAL", 1]);
 });
 
+test("la falta justificada se muestra como J y no suma como asistencia", () => {
+  assert.match(html, /id="modal-justify-absence"/);
+  assert.match(html, /window\.justifySelectedAbsence\(\{studentId, date\}\)/);
+  assert.match(app, /api\.justifyAttendance\(\{schoolKey, studentId: student\.id, date\}\)/);
+  assert.match(app, /const mark = justified \? "J"/);
+  assert.match(app, /isJustifiedAbsence\(attendance\)/);
+  assert.match(functions, /exports\.justifyAttendance = onCall/);
+  assert.match(functions, /status: "FALTA JUSTIFICADA"/);
+  assert.match(functions, /justified: true/);
+  assert.match(functions, /FALTA JUSTIFICADA/);
+});
+
 test("el administrador corrige el grupo sin reutilizar el lugar ni el QR anterior", () => {
   assert.match(html, /id="modal-move-student"/);
   assert.match(html, /<select id="move-student-group"/);
