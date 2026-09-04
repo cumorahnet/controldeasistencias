@@ -8,11 +8,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
-    <title>Control de Asistencia — VERSION 36.41</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=36.41.0">
-    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.41.0">
-    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.41.0">
-    <script src="./pwa-install.js?v=36.41.0"></script>
+    <title>Control de Asistencia — VERSION 36.47</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=36.46.0">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.46.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.46.0">
+    <script src="./pwa-install.js?v=36.46.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -118,7 +118,7 @@
     <div id="install-app-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="install-app-title" aria-describedby="install-app-message" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] hidden flex items-end sm:items-center justify-center p-3 sm:p-4 text-center">
         <div class="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl max-w-sm w-full p-7 sm:p-8 space-y-5 border-t-8 border-orange-500">
             <div class="flex items-center gap-4 text-left">
-                <img src="./icons/app-icon-192.png?v=36.41.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
+                <img src="./icons/app-icon-192.png?v=36.46.0" alt="Logotipo de Control de Asistencia" class="w-20 h-20 shrink-0 rounded-[1.4rem] shadow-lg">
                 <div class="min-w-0 space-y-1">
                     <p id="install-app-platform" class="text-[9px] font-black uppercase tracking-[0.18em] text-orange-600">Acceso desde tu celular</p>
                     <h2 id="install-app-title" class="text-xl font-black leading-tight text-slate-800">Control de Asistencia</h2>
@@ -272,7 +272,7 @@
                 </label>
                 <p id="verified-student-name" class="text-base font-bold text-slate-800 uppercase hidden"></p>
                 <p id="verified-student-details" class="text-xs text-slate-600 font-medium hidden"></p>
-                <p id="qr-verification-status" role="status" class="text-[10px] font-bold text-slate-500 min-h-4" aria-live="polite">Esperando QR...</p>
+                <p id="qr-verification-status" role="status" aria-live="polite" class="text-[10px] font-bold text-slate-500 min-h-4">Esperando QR...</p>
             </div>
             <div class="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button type="button" id="btn-start-qr-verification" aria-pressed="false" onclick="window.toggleQrVerificationScanner()" class="theme-accent text-white py-3 rounded-xl font-bold text-xs uppercase shadow-lg">Encender cámara</button>
@@ -365,14 +365,14 @@
             
             <div class="flex justify-center mb-2">
                 <div id="login-logo-placeholder" class="logo-container">
-                    <img src="./icons/app-icon-512.png?v=36.41.0" alt="Logotipo de la aplicación" class="logo-img">
+                    <img src="./icons/app-icon-512.png?v=36.46.0" alt="Logotipo de la aplicación" class="logo-img">
                 </div>
             </div>
 
             <div id="step-school-key" class="setup-step active space-y-6" aria-hidden="false">
-                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia — VERSION 36.41</h1>
+                <h1 class="text-2xl font-black theme-text uppercase tracking-tighter">Control de Asistencia</h1>
                 <div class="-mt-4 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.41.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.41.0</button>
+                    <button type="button" id="btn-super-access" onclick="window.switchToStep('step-super-login')" aria-label="Versión 36.46.0" class="rounded-full bg-slate-100 px-4 py-2 text-xs font-bold uppercase text-slate-500 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-slate-400">VERSIÓN 36.46.0</button>
                     <button type="button" id="btn-install-pwa" data-pwa-install-action aria-label="Instalar app" aria-hidden="true" class="hidden items-center gap-2 rounded-full border border-orange-300 bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-white shadow-lg active:scale-95 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-orange-700">
                         <i aria-hidden="true" class="fas fa-download"></i>
                         <span data-pwa-install-label>Instalar app</span>
@@ -437,7 +437,7 @@
         <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center">
             <div class="flex items-center gap-4 text-left">
                 <div id="header-logo-container" class="w-12 h-12 flex items-center justify-center rounded-2xl theme-primary text-white shadow-lg overflow-hidden p-1.5">
-                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.41.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
+                    <img id="custom-header-icon" src="./icons/app-icon-192.png?v=36.46.0" alt="Logotipo de la aplicación" class="w-full h-full object-contain">
                 </div>
                 <div class="flex flex-col">
                     <h1 id="header-school-name" class="text-xl font-black uppercase theme-text leading-none tracking-tighter italic">--</h1>
@@ -472,7 +472,7 @@
         <div id="premium-upsell" class="hidden mb-6 rounded-[2rem] bg-gradient-to-r from-indigo-700 to-purple-600 p-6 text-center text-white shadow-xl">
             <h2 class="text-lg font-black uppercase">Activa Premium</h2>
             <p class="mt-2 text-xs font-bold">Elimina la publicidad y habilita logotipo y colores institucionales.</p>
-            <button type="button" onclick="window.showModalMsg('Premium','Contacta a Soporte para comprobar el pago y activar Premium.','institutional')" class="mt-4 rounded-xl bg-white px-6 py-3 text-[10px] font-black uppercase text-indigo-700">Contactar soporte</button>
+            <button type="button" onclick="window.contactSupportWhatsApp()" class="mt-4 rounded-xl bg-white px-6 py-3 text-[10px] font-black uppercase text-indigo-700">Contactar soporte</button>
         </div>
         <!-- ESCÁNER -->
         <section id="section-scanner" class="space-y-8 animate-fadeIn text-center">
@@ -658,7 +658,7 @@
                             <summary class="cursor-pointer text-[9px] font-black uppercase text-center">Opciones avanzadas</summary>
                             <label for="batch-name-order" class="block mt-3 mb-1 text-[9px] font-black uppercase">Orden del nombre</label>
                             <select id="batch-name-order" class="w-full px-3 py-3 border rounded-2xl font-black text-center bg-white">
-                                <option value="auto">Detectar autom&aacute;ticamente</option>
+                                <option value="auto">Detectar autom&aacute;cticamente</option>
                                 <option value="surnames-first">Apellidos primero</option>
                                 <option value="names-first">Nombres primero</option>
                             </select>
@@ -767,13 +767,7 @@
                             <button id="btn-load-attendance" type="button" onclick="window.loadAttendanceReport()" class="rounded-2xl theme-accent px-7 py-3 font-black uppercase text-white disabled:opacity-50">Consultar</button>
                             <button id="btn-print-attendance" type="button" onclick="window.printAttendanceReport()" class="hidden rounded-2xl bg-slate-800 px-7 py-3 font-black uppercase text-white"><i class="fas fa-print mr-2"></i>Imprimir</button>
                             <button id="btn-export-attendance-xls" type="button" onclick="window.exportAttendanceReportXls()" class="hidden rounded-2xl bg-emerald-700 px-7 py-3 font-black uppercase text-white"><i class="fas fa-file-excel mr-2"></i>Exportar XLS</button>
-                            <div class="basis-full rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                    <p class="text-[9px] font-black uppercase text-slate-600">Grupos que aparecerán en el reporte</p>
-                                    <div class="flex gap-2"><button type="button" onclick="window.toggleAllReportGroups(true)" class="rounded-lg border bg-white px-3 py-1 text-[8px] font-black uppercase text-slate-600">Todos</button><button type="button" onclick="window.toggleAllReportGroups(false)" class="rounded-lg border bg-white px-3 py-1 text-[8px] font-black uppercase text-slate-600">Ninguno</button></div>
-                                </div>
-                                <div id="report-group-options" class="grid grid-cols-1 gap-2 text-left sm:grid-cols-2 lg:grid-cols-3"><p class="text-xs text-slate-500">Cargando grupos…</p></div>
-                            </div>
+                            <button id="btn-open-justify-absence" type="button" onclick="window.openJustifyAbsenceModal()" class="rounded-2xl bg-orange-500 px-7 py-3 font-black uppercase text-white"><i class="fas fa-file-invoice mr-2"></i>Justificar Falta</button>
                         </div>
                         <p id="attendance-report-summary" class="my-4 text-right text-[10px] font-black uppercase text-slate-500">0 registros</p>
                         <div id="attendance-report-preview" class="rounded-2xl border border-slate-100"><p class="p-10 text-center text-slate-500 italic">Seleccione grupos, indique el rango y consulte el reporte.</p></div>
@@ -918,6 +912,29 @@
 
     <section id="student-print-area" class="print-only" aria-hidden="true"></section>
 
+    <div id="modal-justify-absence" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="justify-absence-title" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[920] hidden flex items-center justify-center p-4 text-center">
+        <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-md w-full p-8 sm:p-10 space-y-6 border-t-8 border-orange-500">
+            <div class="space-y-2">
+                <i aria-hidden="true" class="fas fa-file-invoice text-4xl text-orange-500"></i>
+                <h3 id="justify-absence-title" class="text-lg font-black theme-text uppercase tracking-tight">Justificar Falta</h3>
+                <p class="text-xs text-slate-600 font-bold leading-relaxed">Marque una falta como justificada para fines informativos. Esto no afectará la sumatoria total de asistencias.</p>
+            </div>
+            <div class="space-y-4 text-left">
+                <label for="justify-student-search" class="block text-[10px] font-black uppercase text-slate-600">Alumno</label>
+                <input id="justify-student-search" type="search" placeholder="Buscar por nombre o ID" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl focus:border-orange-500 uppercase font-bold">
+                <div id="justify-student-results" class="hidden mt-2 max-h-48 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 text-left shadow-2xl"></div>
+                <p id="justify-selected-student-display" class="text-sm font-bold text-slate-800 uppercase hidden">Alumno seleccionado: <span id="justify-student-name-display"></span></p>
+
+                <label for="justify-date" class="block text-[10px] font-black uppercase text-slate-600">Fecha de la falta</label>
+                <input id="justify-date" type="date" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl focus:border-orange-500 font-bold">
+            </div>
+            <div class="flex flex-col gap-3">
+                <button id="btn-submit-justify-absence" type="button" onclick="window.submitJustifyAbsence()" class="w-full theme-accent text-white font-black py-4 rounded-3xl shadow-xl disabled:opacity-50">Marcar como Justificada</button>
+                <button type="button" onclick="window.closeJustifyAbsenceModal()" class="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold uppercase text-[10px]">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Helper function to show custom modal (assuming app.js might use it, or for quick feedback)
         window.showCustomModal = function(title, body, confirmText = 'Aceptar', cancelText = null, onConfirm = null, onCancel = null, showSupport = false) {
@@ -1044,8 +1061,180 @@
             if (printQrBtn) {
                 printQrBtn.addEventListener('click', window.printSingleQR);
             }
+
+            // Functions for Justify Absence Modal
+            const studentSearchInput = document.getElementById('justify-student-search');
+            const studentResultsDiv = document.getElementById('justify-student-results');
+            const studentNameDisplay = document.getElementById('justify-student-name-display');
+            const selectedStudentDisplay = document.getElementById('justify-selected-student-display');
+
+            if (studentSearchInput && studentResultsDiv) {
+                studentSearchInput.oninput = function() {
+                    const query = this.value.trim().toLowerCase();
+                    studentResultsDiv.innerHTML = '';
+                    if (query.length > 2) { // Simulate search after 2 characters
+                        const dummyStudents = [
+                            { id: 'S001', name: 'JUAN PEREZ LOPEZ', nivel: 'PRI', grupo: '1A' },
+                            { id: 'S002', name: 'MARIA GARCIA RUIZ', nivel: 'PRI', grupo: '1A' },
+                            { id: 'S003', name: 'PEDRO MARTINEZ SANCHEZ', nivel: 'SEC', grupo: '3B' },
+                            { id: 'S004', name: 'ANA HERNANDEZ GOMEZ', nivel: 'PRE', grupo: '3C' },
+                        ];
+                        
+                        const filteredStudents = dummyStudents.filter(s => 
+                            s.name.toLowerCase().includes(query) || s.id.toLowerCase().includes(query)
+                        );
+
+                        if (filteredStudents.length > 0) {
+                            studentResultsDiv.classList.remove('hidden');
+                            filteredStudents.forEach(student => {
+                                const item = document.createElement('div');
+                                item.className = 'p-2 cursor-pointer hover:bg-blue-50';
+                                item.textContent = `${student.name} (${student.id}) - ${student.nivel} ${student.grupo}`;
+                                item.onclick = () => {
+                                    window.selectedJustifyStudentId = student.id;
+                                    window.selectedJustifyStudentName = student.name;
+                                    studentNameDisplay.textContent = `${student.name} (${student.id}) - ${student.nivel} ${student.grupo}`;
+                                    selectedStudentDisplay.classList.remove('hidden');
+                                    studentSearchInput.value = student.name; // Fill input with selected name
+                                    studentResultsDiv.classList.add('hidden'); // Hide results
+                                };
+                                studentResultsDiv.appendChild(item);
+                            });
+                        } else {
+                            studentResultsDiv.classList.add('hidden');
+                        }
+                    } else {
+                        studentResultsDiv.classList.add('hidden');
+                        selectedStudentDisplay.classList.add('hidden');
+                        window.selectedJustifyStudentId = null;
+                        window.selectedJustifyStudentName = null;
+                    }
+                };
+            }
         });
+
+        window.openJustifyAbsenceModal = function() {
+            const modal = document.getElementById('modal-justify-absence');
+            if (modal) {
+                modal.classList.remove('hidden');
+                document.getElementById('justify-student-search').value = '';
+                document.getElementById('justify-student-results').innerHTML = '';
+                document.getElementById('justify-student-results').classList.add('hidden');
+                document.getElementById('justify-selected-student-display').classList.add('hidden');
+                document.getElementById('justify-date').value = '';
+                document.getElementById('justify-date').valueAsDate = new Date(); // Pre-fill with today's date
+                window.selectedJustifyStudentId = null;
+                window.selectedJustifyStudentName = null;
+                document.getElementById('justify-student-search').focus();
+            }
+        };
+
+        window.closeJustifyAbsenceModal = function() {
+            const modal = document.getElementById('modal-justify-absence');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+        };
+
+        window.submitJustifyAbsence = function() {
+            const studentId = window.selectedJustifyStudentId;
+            const studentName = window.selectedJustifyStudentName;
+            const date = document.getElementById('justify-date').value;
+
+            if (!studentId || !date) {
+                window.showCustomModal('Error de Justificación', 'Por favor, seleccione un alumno y una fecha para justificar la falta.', 'Aceptar');
+                return;
+            }
+
+            // This is the placeholder for the actual logic that would interact with app.js
+            // app.js would then update the Firebase record for the specific student and date
+            // to mark the absence as "justified" (e.g., changing 'F' to 'J' in the DB but still counting it as an absence).
+            window.showCustomModal(
+                'Falta Justificada (Simulación)',
+                `La falta del alumno "${studentName}" (ID: ${studentId}) del día ${date} ha sido marcada como justificada en la interfaz. La sumatoria de faltas NO se verá afectada.`,
+                'Entendido', null, () => {
+                    window.closeJustifyAbsenceModal();
+                }
+            );
+            console.log(`Simulación: Justificando falta para ${studentName} (ID: ${studentId}) en la fecha ${date}. La sumatoria de faltas NO cambia.`);
+            // The actual backend call would be something like:
+            // firebase.firestore().collection('attendance').doc(studentId).collection('dates').doc(date)
+            // .update({ status: 'F', justified: true }) // Update the record, keeping 'F' but adding 'justified' flag
+            // .then(() => { /* show success and close modal */ })
+            // .catch(error => { /* show error */ });
+        };
+
+
+        // Asegura que las funciones de recuperación de contraseña estén definidas,
+        // al menos como marcadores de posición para la interfaz de usuario, si app.js no las define.
+        if (typeof window.openTeacherRecovery === 'undefined') {
+            window.openTeacherRecovery = function() {
+                const modal = document.getElementById('modal-teacher-recovery');
+                if (modal) {
+                    modal.classList.remove('hidden');
+                    document.getElementById('teacher-recovery-email').value = ''; // Limpiar campo de correo
+                    document.getElementById('teacher-recovery-email').focus(); // Enfocar para accesibilidad
+                }
+            };
+        }
+
+        if (typeof window.closeTeacherRecovery === 'undefined') {
+            window.closeTeacherRecovery = function() {
+                const modal = document.getElementById('modal-teacher-recovery');
+                if (modal) {
+                    modal.classList.add('hidden');
+                }
+            };
+        }
+
+        if (typeof window.recoverTeacherPassword === 'undefined') {
+            window.recoverTeacherPassword = function() {
+                const emailInput = document.getElementById('teacher-recovery-email');
+                const email = emailInput ? emailInput.value.trim() : '';
+
+                if (email && email.includes('@') && email.includes('.')) {
+                    window.showCustomModal(
+                        'Información de Recuperación',
+                        `La funcionalidad real para enviar el correo de recuperación de contraseña para "${email}" debe ser implementada en el lado del servidor o en 'app.js' con la integración de un servicio de autenticación. Este mensaje es una simulación.`,
+                        'Entendido'
+                    );
+                    window.closeTeacherRecovery();
+                } else {
+                    window.showCustomModal('Correo Inválido', 'Por favor, ingrese un correo electrónico válido para continuar con la recuperación.', 'Aceptar');
+                }
+            };
+        }
+
+        // Placeholder for processPasswordChange with reload to fix blank screen
+        if (typeof window.processPasswordChange === 'undefined') {
+            window.processPasswordChange = function() {
+                // Aquí iría la lógica real para actualizar el usuario y la contraseña.
+                // Después de una operación exitosa, forzar una recarga para refrescar la interfaz.
+                document.getElementById('modal-change-password').classList.add('hidden'); // Ocultar el modal
+                window.showCustomModal('Éxito', 'Su correo y contraseña han sido actualizados. La página se recargará.', 'Aceptar', null, () => {
+                    location.reload(); // Recarga la página
+                });
+            };
+        }
+
+        if (typeof window.exitFirstAccess === 'undefined') {
+            window.exitFirstAccess = function() {
+                document.getElementById('modal-change-password').classList.add('hidden');
+                // Puedes redirigir o hacer otra acción aquí si es necesario al "salir y hacerlo después".
+                // Por ahora, simplemente cierra el modal.
+            };
+        }
+
+        // Placeholder for WhatsApp contact for Premium Upsell
+        if (typeof window.contactSupportWhatsApp === 'undefined') {
+            window.contactSupportWhatsApp = function() {
+                const message = encodeURIComponent("Hola, me gustaría saber más sobre la versión Premium de Control de Asistencia.");
+                const phoneNumber = "5215512345678"; // Replace with actual WhatsApp number
+                const whatsappUrl = `https://wa.me/${phoneNumber}?text=${message}`;
+                window.open(whatsappUrl, '_blank');
+            };
+        }
     </script>
-    <script type="module" src="./app.js?v=36.41.0"></script>
+    <script type="module" src="./app.js?v=36.46.0"></script>
 </body>
 </html>

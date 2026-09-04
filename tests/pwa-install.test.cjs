@@ -343,7 +343,7 @@ test("registra el service worker sin caché y prepara la recarga al actualizar",
   harness.dispatch("load");
 
   assert.equal(harness.serviceWorkerRegistrations.length, 1);
-  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=36.41.0");
+  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=36.46.0");
   assert.equal(harness.serviceWorkerRegistrations[0].options.scope, "./");
   assert.equal(harness.serviceWorkerRegistrations[0].options.updateViaCache, "none");
   assert.equal(typeof harness.serviceWorkerListeners.get("controllerchange"), "function");
@@ -352,7 +352,7 @@ test("registra el service worker sin caché y prepara la recarga al actualizar",
 test("la versión 6 no conserva textos ni claves de los intentos anteriores", () => {
   assert.doesNotMatch(installScript, /control-asistencia-pwa-install-seen-v5/);
   assert.doesNotMatch(installScript, /Crear acceso directo|Abra esta liga|Ver cómo instalar/);
-  assert.match(html, /pwa-install\.js\?v=36\.41\.0/);
+  assert.match(html, /pwa-install\.js\?v=36\.46\.0/);
   assert.equal((html.match(/data-pwa-install-action/g) || []).length, 2);
   assert.match(html, /id="install-app-benefits"/);
   assert.match(html, /id="install-app-steps"/);
@@ -380,7 +380,7 @@ test("manifiesto, iconos y app shell cumplen los requisitos PWA", () => {
     assert.equal(png.readUInt32BE(20), requiredSize);
   }
 
-  assert.match(serviceWorker, /control-asistencia-36\.41\.0-pwa-v17/);
+  assert.match(serviceWorker, /control-asistencia-36\.46\.0-pwa-v17/);
   assert.match(serviceWorker, /"camera-data-scanner\.js"/);
   assert.match(serviceWorker, /"manifest\.webmanifest"/);
   assert.match(serviceWorker, /"pwa-install\.js"/);

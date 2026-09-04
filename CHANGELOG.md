@@ -1,5 +1,41 @@
 # CHANGELOG
 
+<!-- cdc-session:session-20260903161730-461b93 -->
+## Sesión 03/09/2026, 05:07 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 17 cambio(s): 4 creado(s), 13 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting..cache
+- CHANGELOG.md
+- DEPLOY_FIREBASE.md
+- app.js
+- firebase-debug.log
+- functions/attendance-utils.js
+- functions/index.js
+- index.html
+- pwa-install.js
+- sw.js
+- tests/account-recovery.test.cjs
+- tests/admin-features.test.cjs
+- tests/incidents-feature.test.cjs
+- tests/pwa-install.test.cjs
+- tests/teacher-onboarding.test.cjs
+- tests/teacher-schedule-flow.test.cjs
+- version.json
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
 ## 03/09/2026 — Selección de grupo para el pase de lista
 
 - El alta y el primer ingreso docente ya no obligan a configurar horarios de clase.

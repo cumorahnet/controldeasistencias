@@ -24,8 +24,8 @@ import {
   getFunctions,
   httpsCallable,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
-import {createCameraDataScanner} from "./camera-data-scanner.js?v=36.41.0";
-import {attendanceExportFilename, createAttendanceExportData} from "./attendance-report-export.js?v=36.41.0";
+import {createCameraDataScanner} from "./camera-data-scanner.js?v=36.46.0";
+import {attendanceExportFilename, createAttendanceExportData} from "./attendance-report-export.js?v=36.46.0";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBLH2OuKVr8ez5_9GeRJBcnHFlhfgeHD1o",
@@ -38,7 +38,7 @@ const firebaseConfig = {
 
 const APP_ROOT_PATH = "listadeasistencia";
 const DEFAULT_ACCENT = "#3b82f6";
-const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.41.0";
+const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.46.0";
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
@@ -395,6 +395,15 @@ function closeModal() {
   modalPreviousFocus = null;
 }
 
+const SUPPORT_WHATSAPP_NUMBER = "522207315901";
+
+function openSupportWhatsApp(message) {
+  const url = `https://wa.me/${SUPPORT_WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+window.contactSupportWhatsApp = () => openSupportWhatsApp("solicito más informacion sobre la version premium");
+
 window.showModalMsg = (title, message, supportType = null) => {
   const modal = byId("custom-modal");
   if (!modal) return;
@@ -408,10 +417,7 @@ window.showModalMsg = (title, message, supportType = null) => {
   confirm.disabled = false;
   confirm.onclick = closeModal;
   const support = byId("btn-modal-support");
-  support.onclick = () => {
-    const subject = encodeURIComponent(`Soporte CCT: ${schoolKey}`);
-    window.location.href = `mailto:profetono102@gmail.com?subject=${subject}`;
-  };
+  support.onclick = window.contactSupportWhatsApp;
   modal.classList.remove("hidden");
   confirm.focus();
 };
@@ -2215,14 +2221,7 @@ window.recoverTeacherPassword = async () => {
 
 window.claimSchoolCct = () => {
   if (!schoolKey) return window.showModalMsg("Reclamar CCT", "Primero capture y valide la CCT que desea reclamar.");
-  const subject = encodeURIComponent(`Reclamación de CCT ${schoolKey}`);
-  const body = encodeURIComponent(
-    `Solicito revisar la titularidad de la CCT ${schoolKey} (${schoolName || "plantel registrado"}).\n\n` +
-    "Motivo de la reclamación:\n\n" +
-    "Nombre completo del solicitante:\nCargo:\nTeléfono:\n\n" +
-    "Adjuntaré documentos probatorios de la CCT, nombramiento o representación del plantel e identificación oficial. Entiendo que Cumorahnet deliberará la disputa antes de modificar accesos o datos.",
-  );
-  window.location.href = `mailto:cumorahnet@gmail.com?subject=${subject}&body=${body}`;
+  openSupportWhatsApp("Quiero reclamar el CTT");
 };
 
 window.verifySchoolAccess = async () => {
