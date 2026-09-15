@@ -1,12 +1,16 @@
 "use strict";
 
 const {createHash, randomBytes, scryptSync, timingSafeEqual} = require("node:crypto");
-const {applyTardyPolicy, attendanceStatus, clockMinutes, resolveAttendanceSchedule, tardyLimit} = require("./attendance-utils");
+const {validateTimetable} = require("./school-timetable");
+const {recalculateTardies} = require("./attendance-corrections");
+const {applyTardyPolicy, attendanceStatus, attendanceWindow, clockMinutes, resolveAttendanceSchedule, tardyLimit, validateSubjectSchedules} = require("./attendance-utils");
 const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
 const {FieldPath, FieldValue, Timestamp, getFirestore} = require("firebase-admin/firestore");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const {HttpsError, onCall} = require("firebase-functions/v2/https");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
+const AUDIT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 initializeApp();
 setGlobalOptions({region: "us-central1", maxInstances: 20});
@@ -940,6 +944,7 @@ exports.listTeachers = onCall(async (request) => {
     return {
       id: document.id,
       nombre: normalizeText(teacher.nombre),
+      assignedSubjects: Array.isArray(teacher.assignedSubjects) ? teacher.assignedSubjects : [],
       role: ALLOWED_ROLES.has(teacher.role) ? teacher.role : "docente",
       status: ["active", "pending", "disabled"].includes(teacher.status) ? teacher.status : "active",
     };
@@ -956,6 +961,9 @@ exports.createTeacher = onCall(async (request) => {
   const name = `${givenNames} ${paternalSurname} ${maternalSurname}`;
   const baseTeacherId = temporaryTeacherId(givenNames, paternalSurname, maternalSurname);
   const role = String(request.data?.role || "docente");
+  const assignedSubjects = role === "docente" && Array.isArray(request.data?.assignedSubjects)
+    ? [...new Set(request.data.assignedSubjects.map((value) => normalizeText(value, 80)).filter(Boolean))].slice(0, 40)
+    : [];
 
   if (name.length < 5) throw new HttpsError("invalid-argument", "Capture el nombre completo del docente.");
   if (!ALLOWED_ROLES.has(role)) throw new HttpsError("invalid-argument", "El rol solicitado no es válido.");
@@ -988,6 +996,7 @@ exports.createTeacher = onCall(async (request) => {
       apellidoPaterno: paternalSurname,
       apellidoMaterno: maternalSurname,
       role,
+      assignedSubjects,
       status: "active",
       authUid,
       passwordChangeRequired: true,
@@ -1068,13 +1077,19 @@ exports.changeTeacherPassword = onCall(async (request) => {
 
 exports.updateOwnSchedule = onCall(async (request) => {
   const token = await assertRole(request, ATTENDANCE_ROLES);
+  if (token.role === "docente") throw new HttpsError("permission-denied", "El administrador del plantel configura los horarios por materia.");
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const level = normalizeSchoolLevel(request.data?.level);
   const group = normalizeGroupName(request.data?.group);
   const entryTime = String(request.data?.entryTime || "").slice(0, 5);
-  const recessReturnTime = String(request.data?.recessReturnTime || "").slice(0, 5);
-  const tolerance = Math.max(0, Math.min(120, Number(request.data?.tolerance || 0)));
-  const classDuration = Math.max(1, Math.min(240, Number(request.data?.classDuration || 50)));
+  const parameters = token.role === "docente" ? {} : (request.data || {});
+  const recessReturnTime = String(parameters.recessReturnTime || "").slice(0, 5);
+  const tolerance = Math.max(0, Math.min(120, Number(parameters.tolerance || 0)));
+  const classDuration = Math.max(1, Math.min(240, Number(parameters.classDuration || 50)));
+  const subject = normalizeText(request.data?.subject, 80);
+  if (!Number.isFinite(tolerance) || !Number.isFinite(classDuration)) {
+    throw new HttpsError("invalid-argument", "La tolerancia y duración deben ser números válidos.");
+  }
   if (token.role === "docente" && !entryTime) throw new HttpsError("invalid-argument", "La hora del pase de lista es obligatoria para docentes.");
   if (entryTime && clockMinutes(entryTime) === null) throw new HttpsError("invalid-argument", "La hora de entrada no es válida.");
   if (recessReturnTime && clockMinutes(recessReturnTime) === null) throw new HttpsError("invalid-argument", "La hora de regreso no es válida.");
@@ -1082,15 +1097,18 @@ exports.updateOwnSchedule = onCall(async (request) => {
     level,
     group,
     entryTime,
-    recessReturnTime,
-    tolerance,
-    classDuration,
+    ...(token.role === "docente" ? {} : {recessReturnTime, tolerance, classDuration}),
     scheduleConfigured: true,
+    subject,
   };
   const teacherRef = schoolCollection(schoolKey, "maestros").doc(token.teacherId);
   await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(teacherRef);
     if (!snapshot.exists) throw new HttpsError("not-found", "La cuenta ya no existe.");
+    const assignedSubjects = snapshot.get("assignedSubjects");
+    if (token.role === "docente" && Array.isArray(assignedSubjects) && assignedSubjects.length && !assignedSubjects.includes(subject)) {
+      throw new HttpsError("invalid-argument", "Seleccione una de sus materias asignadas.");
+    }
     const currentSchedules = Array.isArray(snapshot.get("groupSchedules")) ? snapshot.get("groupSchedules") : [];
     const groupSchedules = currentSchedules.filter((item) => {
       try {
@@ -1106,6 +1124,70 @@ exports.updateOwnSchedule = onCall(async (request) => {
     }, {merge: true});
   });
   return {ok: true, schedule};
+});
+
+exports.updateSchoolSchedules = onCall(async (request) => {
+  const token = await assertRole(request, ADMIN_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  let rows;
+  let timetable;
+  try {
+    validateSubjectSchedules(request.data?.schedules);
+    rows = request.data.schedules.map((row) => ({
+      teacherId: row.teacherId ? requireIdentifier(row.teacherId, "Docente") : "", subject: normalizeText(row.subject, 80),
+      level: normalizeSchoolLevel(row.level), group: normalizeGroupName(row.group), day: row.day,
+      entryTime: row.entryTime, endTime: row.endTime,
+    }));
+    validateSubjectSchedules(rows);
+    if (request.data.timetable !== undefined) timetable = validateTimetable(request.data.timetable, rows);
+    if (rows.some((row) => clockMinutes(row.endTime) - clockMinutes(row.entryTime) > 240)) throw new Error("Cada clase puede durar hasta 240 minutos.");
+  } catch (error) {
+    throw new HttpsError("invalid-argument", error.message);
+  }
+  const schoolRef = schoolsRef().doc(schoolKey);
+  await db.runTransaction(async (transaction) => {
+    const school = await transaction.get(schoolRef);
+    if (!school.exists) throw new HttpsError("not-found", "El plantel ya no existe.");
+    if ((school.get("schedulesRevision") || 0) !== request.data?.revision) throw new HttpsError("aborted", "Otro administrador modificó los horarios. Cierre y vuelva a abrir la tabla.");
+    const levels = school.get("levels");
+    if (Array.isArray(levels) && [...rows, ...(timetable || school.get("timetable"))?.groups || []].some((row) => !levels.includes(row.level))) {
+      throw new HttpsError("failed-precondition", "El horario contiene niveles no habilitados en los ajustes institucionales.");
+    }
+    if (!timetable && school.get("timetable")) {
+      try { timetable = validateTimetable(school.get("timetable"), rows); }
+      catch (error) { throw new HttpsError("invalid-argument", error.message); }
+    }
+    // Older clients do not send the catalog; preserve it with the current revision.
+    if (timetable && timetable.subjects === undefined && school.get("timetable")?.subjects !== undefined) {
+      timetable.subjects = school.get("timetable").subjects;
+    }
+    if (timetable && timetable.levelJourneys === undefined && school.get("timetable")?.levelJourneys !== undefined) {
+      try { timetable = validateTimetable({...timetable, levelJourneys: school.get("timetable").levelJourneys}, rows); }
+      catch (error) { throw new HttpsError("invalid-argument", error.message); }
+    }
+    if (Array.isArray(levels) && Object.keys(timetable?.levelJourneys || {}).some((level) => !levels.includes(level))) throw new HttpsError("failed-precondition", "La jornada contiene niveles no habilitados.");
+    // A stale client cannot replace the shared journey with per-group parameters.
+    if (timetable && !timetable.journey && school.get("timetable")?.journey) {
+      try { timetable = validateTimetable({...timetable, journey: school.get("timetable").journey}, rows); }
+      catch (error) { throw new HttpsError("invalid-argument", error.message); }
+    }
+    if ((timetable?.journey || Object.keys(timetable?.levelJourneys || {}).length) && !timetable.subjects?.length && timetable.groups.some((group) => !(school.get("timetable")?.groups || []).some((old) => old.level === group.level && old.group === group.group))) {
+      throw new HttpsError("failed-precondition", "Registre las materias antes de generar tablas de grupo.");
+    }
+    const teacherIds = [...new Set(rows.map((row) => row.teacherId).filter(Boolean))];
+    const teachers = await Promise.all(teacherIds.map((id) => transaction.get(schoolCollection(schoolKey, "maestros").doc(id))));
+    for (const teacher of teachers) {
+      if (!teacher.exists || teacher.get("role") !== "docente" || ![undefined, "active"].includes(teacher.get("status"))) throw new HttpsError("invalid-argument", "Seleccione docentes activos del plantel.");
+    }
+    const previous = school.get("subjectSchedules") || [];
+    for (const row of rows) {
+      const prior = previous.find((item) => ["teacherId", "subject", "level", "group", "day", "entryTime", "endTime"].every((key) => item[key] === row[key]));
+      row.id = prior?.id || randomBytes(16).toString("hex");
+    }
+    transaction.update(schoolRef, {subjectSchedules: rows, ...(timetable ? {timetable} : {}), schedulesRevision: (school.get("schedulesRevision") || 0) + 1, schedulesUpdatedAt: FieldValue.serverTimestamp()});
+  });
+  await writeAuditLog(token, {action: "school_schedules_changed", schoolKey, targetType: "school", targetId: schoolKey, summary: "Actualizó la tabla de horarios por materia.", metadata: {classes: rows.length}});
+  return {ok: true, schedules: rows, ...(timetable ? {timetable} : {}), revision: request.data.revision + 1};
 });
 
 exports.completeTeacherOnboarding = onCall(async (request) => {
@@ -1202,12 +1284,38 @@ exports.changeTeacherId = onCall(async () => {
   throw new HttpsError("failed-precondition", "Utilice el proceso seguro de primer acceso para confirmar el correo y la contraseña.");
 });
 
+exports.cleanupAuditLogs = onSchedule({schedule: "every 60 minutes", timeoutSeconds: 540, maxInstances: 1}, async () => {
+  const cutoff = Timestamp.fromMillis(Date.now() - AUDIT_RETENTION_MS);
+  let deleted = 0;
+  while (true) {
+    const snapshot = await auditLogsRef().where("createdAt", "<", cutoff).orderBy("createdAt").limit(400).get();
+    if (snapshot.empty) break;
+    const batch = db.batch();
+    for (const document of snapshot.docs) batch.delete(document.ref);
+    await batch.commit();
+    deleted += snapshot.size;
+  }
+  console.info("Historial vencido eliminado", {deleted});
+});
+
 exports.listAuditLogs = onCall(async (request) => {
   const token = await assertRole(request, new Set());
   if (token.role !== "super") throw new HttpsError("permission-denied", "El historial global requiere el rol maestro global.");
-  const limit = Math.max(1, Math.min(500, Number(request.data?.limit || 250)));
-  const snapshot = await auditLogsRef().orderBy("createdAt", "desc").limit(limit).get();
+  const limit = 500;
+  let query = auditLogsRef().where("createdAt", ">=", Timestamp.fromMillis(Date.now() - AUDIT_RETENTION_MS))
+    .orderBy("createdAt", "desc").orderBy(FieldPath.documentId(), "desc");
+  const cursor = request.data?.cursor;
+  if (cursor) {
+    if (!Number.isFinite(cursor.seconds) || !Number.isInteger(cursor.nanoseconds) || cursor.nanoseconds < 0 || cursor.nanoseconds >= 1e9 || typeof cursor.id !== "string" || !cursor.id || cursor.id.includes("/")) {
+      throw new HttpsError("invalid-argument", "El cursor del historial no es válido.");
+    }
+    query = query.startAfter(new Timestamp(cursor.seconds, cursor.nanoseconds), cursor.id);
+  }
+  const snapshot = await query.limit(limit).get();
+  const last = snapshot.docs.at(-1);
+  const lastDate = last?.data().createdAt;
   return {
+    nextCursor: snapshot.size === limit ? {seconds: lastDate.seconds, nanoseconds: lastDate.nanoseconds, id: last.id} : null,
     logs: snapshot.docs.map((document) => {
       const data = document.data() || {};
       return {
@@ -1258,7 +1366,19 @@ exports.updateSchool = onCall(async (request) => {
   const token = await assertRole(request, MASTER_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const input = request.data?.profile || {};
+  if (Object.hasOwn(input, "levels") && (!Array.isArray(input.levels) || !input.levels.length || input.levels.length > 4 || new Set(input.levels).size !== input.levels.length || input.levels.some((level) => !["PRE", "PRI", "SEC", "BAC"].includes(level)))) {
+    throw new HttpsError("invalid-argument", "Seleccione al menos un nivel válido de la institución, sin duplicados.");
+  }
+  let timetablePreferences;
+  if (Object.hasOwn(input, "timetablePreferences")) {
+    const preferences = input.timetablePreferences || {};
+    if (!Array.isArray(preferences.workDays) || !preferences.workDays.length || preferences.workDays.length > 7 || new Set(preferences.workDays).size !== preferences.workDays.length || preferences.workDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6) || !["institutional", "levels"].includes(preferences.journeyMode)) {
+      throw new HttpsError("invalid-argument", "Seleccione días laborables válidos y el tipo de jornada.");
+    }
+    timetablePreferences = {workDays: [...preferences.workDays], journeyMode: preferences.journeyMode};
+  }
   const profile = {
+    ...(Object.hasOwn(input, "levels") ? {levels: ["PRE", "PRI", "SEC", "BAC"].filter((level) => input.levels.includes(level))} : {}),
     name: normalizeText(input.name, 120).toUpperCase(),
     director: normalizeText(input.director, 120).toUpperCase(),
     entryTime: String(input.entryTime || "").slice(0, 5),
@@ -1266,6 +1386,7 @@ exports.updateSchool = onCall(async (request) => {
     tolerance: Math.max(0, Math.min(120, Number(input.tolerance || 0))),
     classDuration: Math.max(1, Math.min(240, Number(input.classDuration || 50))),
     tardiesPerAbsence: tardyLimit(input.tardiesPerAbsence),
+    ...(timetablePreferences ? {timetablePreferences} : {}),
     updatedAt: FieldValue.serverTimestamp(),
     updatedBy: token.teacherId || token.role,
   };
@@ -1312,14 +1433,23 @@ exports.updateSchool = onCall(async (request) => {
     profile.pendingLogoDataUrl = FieldValue.delete();
     profile.allowBranding = true;
   }
-  const batch = db.batch();
-  batch.set(schoolRef, profile, {merge: true});
   const newAccessKey = normalizeCode(input.accessKey, 100);
-  if (newAccessKey) {
-    if (newAccessKey.length < 4) throw new HttpsError("invalid-argument", "La clave institucional debe tener al menos cuatro caracteres.");
-    batch.set(privateDataRef().collection("school_secrets").doc(schoolKey), {passwordHash: hashSecret(newAccessKey), updatedAt: FieldValue.serverTimestamp()}, {merge: true});
-  }
-  await batch.commit();
+  if (newAccessKey && newAccessKey.length < 4) throw new HttpsError("invalid-argument", "La clave institucional debe tener al menos cuatro caracteres.");
+  await db.runTransaction(async (transaction) => {
+    const latest = await transaction.get(schoolRef);
+    if (!latest.exists) throw new HttpsError("not-found", "El plantel ya no existe.");
+    if (profile.levels) {
+      const schedules = [...latest.get("subjectSchedules") || [], ...latest.get("timetable")?.groups || [], ...Object.keys(latest.get("timetable")?.levelJourneys || {}).map((level) => ({level}))];
+      if (schedules.some((row) => !profile.levels.includes(row.level))) throw new HttpsError("failed-precondition", "No puede desactivar un nivel con jornadas o materias configuradas.");
+      const students = await transaction.get(schoolCollection(schoolKey, "alumnos"));
+      if (students.docs.some((entry) => {
+        const student = entry.data();
+        return student.active !== false && !["inactive", "moved"].includes(student.status) && !profile.levels.includes(normalizeSchoolLevel(student.level || student.nivel));
+      })) throw new HttpsError("failed-precondition", "No puede desactivar un nivel con alumnos activos. Reubíquelos antes de cambiar los niveles.");
+    }
+    transaction.set(schoolRef, profile, {merge: true});
+    if (newAccessKey) transaction.set(privateDataRef().collection("school_secrets").doc(schoolKey), {passwordHash: hashSecret(newAccessKey), updatedAt: FieldValue.serverTimestamp()}, {merge: true});
+  });
   await writeAuditLog(token, {
     action: "school_updated",
     schoolKey,
@@ -1330,6 +1460,29 @@ exports.updateSchool = onCall(async (request) => {
       ? "Actualizó los datos del plantel y preparó su logotipo para Premium."
       : "Actualizó los datos institucionales del plantel.",
     metadata: {changedFields: Object.keys(input).filter((field) => field !== "accessKey").join(",")},
+  });
+  return {ok: true};
+});
+
+exports.updateTeacherSubjects = onCall(async (request) => {
+  const token = await assertRole(request, MASTER_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const teacherId = requireIdentifier(request.data?.teacherId, "ID docente");
+  const values = request.data?.assignedSubjects;
+  if (!Array.isArray(values) || values.length > 40 || values.some((value) => typeof value !== "string" || !value.trim() || value.trim().length > 80)) {
+    throw new HttpsError("invalid-argument", "Capture hasta 40 materias de máximo 80 caracteres cada una.");
+  }
+  const assignedSubjects = [...new Set(values.map((value) => normalizeText(value, 80)))];
+  const targetRef = schoolCollection(schoolKey, "maestros").doc(teacherId);
+  await db.runTransaction(async (transaction) => {
+    const target = await transaction.get(targetRef);
+    if (!target.exists) throw new HttpsError("not-found", "La cuenta ya no existe.");
+    if ((target.get("role") || "docente") !== "docente") throw new HttpsError("failed-precondition", "Las materias se asignan a cuentas docentes. Corrija primero el rol.");
+    transaction.update(targetRef, {assignedSubjects, updatedAt: FieldValue.serverTimestamp(), updatedBy: token.teacherId || token.role});
+  });
+  await writeAuditLog(token, {
+    action: "teacher_subjects_changed", schoolKey, targetType: "teacher", targetId: teacherId,
+    summary: "Actualizó las materias asignadas del docente.", metadata: {assignedSubjects},
   });
   return {ok: true};
 });
@@ -1490,7 +1643,7 @@ exports.recordAttendance = onCall(async (request) => {
   }
   const now = new Date();
   const fecha = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(now);
-  const hora = new Intl.DateTimeFormat("es-MX", {timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false}).format(now);
+  const hora = new Intl.DateTimeFormat("es-MX", {timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"}).format(now);
   const teacher = teacherSnapshot.data() || {};
   const school = schoolSnapshot.data() || {};
   const studentLevel = normalizeSchoolLevel(student.level || student.nivel);
@@ -1502,26 +1655,37 @@ exports.recordAttendance = onCall(async (request) => {
       throw new HttpsError("failed-precondition", "El alumno no pertenece al grupo seleccionado para el pase de lista.");
     }
   }
-  const schedule = resolveAttendanceSchedule({teacher, school, role: token.role, level: studentLevel, group: studentGroup});
+  const schedule = resolveAttendanceSchedule({teacher, school, role: token.role, level: studentLevel, group: studentGroup, teacherId: token.teacherId, now});
   if (schedule.requiresTeacherSetup) {
-    throw new HttpsError("failed-precondition", `Configure primero la hora de pase de lista para ${studentLevel} · Grupo ${studentGroup}.`);
+    throw new HttpsError("failed-precondition", "No tiene una clase activa para este grupo. Consulte el horario con el administrador del plantel.");
+  }
+  if (token.role === "docente") {
+    const availability = attendanceWindow(hora, schedule.entryTime, schedule.classDuration);
+    if (!availability.allowed) {
+      throw new HttpsError("failed-precondition", `El pase de lista para ${studentLevel} · Grupo ${studentGroup} solo está disponible de ${availability.startTime} a ${availability.endTime}.`);
+    }
   }
   const entryTime = schedule.entryTime;
   const tolerance = schedule.tolerance;
-  const arrivalStatus = attendanceStatus(hora, entryTime, tolerance);
+  const arrivalStatus = attendanceStatus(hora, entryTime, tolerance, schedule.classDuration);
   const captureMethod = request.data?.captureMethod === "manual" ? "manual" : "qr";
   const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
-  const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${studentId}`);
+  const sessionSuffix = schedule.scheduleId ? `_${schedule.scheduleId}` : "";
+  const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${studentId}${sessionSuffix}`);
   const priorStudentIds = Array.isArray(student.previousStudentIds)
     ? student.previousStudentIds.map((value) => normalizeCode(value, 40)).filter((value) => /^[A-Z0-9._-]{4,40}$/.test(value))
     : [];
   const attendanceRefs = [...new Set([studentId, ...priorStudentIds])]
-      .map((id) => schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${id}`));
+      .map((id) => schoolCollection(schoolKey, "asistencias").doc(`${fecha}_${id}${sessionSuffix}`));
   const result = await db.runTransaction(async (transaction) => {
-    const [currentStudent, existingAttendances] = await Promise.all([
+    const [currentStudent, existingAttendances, currentSchoolSnapshot] = await Promise.all([
       transaction.get(studentRef),
       Promise.all(attendanceRefs.map((reference) => transaction.get(reference))),
+      transaction.get(schoolsRef().doc(schoolKey)),
     ]);
+    if (token.role === "docente" && (currentSchoolSnapshot.get("schedulesRevision") || 0) !== (school.schedulesRevision || 0)) {
+      throw new HttpsError("aborted", "El administrador actualizó el horario. Espere la actualización y vuelva a registrar.");
+    }
     const existing = existingAttendances.find((snapshot) => snapshot.exists);
     if (existing) return {created: false, status: normalizeText(existing.get("status"), 30), convertedToAbsence: false};
     if (!currentStudent.exists) throw new HttpsError("not-found", "El alumno no está registrado.");
@@ -1555,6 +1719,9 @@ exports.recordAttendance = onCall(async (request) => {
       scheduleLevel: studentLevel,
       scheduleGroup: studentGroup,
       entryTimeApplied: entryTime,
+      subject: schedule.subject || "",
+      scheduleId: schedule.scheduleId || "",
+      scheduleDay: schedule.scheduleDay ?? null,
       toleranceApplied: tolerance,
       captureMethod,
       timestamp: FieldValue.serverTimestamp(),
@@ -1578,29 +1745,113 @@ exports.recordAttendance = onCall(async (request) => {
   return {...result, fecha, hora};
 });
 
+exports.correctAttendance = onCall(async (request) => {
+  const token = await assertRole(request, ADMIN_ROLES);
+  const schoolKey = assertSameSchool(token, request.data?.schoolKey);
+  const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
+  const date = requireDate(request.data?.date);
+  const scheduleId = String(request.data?.scheduleId || "");
+  const status = String(request.data?.status || "");
+  const reason = requireText(request.data?.reason, "el motivo de la corrección", 500);
+  const time = String(request.data?.time || "");
+  if (!["A TIEMPO", "RETARDO", "FALTA NORMAL"].includes(status)
+    || (scheduleId && !/^[a-f0-9]{32}$/.test(scheduleId))
+    || (time && !/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(time))) {
+    throw new HttpsError("invalid-argument", "Revise el estado, la clase y la hora.");
+  }
+  const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
+  if (date > today) throw new HttpsError("invalid-argument", "No puede corregir una fecha futura.");
+  const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
+  const collection = schoolCollection(schoolKey, "asistencias");
+  return db.runTransaction(async (transaction) => {
+    const [studentSnapshot, schoolSnapshot] = await Promise.all([
+      transaction.get(studentRef), transaction.get(schoolsRef().doc(schoolKey)),
+    ]);
+    if (!studentSnapshot.exists || !schoolSnapshot.exists) throw new HttpsError("not-found", "No se encontró el alumno o plantel.");
+    const student = studentSnapshot.data();
+    if (student.active === false || ["inactive", "moved"].includes(student.status)) throw new HttpsError("failed-precondition", "El alumno no está activo.");
+    const ids = [...new Set([studentId, ...(student.previousStudentIds || []).map((id) => requireIdentifier(id, "ID anterior"))])];
+    const histories = await Promise.all(ids.map((id) => transaction.get(collection.where("alumnoId", "==", id).limit(5001))));
+    const records = histories.flatMap((snapshot) => snapshot.docs.map((doc) => ({id: doc.id, ref: doc.ref, data: doc.data(), version: doc.updateTime.toDate().toISOString()})));
+    if (records.length > 5000) throw new HttpsError("resource-exhausted", "El historial supera el límite de corrección segura (5000 registros). Requiere revisión técnica.");
+    const matches = records.filter((record) => record.data.fecha === date && (record.data.scheduleId || "") === scheduleId);
+    if (matches.length > 1) throw new HttpsError("failed-precondition", "Hay registros duplicados para esta fecha y clase. Requiere revisión técnica.");
+    const existing = matches[0];
+    if ((existing?.version || "") !== String(request.data?.expectedVersion || "")) throw new HttpsError("aborted", "El registro cambió. Consulte el reporte y vuelva a intentarlo.");
+    const classData = (schoolSnapshot.get("subjectSchedules") || []).find((row) => row.id === scheduleId)
+      || (existing ? {subject: existing.data.subject, teacherId: existing.data.profesorId, level: existing.data.scheduleLevel, group: existing.data.scheduleGroup, day: existing.data.scheduleDay} : null);
+    if (scheduleId && (!classData || classData.level !== normalizeSchoolLevel(student.level || student.nivel)
+      || classData.group !== normalizeGroupName(student.grupo) || classData.day !== new Date(`${date}T12:00:00Z`).getUTCDay())) {
+      throw new HttpsError("failed-precondition", "La clase no corresponde al grupo o día seleccionado.");
+    }
+    const ref = existing?.ref || collection.doc(`${date}_${studentId}${scheduleId ? `_${scheduleId}` : ""}`);
+    const fields = {
+      ...(existing?.data || {}), alumnoId: existing?.data.alumnoId || studentId,
+      nombre: normalizeText(student.nombres, 100), apellido: normalizeText(student.paterno, 80), materno: normalizeText(student.materno, 80),
+      fecha: date, hora: status === "FALTA NORMAL" ? "" : time, status,
+      arrivalStatus: status, absenceType: status === "FALTA NORMAL" ? "normal" : "", justified: false,
+      justifiedAt: null, justifiedBy: "", tardySequence: 0,
+      tardyLimitApplied: existing?.data.tardyLimitApplied ?? tardyLimit(schoolSnapshot.get("tardiesPerAbsence")),
+      scheduleId, subject: classData?.subject || "", scheduleDay: classData?.day ?? null,
+      scheduleLevel: normalizeSchoolLevel(student.level || student.nivel), scheduleGroup: normalizeGroupName(student.grupo),
+      profesorId: existing?.data.profesorId || classData?.teacherId || token.teacherId || token.sub,
+      captureMethod: existing?.data.captureMethod || "admin_correction",
+      correctedAt: FieldValue.serverTimestamp(), correctedBy: token.teacherId || token.sub, correctionReason: reason,
+    };
+    const target = {id: ref.id, ref, data: fields};
+    const recalculated = recalculateTardies([...records.filter((record) => record.id !== ref.id), target]);
+    if (recalculated.updates.length > 400) throw new HttpsError("resource-exhausted", "La corrección afecta más de 400 registros. Requiere revisión técnica.");
+    const targetUpdate = recalculated.updates.find((record) => record.id === ref.id);
+    if (targetUpdate) Object.assign(fields, targetUpdate.fields);
+    transaction.set(ref, fields);
+    for (const update of recalculated.updates.filter((record) => record.id !== ref.id)) {
+      transaction.set(update.ref, {...update.fields, correctedAt: FieldValue.serverTimestamp(), correctedBy: token.teacherId || token.sub, correctionReason: `Recálculo: ${reason}`}, {merge: true});
+    }
+    transaction.set(studentRef, {pendingTardies: recalculated.pendingTardies, tardyAbsences: recalculated.tardyAbsences, tardyStatusUpdatedAt: FieldValue.serverTimestamp()}, {merge: true});
+    transaction.create(auditLogsRef().doc(), {
+      ...auditLogData(token, {action: "attendance_corrected", schoolKey, targetType: "attendance", targetId: ref.id, targetLabel: `${studentId} · ${date}`, summary: reason}),
+      before: existing?.data || null, after: fields,
+      recalculated: recalculated.updates.filter((record) => record.id !== ref.id).map((record) => ({id: record.id, before: record.data.status, after: record.fields.status})),
+    });
+    return {status: fields.status, updated: recalculated.updates.length};
+  });
+});
+
 exports.justifyAttendance = onCall(async (request) => {
   const token = await assertRole(request, ATTENDANCE_ROLES);
   const schoolKey = assertSameSchool(token, request.data?.schoolKey);
   const studentId = requireIdentifier(request.data?.studentId, "ID del alumno");
   const date = requireDate(request.data?.date, "fecha de la falta");
+  const scheduleId = String(request.data?.scheduleId || "");
+  if (scheduleId && !/^[a-f0-9]{32}$/.test(scheduleId)) throw new HttpsError("invalid-argument", "La clase no es válida.");
   const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
   if (date > today) throw new HttpsError("invalid-argument", "La fecha de la falta no puede ser futura.");
 
   const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
-  const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${date}_${studentId}`);
+  const attendanceRef = schoolCollection(schoolKey, "asistencias").doc(`${date}_${studentId}${scheduleId ? `_${scheduleId}` : ""}`);
   const result = await db.runTransaction(async (transaction) => {
-    const [studentSnapshot, attendanceSnapshot] = await Promise.all([
+    const [studentSnapshot, attendanceSnapshot, schoolSnapshot] = await Promise.all([
       transaction.get(studentRef),
       transaction.get(attendanceRef),
+      transaction.get(schoolsRef().doc(schoolKey)),
     ]);
     if (!studentSnapshot.exists) throw new HttpsError("not-found", "El alumno no está registrado.");
     const student = studentSnapshot.data() || {};
+    const scheduledClass = (schoolSnapshot.get("subjectSchedules") || []).find((row) => row.id === scheduleId);
+    const classData = scheduledClass || (attendanceSnapshot.exists ? {
+      subject: attendanceSnapshot.get("subject"), teacherId: attendanceSnapshot.get("profesorId"),
+      level: attendanceSnapshot.get("scheduleLevel"), group: attendanceSnapshot.get("scheduleGroup"), day: attendanceSnapshot.get("scheduleDay"),
+    } : null);
+    if (scheduleId && (!classData || classData.level !== normalizeSchoolLevel(student.level || student.nivel) || classData.group !== normalizeGroupName(student.grupo)
+      || new Date(`${date}T12:00:00Z`).getUTCDay() !== classData.day || (token.role === "docente" && classData.teacherId !== token.teacherId))) {
+      throw new HttpsError("failed-precondition", "La clase no corresponde al docente, grupo o día seleccionado.");
+    }
     if (student.active === false || ["inactive", "moved"].includes(normalizeText(student.status, 20).toLowerCase())) {
       throw new HttpsError("failed-precondition", "El alumno no está activo.");
     }
     if (attendanceSnapshot.exists) {
       const status = normalizeText(attendanceSnapshot.get("status"), 30).toUpperCase();
-      if (!["FALTA POR RETARDOS", "FALTA JUSTIFICADA"].includes(status)) {
+      if (!["FALTA NORMAL", "FALTA POR RETARDOS", "FALTA JUSTIFICADA"].includes(status)) {
         throw new HttpsError("failed-precondition", "La fecha seleccionada tiene una asistencia o retardo registrado.");
       }
       transaction.set(attendanceRef, {
@@ -1619,6 +1870,10 @@ exports.justifyAttendance = onCall(async (request) => {
       hora: "",
       status: "FALTA JUSTIFICADA",
       absenceType: "justified",
+      scheduleId,
+      subject: scheduleId ? classData.subject : "",
+      scheduleDay: scheduleId ? classData.day : null,
+      profesorId: scheduleId ? classData.teacherId : token.teacherId,
       justified: true,
       justifiedBy: token.teacherId || token.role,
       scheduleLevel: normalizeSchoolLevel(student.level || student.nivel),
@@ -1631,7 +1886,7 @@ exports.justifyAttendance = onCall(async (request) => {
     action: "attendance_justified",
     schoolKey,
     targetType: "attendance",
-    targetId: `${date}_${studentId}`,
+    targetId: `${date}_${studentId}${scheduleId ? `_${scheduleId}` : ""}`,
     targetLabel: ["FALTA JUSTIFICADA", studentId, date].join(" · "),
     summary: "Marcó una falta como justificada para fines informativos; no se contó como asistencia.",
   });
@@ -1874,7 +2129,7 @@ exports.renumberStudentGroup = onCall({timeoutSeconds: 540, memory: "512MiB"}, a
     if (data.studentIdRevision === revision) continue;
     const date = normalizeText(data.fecha, 20);
     const targetId = date
-      ? `${date}_${newStudentId}`
+      ? `${date}_${newStudentId}${data.scheduleId ? `_${data.scheduleId}` : ""}`
       : document.id.endsWith(`_${oldStudentId}`) ? `${document.id.slice(0, -oldStudentId.length)}${newStudentId}` : document.id;
     const key = date || `document:${document.id}`;
     attendanceByDate.set(key, [...(attendanceByDate.get(key) || []), {
@@ -2041,9 +2296,16 @@ exports.listAttendanceReport = onCall(async (request) => {
       studentId: normalizeCode(data.alumnoId, 40),
       studentName: [normalizeText(data.apellido, 80), normalizeText(data.materno, 80), normalizeText(data.nombre, 100)].filter(Boolean).join(" "),
       teacherName: normalizeText(data.profesorNombre, 100),
+      subject: normalizeText(data.subject, 80),
+      scheduleId: normalizeText(data.scheduleId, 100),
+      scheduleDay: Number.isInteger(data.scheduleDay) ? data.scheduleDay : null,
+      scheduleGroup: normalizeText(data.scheduleGroup, 20),
+      scheduleLevel: normalizeText(data.scheduleLevel, 20),
+      entryTime: normalizeText(data.entryTimeApplied, 5),
       date: normalizeText(data.fecha, 10),
       time: normalizeText(data.hora, 8),
-      status: new Set(["RETARDO", "FALTA POR RETARDOS", "FALTA JUSTIFICADA"]).has(normalizeText(data.status, 30).toUpperCase())
+      version: document.updateTime.toDate().toISOString(),
+      status: new Set(["FALTA NORMAL", "RETARDO", "FALTA POR RETARDOS", "FALTA JUSTIFICADA"]).has(normalizeText(data.status, 30).toUpperCase())
         ? normalizeText(data.status, 30).toUpperCase()
         : "A TIEMPO",
       justified: data.justified === true,

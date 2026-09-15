@@ -27,6 +27,13 @@ test("el acceso maestro queda oculto en la etiqueta de versión", () => {
   assert.doesNotMatch(html, />Acceso maestro<\/button>/i);
 });
 
+test("el botón de gestión y su sección quedan reservados a administradores", () => {
+  assert.match(html, /id="tab-admin"[^>]+class="[^"]*hidden[^"]*"[^>]*>Gestión<\/button>/);
+  assert.match(app, /window\.safeToggle\("tab-admin", !isAdmin\(\)\)/);
+  assert.match(app, /if \(tab === "admin" && !isAdmin\(\)\) return window\.showModalMsg\("Acceso", "Esta sección está disponible únicamente para administradores\."\)/);
+  assert.doesNotMatch(app, /const canViewAttendanceReports/);
+});
+
 test("un administrador puede preparar el logotipo antes de activar Premium", () => {
   assert.match(html, /id="branding-logo-editor"/);
   assert.match(app, /profile\.pendingLogoDataUrl = pendingLogoDataUrl/);
@@ -94,7 +101,7 @@ test("el XLS no suma las faltas por retardos como asistencias", () => {
 test("la falta justificada se muestra como J y no suma como asistencia", () => {
   assert.match(html, /id="modal-justify-absence"/);
   assert.match(html, /window\.justifySelectedAbsence\(\{studentId, date\}\)/);
-  assert.match(app, /api\.justifyAttendance\(\{schoolKey, studentId: student\.id, date\}\)/);
+  assert.match(app, /api\.justifyAttendance\(\{schoolKey, studentId: student\.id, date, scheduleId: latestAttendanceReport\?\.scheduleId \|\| ""\}\)/);
   assert.match(app, /const mark = justified \? "J"/);
   assert.match(app, /isJustifiedAbsence\(attendance\)/);
   assert.match(functions, /exports\.justifyAttendance = onCall/);

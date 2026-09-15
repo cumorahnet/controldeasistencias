@@ -8,3 +8,4 @@ firebase-debug.*.log
 .env.*
 !.env.example
 *.local
+*-test-results.txt

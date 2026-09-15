@@ -18,20 +18,30 @@ test("el alta y el inicio docente no fuerzan la configuración inmediata de hora
   assert.match(html, /id="btn-close-schedule"/);
 });
 
-test("el docente selecciona un grupo antes de pasar lista", () => {
+test("el docente recibe automáticamente el grupo de su clase", () => {
   assert.match(html, /id="teacher-attendance-group-panel"/);
   assert.match(html, /id="attendance-group"[^>]+selectAttendanceGroup\(\)/);
-  assert.match(html, /Grupo para pasar lista/);
+  assert.match(html, /Clase asignada por el administrador/);
+  assert.match(app, /const active = activeTeacherClass\(\)/);
   assert.match(app, /function attendanceGroupReady\(openConfiguration = false\)/);
   assert.match(app, /window\.toggleCamera = async \(\) => \{\s*if \(!isScannerRunning && loggedTeacher\?\.role === "docente" && !attendanceGroupReady\(true\)\) return/);
   assert.match(app, /window\.manualAttendance = async \(\) => \{\s*if \(loggedTeacher\?\.role === "docente" && !attendanceGroupReady\(true\)\) return/);
 });
 
-test("un grupo sin horario abre la configuración en ese momento", () => {
-  assert.match(app, /!configuredGroupSchedule\(selection\.level, selection\.group\)/);
-  assert.match(app, /window\.openScheduleSetup\(true, \{level: selection\.level, grupo: selection\.group\}\)/);
-  assert.match(app, /Configure el horario de este grupo para poder pasar lista/);
-  assert.match(html, /id="btn-configure-attendance-group"/);
+test("el docente no dispone del editor de horarios y recibe aviso sin clase activa", () => {
+  assert.doesNotMatch(html, /id="btn-own-schedule"/);
+  assert.match(app, /if \(loggedTeacher\?\.role === "docente"\) return window.openSelectedAttendanceSchedule\(\)/);
+  assert.match(app, /No tiene una clase activa/);
+  assert.doesNotMatch(html, /id="btn-configure-attendance-group"/);
+});
+
+test("el docente solo puede pasar lista durante la clase que configuró el administrador", () => {
+  assert.match(html, /El pase de lista solo estará disponible durante ese módulo/);
+  assert.match(app, /function teacherAttendanceAvailability\(schedule, date = new Date\(\)\)/);
+  assert.match(app, /if \(!active\) \{[\s\S]*?return false/);
+  assert.match(app, /window\.showModalMsg\("Fuera de horario"/);
+  assert.match(functions, /const availability = attendanceWindow\(hora, schedule\.entryTime, schedule\.classDuration\)/);
+  assert.match(functions, /if \(!availability\.allowed\) \{[\s\S]*?solo está disponible de/);
 });
 
 test("la búsqueda y el QR se limitan al grupo elegido", () => {

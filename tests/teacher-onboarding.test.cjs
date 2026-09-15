@@ -35,7 +35,7 @@ test("Firebase asigna la contraseña predeterminada y marca la identidad como te
 });
 
 test("el alta temporal no solicita correo electrónico", () => {
-  assert.match(app, /api\.createTeacher\(\{schoolKey, givenNames, paternalSurname, maternalSurname, role\}\)/);
+  assert.match(app, /api\.createTeacher\(\{schoolKey, givenNames, paternalSurname, maternalSurname, role, assignedSubjects\}\)/);
   assert.doesNotMatch(app, /api\.createTeacher\(\{[^}]*email/);
   assert.doesNotMatch(html, /id="new-teacher-email"/);
 });

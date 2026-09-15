@@ -25,7 +25,7 @@ import {
   httpsCallable,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
 import {createCameraDataScanner} from "./camera-data-scanner.js?v=36.46.0";
-import {attendanceExportFilename, createAttendanceExportData} from "./attendance-report-export.js?v=36.46.0";
+import {attendanceExportFilename, createAttendanceExportData} from "./attendance-report-export.js?v=36.55.0";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBLH2OuKVr8ez5_9GeRJBcnHFlhfgeHD1o",
@@ -57,12 +57,15 @@ const api = Object.fromEntries([
   "changeTeacherPassword",
   "completeTeacherOnboarding",
   "updateOwnSchedule",
+  "updateSchoolSchedules",
   "updateSchool",
   "updateTeacherRole",
+  "updateTeacherSubjects",
   "approveTeacher",
   "deleteTeacher",
   "recordAttendance",
   "justifyAttendance",
+  "correctAttendance",
   "deleteStudent",
   "setStudentActive",
   "moveStudent",
@@ -117,6 +120,8 @@ const attendanceInFlight = new Set();
 let schoolSelectionLoadVersion = 0;
 let globalSchoolsLoadVersion = 0;
 let auditHistory = [];
+let auditHistoryLoadVersion = 0;
+const auditSchoolNames = new Map();
 
 const byId = (id) => document.getElementById(id);
 
@@ -321,11 +326,10 @@ function compareStudentsByList(first, second) {
 }
 const validPassword = (value) => String(value || "").length >= 8 && String(value || "").length <= 72 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(value)) && /\d/.test(String(value));
 const isAdmin = () => ["admin_maestro", "director", "admin_jr", "super"].includes(loggedTeacher?.role);
-const canViewAttendanceReports = () => ["docente", "porteria", "admin_jr", "director", "admin_maestro", "super"].includes(loggedTeacher?.role);
 const isMaster = () => ["admin_maestro", "director", "super"].includes(loggedTeacher?.role);
 const normalizedAttendanceStatus = (value) => {
   const status = normalizeText(value, 30).toUpperCase();
-  if (status === "FALTA POR RETARDOS") return status;
+  if (["FALTA NORMAL", "FALTA JUSTIFICADA", "FALTA POR RETARDOS"].includes(status)) return status;
   return status === "RETARDO" ? "RETARDO" : "A TIEMPO";
 };
 const isTardyAbsence = (value) => normalizedAttendanceStatus(value) === "FALTA POR RETARDOS";
@@ -557,6 +561,7 @@ window.switchToStep = (stepId) => {
 };
 
 window.applySchoolBranding = (data = {}) => {
+  refreshSchoolLevelSelectors(data);
   const premium = data.isPremium === true;
   const primaryColor = premium && /^#[0-9a-f]{6}$/i.test(String(data.brandPrimaryColor || ""))
     ? data.brandPrimaryColor
@@ -606,6 +611,7 @@ function startSchoolProfileListener() {
     if (!snapshot.exists()) return;
     const previousPremium = currentSchool?.isPremium === true;
     currentSchool = {...snapshot.data(), id: schoolKey};
+    updateAttendanceGroupStatus();
     schoolName = normalizeText(currentSchool.name || schoolKey);
     window.applySchoolBranding(currentSchool);
     if (byId("header-school-name")) byId("header-school-name").textContent = schoolName;
@@ -658,6 +664,9 @@ window.logout = async () => {
   stopSchoolProfileListener();
   schoolSelectionLoadVersion += 1;
   globalSchoolsLoadVersion += 1;
+  auditHistoryLoadVersion += 1;
+  auditHistory = [];
+  auditSchoolNames.clear();
   if (sharedQrScanner) await sharedQrScanner.destroy().catch(() => {});
   sharedQrScanner = null;
   qrScannerMode = "attendance";
@@ -676,6 +685,7 @@ window.logout = async () => {
   window.safeToggle("modal-change-password", true);
   window.safeToggle("modal-teacher-recovery", true);
   window.safeToggle("modal-teacher-schedule", true);
+  window.safeToggle("modal-school-schedules", true);
   window.safeToggle("modal-move-student", true);
   window.safeToggle("modal-delete-student-group", true);
   window.closeSchoolCalendar();
@@ -741,6 +751,16 @@ async function loadTeachers(useCache = false) {
         roleCell.textContent = String(teacher.role || "docente").toUpperCase();
       }
       row.append(roleCell);
+      const subjectsCell = createCell((teacher.assignedSubjects || []).join(", ") || "Sin asignación específica", "p-2 text-center");
+      if (isMaster() && teacher.role === "docente") {
+        const editSubjects = document.createElement("button");
+        editSubjects.type = "button";
+        editSubjects.className = "block mx-auto p-2 text-blue-700 underline";
+        editSubjects.textContent = "Editar materias";
+        editSubjects.addEventListener("click", () => window.openTeacherSubjects(teacher.id));
+        subjectsCell.append(editSubjects);
+      }
+      row.append(subjectsCell);
       const actionCell = document.createElement("td");
       actionCell.className = "text-center";
       const canManageTarget = isMaster() || new Set(["docente", "porteria"]).has(teacher.role) || !teacher.role;
@@ -757,23 +777,32 @@ async function loadTeachers(useCache = false) {
         actionCell.append(approve);
       }
       if (canManageTarget) {
-        actionCell.append(createIconButton(
-          `Corregir o restablecer el acceso de ${normalizeText(teacher.nombre)}`,
-          "fas fa-key",
-          () => window.openTeacherRepair(teacher.id, teacher.nombre),
-          "text-blue-700 p-2 rounded-lg hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-600",
-        ));
+        const actions = document.createElement("select");
+        actions.className = "min-w-[130px] rounded-xl border-2 border-blue-600 bg-white p-3 text-sm font-bold text-blue-800";
+        actions.setAttribute("aria-label", `Acciones de ${normalizeText(teacher.nombre)}`);
+        actions.add(new Option("Acciones…", ""));
+        actions.add(new Option("Contraseña", "password"));
+        actions.add(new Option("Editar", "edit"));
+        const ownAccount = loggedTeacher?.role !== "super" && teacher.id === loggedTeacher?.id;
+        actions.options[1].disabled = ownAccount;
+        actions.add(new Option("Eliminar", "delete"));
+        actions.options[3].disabled = ownAccount;
+        actions.addEventListener("change", () => {
+          const action = actions.value;
+          actions.value = "";
+          if (action === "edit") window.openTeacherRepair(teacher.id, teacher.nombre);
+          if (action === "password" && !ownAccount) window.openTeacherRepair(teacher.id, teacher.nombre, "password");
+          if (action === "delete" && !ownAccount) window.deleteTeacher(teacher.id);
+        });
+        actionCell.append(actions);
       }
-      if (canManageTarget && (loggedTeacher?.role === "super" || teacher.id !== loggedTeacher?.id)) {
-        actionCell.append(createIconButton(`Eliminar a ${normalizeText(teacher.nombre)}`, "fas fa-trash", () => window.deleteTeacher(teacher.id, teacher.role)));
-      }
-      row.append(actionCell);
+      row.prepend(actionCell);
       body.append(row);
     }
     if (!teachers.length) {
       const row = document.createElement("tr");
       const cell = createCell("No hay personal registrado", "p-8 text-slate-400 text-center");
-      cell.colSpan = 4;
+      cell.colSpan = 5;
       row.append(cell);
       body.append(row);
     }
@@ -793,10 +822,39 @@ function configureTeacherCreationForm() {
     option.disabled = !canAssignAdministrativeRoles && !new Set(["docente", "porteria"]).has(option.value);
   }
   if (!canAssignAdministrativeRoles && !new Set(["docente", "porteria"]).has(roleSelect.value)) roleSelect.value = "docente";
+  window.handleTeacherRoleChange();
 }
+
+window.handleTeacherRoleChange = () => {
+  const docente = byId("new-teacher-role")?.value === "docente";
+  window.safeToggle("teacher-subjects-fields", !docente);
+  const input = byId("new-teacher-assigned-subjects");
+  if (input) {
+    input.disabled = !docente || byId("new-teacher-all-subjects")?.checked === true;
+    input.required = docente && !input.disabled;
+  }
+};
+window.handleAllSubjectsChange = window.handleTeacherRoleChange;
 
 const STUDENT_LEVEL_LABELS = {PRE: "Preescolar", PRI: "Primaria", SEC: "Secundaria", BAC: "Bachillerato", "SIN NIVEL": "Sin nivel"};
 const STUDENT_LEVEL_ORDER = new Map(["PRE", "PRI", "SEC", "BAC", "SIN NIVEL"].map((level, index) => [level, index]));
+function schoolLevels(data = currentSchool) {
+  const all = ["PRE", "PRI", "SEC", "BAC"];
+  return Array.isArray(data?.levels) ? all.filter((level) => data.levels.includes(level)) : all;
+}
+function refreshSchoolLevelSelectors(data = currentSchool) {
+  if (byId("timetable-level-field")) byId("timetable-level-field").hidden = schoolLevels(data).length === 1;
+  for (const id of ["input-a-nivel", "batch-level", "move-student-level", "timetable-level"]) {
+    const select = byId(id);
+    if (!select) continue;
+    const previous = select.value;
+    const placeholder = [...select.options].find((option) => !option.value)?.text;
+    select.replaceChildren();
+    if (placeholder) select.add(new Option(placeholder, ""));
+    for (const level of schoolLevels(data)) select.add(new Option(STUDENT_LEVEL_LABELS[level], level));
+    select.value = schoolLevels(data).includes(previous) ? previous : placeholder ? "" : schoolLevels(data)[0] || "";
+  }
+}
 
 function groupStudentsBy(items, keyFor) {
   return items.reduce((groups, item) => {
@@ -1204,7 +1262,7 @@ async function loadStudents(useCache = false) {
       || studentDisplayName(student).toUpperCase().includes(term));
     const studentsWithGroup = students.filter((student) => normalizeGroupName(student.grupo));
     const levels = groupStudentsBy(studentsWithGroup, (student) => normalizeSchoolLevel(student.level || student.nivel) || "SIN NIVEL");
-    const levelNames = [...levels.keys()].sort((first, second) => {
+    const levelNames = [...levels.keys()].filter((level) => schoolLevels().includes(level) || level === "SIN NIVEL").sort((first, second) => {
       const order = (STUDENT_LEVEL_ORDER.get(first) ?? 99) - (STUDENT_LEVEL_ORDER.get(second) ?? 99);
       return order || first.localeCompare(second, "es", {numeric: true});
     });
@@ -1341,12 +1399,62 @@ function selectedAttendanceGroup() {
   }
 }
 
+function activeTeacherClass(date = new Date()) {
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-GB", {timeZone: "America/Mexico_City", weekday: "short"}).format(date));
+  const time = currentSchoolClock(date);
+  return (currentSchool?.subjectSchedules || []).find((row) => row.teacherId === loggedTeacher?.id && row.day === day && time >= row.entryTime && time < row.endTime);
+}
+
 function configuredGroupSchedule(level, group) {
-  return (Array.isArray(loggedTeacher?.groupSchedules) ? loggedTeacher.groupSchedules : []).find((item) => (
-    normalizeSchoolLevel(item?.level) === normalizeSchoolLevel(level)
-      && normalizeGroupName(item?.group) === normalizeGroupName(group)
-      && /^\d{2}:\d{2}$/.test(String(item?.entryTime || "").slice(0, 5))
-  ));
+  if (loggedTeacher?.role === "docente") {
+    const active = activeTeacherClass();
+    return active && normalizeSchoolLevel(active.level) === normalizeSchoolLevel(level) && normalizeGroupName(active.group) === normalizeGroupName(group) ? active : null;
+  }
+  return (loggedTeacher?.groupSchedules || []).find((item) => normalizeSchoolLevel(item.level) === normalizeSchoolLevel(level) && normalizeGroupName(item.group) === normalizeGroupName(group));
+}
+
+function scheduleClockMinutes(value) {
+  const match = /^(\d{2}):(\d{2})/.exec(String(value || ""));
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours <= 23 && minutes <= 59 ? hours * 60 + minutes : null;
+}
+
+function currentSchoolClock(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Mexico_City",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0) % 24;
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function formatScheduleClock(value) {
+  const minutes = ((Number(value) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function teacherAttendanceAvailability(schedule, date = new Date()) {
+  if (loggedTeacher?.role === "docente") {
+    const active = activeTeacherClass(date);
+    return {allowed: Boolean(active && active.id === schedule?.id), startTime: schedule?.entryTime || "", endTime: schedule?.endTime || ""};
+  }
+  const current = scheduleClockMinutes(currentSchoolClock(date));
+  const startsAt = scheduleClockMinutes(schedule?.entryTime);
+  const configuredDuration = Math.trunc(Number((loggedTeacher?.role === "docente" ? currentSchool?.classDuration : (schedule?.classDuration ?? loggedTeacher?.classDuration ?? currentSchool?.classDuration)) ?? 50));
+  const duration = Number.isFinite(configuredDuration) ? Math.max(1, Math.min(240, configuredDuration)) : 50;
+  if (current === null || startsAt === null) return {allowed: false, startTime: "", endTime: ""};
+  const endsAt = startsAt + duration;
+  const comparableCurrent = endsAt > 1440 && current < startsAt ? current + 1440 : current;
+  return {
+    allowed: comparableCurrent >= startsAt && comparableCurrent < endsAt,
+    startTime: formatScheduleClock(startsAt),
+    endTime: formatScheduleClock(endsAt),
+  };
 }
 
 function studentMatchesSelectedAttendanceGroup(student) {
@@ -1358,92 +1466,58 @@ function studentMatchesSelectedAttendanceGroup(student) {
 }
 
 function updateAttendanceGroupStatus() {
-  const status = byId("attendance-group-status");
-  const label = byId("current-schedule-label");
-  const configureButton = byId("btn-configure-attendance-group");
   if (loggedTeacher?.role !== "docente") return;
-  const selection = selectedAttendanceGroup();
-  if (!selection) {
-    if (status) status.textContent = "Seleccione el grupo antes de encender la cámara o registrar manualmente.";
-    if (label) label.textContent = "Seleccione un grupo";
-    if (configureButton) configureButton.textContent = "Configurar horario del grupo";
-    return;
+  const active = activeTeacherClass();
+  const key = active ? scheduleGroupKey(active.level, active.group) : "";
+  const changed = selectedAttendanceGroupKey !== key;
+  selectedAttendanceGroupKey = key;
+  const select = byId("attendance-group");
+  if (select) {
+    select.replaceChildren(new Option(active ? active.subject + " · " + active.level + " · Grupo " + active.group : "Sin clase activa", key));
+    select.disabled = true;
   }
-  const schedule = configuredGroupSchedule(selection.level, selection.group);
-  if (!schedule) {
-    if (status) status.textContent = `${selection.level} · Grupo ${selection.group} todavía no tiene horario. Configúrelo para comenzar el pase de lista.`;
-    if (label) label.textContent = `${selection.level} · Grupo ${selection.group} · horario pendiente`;
-    if (configureButton) configureButton.textContent = "Configurar horario ahora";
-    return;
+  const message = active
+    ? active.subject + " · " + active.level + " · Grupo " + active.group + " · " + active.entryTime + "–" + active.endTime + ". Pase de lista habilitado."
+    : "No tiene clase en este momento. El pase de lista se habilitará automáticamente según el horario del administrador.";
+  if (byId("attendance-group-status")) byId("attendance-group-status").textContent = message;
+  if (byId("current-schedule-label")) byId("current-schedule-label").textContent = message;
+  if (byId("btn-camera")) byId("btn-camera").disabled = !active;
+  if (byId("btn-manual-attendance")) byId("btn-manual-attendance").disabled = !active;
+  if (!active && isScannerRunning) window.stopScanner();
+  if (changed) {
+    selectedManualStudentId = "";
+    if (byId("input-manual-student-search")) byId("input-manual-student-search").value = "";
+    hideManualStudentResults();
   }
-  if (status) status.textContent = `${selection.level} · Grupo ${selection.group} listo para pasar lista a las ${schedule.entryTime}.`;
-  if (label) label.textContent = `${selection.level} · Grupo ${selection.group} · Pase ${schedule.entryTime} · tolerancia ${Number(schedule.tolerance || 0)} min`;
-  if (configureButton) configureButton.textContent = "Modificar horario del grupo";
 }
 
 function populateAttendanceGroupOptions() {
-  const panel = byId("teacher-attendance-group-panel");
-  const select = byId("attendance-group");
   const teacher = loggedTeacher?.role === "docente";
   window.safeToggle("teacher-attendance-group-panel", !teacher);
-  if (!teacher || !panel || !select) return;
-  const groups = new Map();
-  for (const student of studentCatalogCache) {
-    if (isStudentInactive(student)) continue;
-    const level = normalizeSchoolLevel(student.level || student.nivel);
-    const group = normalizeGroupName(student.grupo);
-    if (level && group) groups.set(scheduleGroupKey(level, group), {level, group});
+  if (!teacher) {
+    if (byId("btn-camera")) byId("btn-camera").disabled = false;
+    if (byId("btn-manual-attendance")) byId("btn-manual-attendance").disabled = false;
   }
-  const options = [...groups.entries()].sort(([, first], [, second]) => {
-    const levelOrder = (STUDENT_LEVEL_ORDER.get(first.level) ?? 99) - (STUDENT_LEVEL_ORDER.get(second.level) ?? 99);
-    return levelOrder || first.group.localeCompare(second.group, "es", {numeric: true, sensitivity: "base"});
-  });
-  select.replaceChildren(new Option(options.length ? "Seleccione un grupo" : "No hay grupos registrados", ""));
-  for (const [value, item] of options) {
-    const pending = configuredGroupSchedule(item.level, item.group) ? "" : " · CONFIGURAR HORARIO";
-    select.add(new Option(`${STUDENT_LEVEL_LABELS[item.level] || item.level} · Grupo ${item.group}${pending}`, value));
-  }
-  if (options.some(([value]) => value === selectedAttendanceGroupKey)) select.value = selectedAttendanceGroupKey;
-  else selectedAttendanceGroupKey = "";
-  select.disabled = options.length === 0;
   updateAttendanceGroupStatus();
 }
 
-window.selectAttendanceGroup = async () => {
-  if (isScannerRunning) await window.stopScanner();
-  selectedAttendanceGroupKey = String(byId("attendance-group")?.value || "");
-  selectedManualStudentId = "";
-  if (byId("input-manual-student-search")) byId("input-manual-student-search").value = "";
-  if (byId("manual-student-selection")) byId("manual-student-selection").textContent = "Busque y seleccione un alumno.";
-  hideManualStudentResults();
-  updateAttendanceGroupStatus();
-  const selection = selectedAttendanceGroup();
-  if (selection && !configuredGroupSchedule(selection.level, selection.group)) {
-    window.openScheduleSetup(true, {level: selection.level, grupo: selection.group});
-  }
-};
-
-window.openSelectedAttendanceSchedule = () => {
-  const selection = selectedAttendanceGroup();
-  if (!selection) return window.showModalMsg("Pase de lista", "Seleccione primero el grupo que desea atender.");
-  window.openScheduleSetup(true, {level: selection.level, grupo: selection.group});
-};
+window.selectAttendanceGroup = () => updateAttendanceGroupStatus();
+window.openSelectedAttendanceSchedule = () => window.showModalMsg("Horario", "Los horarios por materia los configura el administrador del plantel.");
 
 function attendanceGroupReady(openConfiguration = false) {
   if (loggedTeacher?.role !== "docente") return null;
-  const selection = selectedAttendanceGroup();
-  if (!selection) {
-    updateAttendanceGroupStatus();
-    if (openConfiguration) window.showModalMsg("Pase de lista", "Seleccione el grupo antes de comenzar.");
+  updateAttendanceGroupStatus();
+  const active = activeTeacherClass();
+  if (!active) {
+    if (openConfiguration) window.showModalMsg("Fuera de horario", "No tiene una clase activa. Consulte la tabla de horarios del plantel con su administrador.");
     return false;
   }
-  if (!configuredGroupSchedule(selection.level, selection.group)) {
-    updateAttendanceGroupStatus();
-    if (openConfiguration) window.openScheduleSetup(true, {level: selection.level, grupo: selection.group});
-    return false;
-  }
-  return selection;
+  return {level: normalizeSchoolLevel(active.level), group: normalizeGroupName(active.group)};
 }
+
+setInterval(() => {
+  if (loggedTeacher?.role === "docente") updateAttendanceGroupStatus();
+}, 10000);
 
 function selectStudentScheduleGroup(student) {
   const select = byId("schedule-group");
@@ -1456,6 +1530,7 @@ function selectStudentScheduleGroup(student) {
 }
 
 window.openScheduleSetup = (required = false, student = null) => {
+  if (loggedTeacher?.role === "docente") return window.openSelectedAttendanceSchedule();
   populateScheduleGroupOptions();
   selectStudentScheduleGroup(student);
   const select = byId("schedule-group");
@@ -1514,11 +1589,17 @@ function effectiveSchedule(level, group) {
   const school = currentSchool || {};
   const groupSchedule = (Array.isArray(teacher.groupSchedules) ? teacher.groupSchedules : []).find((item) =>
     normalizeSchoolLevel(item?.level) === level && normalizeGroupName(item?.group) === group);
+  const parameters = teacher.role === "docente" ? school : {
+    recessReturnTime: groupSchedule?.recessReturnTime || teacher.recessReturnTime || school.recessReturnTime,
+    tolerance: groupSchedule?.tolerance ?? teacher.tolerance ?? school.tolerance,
+    classDuration: groupSchedule?.classDuration ?? teacher.classDuration ?? school.classDuration,
+  };
+  const duration = Math.trunc(Number(parameters.classDuration ?? 50));
   return {
     entryTime: String(groupSchedule?.entryTime || teacher.entryTime || school.entryTime || "").slice(0, 5),
-    recessReturnTime: String(groupSchedule?.recessReturnTime || teacher.recessReturnTime || school.recessReturnTime || "").slice(0, 5),
-    tolerance: Number(groupSchedule?.tolerance ?? teacher.tolerance ?? school.tolerance ?? 0),
-    classDuration: Number(groupSchedule?.classDuration ?? teacher.classDuration ?? school.classDuration ?? 50),
+    recessReturnTime: String(parameters.recessReturnTime || "").slice(0, 5),
+    tolerance: Math.max(0, Math.min(120, Number(parameters.tolerance ?? 0) || 0)),
+    classDuration: Number.isFinite(duration) ? Math.max(1, Math.min(240, duration)) : 50,
     configuredForGroup: Boolean(groupSchedule),
   };
 }
@@ -1526,6 +1607,23 @@ function effectiveSchedule(level, group) {
 function populateScheduleForm() {
   const selection = selectedScheduleGroup();
   const schedule = effectiveSchedule(selection?.level, selection?.group);
+  const teacherOnly = loggedTeacher?.role === "docente";
+  window.safeToggle("schedule-admin-parameters", teacherOnly);
+  window.safeToggle("schedule-admin-defaults", !teacherOnly);
+  for (const id of ["schedule-tolerance", "schedule-recess-return", "schedule-class-duration"]) {
+    if (byId(id)) byId(id).disabled = teacherOnly;
+  }
+  if (byId("schedule-admin-defaults")) byId("schedule-admin-defaults").textContent = `Configuración del administrador: tolerancia ${schedule.tolerance} min, duración ${schedule.classDuration} min y regreso del receso ${schedule.recessReturnTime || "sin configurar"}.`;
+  const subjectSelect = byId("schedule-subject");
+  if (subjectSelect) {
+    const subjects = Array.isArray(loggedTeacher?.assignedSubjects) ? loggedTeacher.assignedSubjects : [];
+    const savedSubject = configuredGroupSchedule(selection?.level, selection?.group)?.subject || "";
+    subjectSelect.replaceChildren(new Option(subjects.length ? "Seleccione una materia" : "Sin materias asignadas", ""));
+    for (const subject of subjects) subjectSelect.add(new Option(subject, subject));
+    if (savedSubject && !subjects.includes(savedSubject)) subjectSelect.add(new Option(savedSubject, savedSubject));
+    subjectSelect.value = savedSubject || (subjects.length === 1 ? subjects[0] : "");
+    subjectSelect.disabled = loggedTeacher?.role !== "docente" || (!subjects.length && !savedSubject);
+  }
   const fields = {
     "schedule-entry-time": schedule.entryTime,
     "schedule-recess-return": schedule.recessReturnTime,
@@ -1533,14 +1631,10 @@ function populateScheduleForm() {
     "schedule-class-duration": schedule.classDuration,
   };
   for (const [id, value] of Object.entries(fields)) if (byId(id)) byId(id).value = value ?? "";
-  const label = byId("current-schedule-label");
-  if (!label) return;
-  if (!selection) label.textContent = "Sin grupos registrados";
-  else if (schedule.entryTime) label.textContent = `${selection.level} · Grupo ${selection.group} · Pase ${schedule.entryTime} · tolerancia ${schedule.tolerance} min${schedule.configuredForGroup ? "" : " · horario general"}`;
-  else label.textContent = `${selection.level} · Grupo ${selection.group} · sin horario configurado`;
 }
 
 window.saveOwnSchedule = async () => {
+  if (loggedTeacher?.role === "docente") return window.openSelectedAttendanceSchedule();
   if (!loggedTeacher || loggedTeacher.role === "super") return;
   const selection = selectedScheduleGroup();
   if (!selection) return window.showModalMsg("Horario", "Primero registre alumnos en un grupo para poder asignarle un horario.");
@@ -1549,10 +1643,16 @@ window.saveOwnSchedule = async () => {
     level: selection.level,
     group: selection.group,
     entryTime: byId("schedule-entry-time")?.value || "",
-    recessReturnTime: byId("schedule-recess-return")?.value || "",
-    tolerance: byId("schedule-tolerance")?.value || 0,
-    classDuration: byId("schedule-class-duration")?.value || 50,
+    ...(loggedTeacher.role === "docente" ? {} : {
+      recessReturnTime: byId("schedule-recess-return")?.value || "",
+      tolerance: byId("schedule-tolerance")?.value || 0,
+      classDuration: byId("schedule-class-duration")?.value || 50,
+    }),
+    subject: byId("schedule-subject")?.value || "",
   };
+  if (loggedTeacher.role === "docente" && loggedTeacher.assignedSubjects?.length && !schedule.subject) {
+    return window.showModalMsg("Horario", "Seleccione la materia que impartirá a este grupo.");
+  }
   if (loggedTeacher.role === "docente" && !schedule.entryTime) {
     byId("schedule-entry-time")?.focus();
     if (byId("schedule-setup-status")) byId("schedule-setup-status").textContent = "Capture la hora en la que pasará lista para este grupo.";
@@ -1923,7 +2023,7 @@ async function enterApp() {
   byId("user-display-name").textContent = loggedTeacher.nombre;
   byId("user-display-role").textContent = String(loggedTeacher.role || "docente").replace("_", " ");
   const superUser = loggedTeacher.role === "super";
-  window.safeToggle("tab-admin", !canViewAttendanceReports());
+  window.safeToggle("tab-admin", !isAdmin());
   window.safeToggle("tab-super", !superUser);
   window.safeToggle("tab-scanner", superUser);
   window.safeToggle("tab-incidents", loggedTeacher.role !== "docente");
@@ -1941,7 +2041,7 @@ async function switchTab(tab) {
   const allowed = new Set(["scanner", "incidents", "admin", "global"]);
   if (!allowed.has(tab)) return;
   if (tab === "incidents" && loggedTeacher?.role !== "docente") return window.showModalMsg("Acceso", "Esta bitácora está disponible para cuentas docentes.");
-  if (tab === "admin" && !canViewAttendanceReports()) return window.showModalMsg("Acceso", "No tiene permisos para consultar reportes.");
+  if (tab === "admin" && !isAdmin()) return window.showModalMsg("Acceso", "Esta sección está disponible únicamente para administradores.");
   if (tab === "global" && loggedTeacher?.role !== "super") return window.showModalMsg("Acceso", "Esta sección requiere el rol maestro global.");
   window.safeToggle("section-scanner", tab !== "scanner");
   window.safeToggle("section-incidents", tab !== "incidents");
@@ -2323,6 +2423,7 @@ window.switchMaintCategory = async (category) => {
     return loadTeachers();
   }
   if (category === "reportes") {
+    populateReportClasses();
     const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
     if (byId("report-date-from") && !byId("report-date-from").value) byId("report-date-from").value = today;
     if (byId("report-date-to") && !byId("report-date-to").value) byId("report-date-to").value = today;
@@ -2336,10 +2437,7 @@ window.switchMaintCategory = async (category) => {
   const fields = {
     "edit-school-name": data.name,
     "edit-director-name": data.director,
-    "edit-entry-time": data.entryTime,
-    "edit-recess-return": data.recessReturnTime,
     "edit-tolerance": data.tolerance,
-    "edit-class-duration": data.classDuration,
     "edit-tardies-per-absence": data.tardiesPerAbsence ?? 0,
     "display-school-cct-readonly": schoolKey,
     "edit-school-contact-email": data.contactEmail,
@@ -2347,8 +2445,12 @@ window.switchMaintCategory = async (category) => {
     "edit-brand-accent": data.brandAccentColor || data.brandColor || DEFAULT_ACCENT,
     "edit-logo-background-mode": data.brandLogoBackgroundMode === "color" ? "color" : "transparent",
     "edit-logo-background-color": /^#[0-9a-f]{6}$/i.test(String(data.brandLogoBackgroundColor || "")) ? data.brandLogoBackgroundColor : "#ffffff",
+    "edit-journey-mode": data.timetablePreferences?.journeyMode === "levels" ? "levels" : "institutional",
   };
   for (const [id, value] of Object.entries(fields)) if (byId(id)) byId(id).value = value ?? "";
+  for (const level of ["PRE", "PRI", "SEC", "BAC"]) byId(`edit-level-${level}`).checked = schoolLevels(data).includes(level);
+  const workDays = Array.isArray(data.timetablePreferences?.workDays) ? data.timetablePreferences.workDays : [1, 2, 3, 4, 5];
+  for (const day of [1, 2, 3, 4, 5, 6, 0]) byId(`edit-work-day-${day}`).checked = workDays.includes(day);
   pendingLogoDataUrl = String(data.isPremium === true ? data.logoDataUrl || "" : data.pendingLogoDataUrl || "");
   const logoPreview = byId("brand-logo-preview");
   if (logoPreview) {
@@ -2432,15 +2534,21 @@ window.updateLogoBackgroundPreview = () => {
 
 window.updateSchoolGlobalData = async () => {
   if (!isAdmin()) return;
+  const workDays = [1, 2, 3, 4, 5, 6, 0].filter((day) => byId(`edit-work-day-${day}`)?.checked);
   const profile = {
     name: byId("edit-school-name").value,
+    levels: ["PRE", "PRI", "SEC", "BAC"].filter((level) => byId(`edit-level-${level}`).checked),
     director: byId("edit-director-name").value,
-    entryTime: byId("edit-entry-time").value,
-    recessReturnTime: byId("edit-recess-return").value,
+    entryTime: currentSchool?.entryTime || "",
+    recessReturnTime: currentSchool?.recessReturnTime || "",
     tolerance: byId("edit-tolerance").value,
-    classDuration: byId("edit-class-duration").value,
+    classDuration: currentSchool?.classDuration ?? 50,
     tardiesPerAbsence: byId("edit-tardies-per-absence")?.value || 0,
     contactEmail: byId("edit-school-contact-email")?.value || "",
+    timetablePreferences: {
+      workDays,
+      journeyMode: byId("edit-journey-mode")?.value === "levels" ? "levels" : "institutional",
+    },
   };
   if (currentSchool?.isPremium === true || byId("premium-branding-panel")?.classList.contains("hidden") === false) {
     profile.brandPrimaryColor = byId("edit-brand-primary")?.value || "#1e293b";
@@ -2452,6 +2560,8 @@ window.updateSchoolGlobalData = async () => {
     profile.pendingLogoDataUrl = pendingLogoDataUrl;
   }
   try {
+    if (!profile.levels.length) throw new Error("Seleccione al menos un nivel de la institución.");
+    if (!profile.timetablePreferences.workDays.length) throw new Error("Seleccione al menos un día laborable.");
     await api.updateSchool({schoolKey, profile});
     currentSchool = {...currentSchool, ...profile, isPremium: currentSchool?.isPremium === true};
     window.applySchoolBranding(currentSchool);
@@ -3087,6 +3197,440 @@ window.renumberStudentGroup = (level, group) => window.showConfirmMsg(
   },
 );
 
+let schoolScheduleDraft = [];
+let schoolTimetableDraft = {workDays: [1, 2, 3, 4, 5], groups: []};
+let timetableSelected = "";
+let timetableFormDirty = false;
+const timetablePendingSubjects = new Map();
+const timetableGroupKey = (row) => `${row.level}/${row.group}`;
+const timetableDayNames = [[1, "Lunes"], [2, "Martes"], [3, "Miércoles"], [4, "Jueves"], [5, "Viernes"], [6, "Sábado"], [0, "Domingo"]];
+function initializeTimetableEditor() {
+  timetablePendingSubjects.clear();
+  byId("timetable-form").oninput = () => {timetableFormDirty = true; updateTimetableGenerationState();};
+  const journey = window.SchoolTimetable.journeyForLevel(schoolTimetableDraft, schoolLevels()[0]) || schoolTimetableDraft.groups[0] || {entryTime: "08:00", endTime: "14:00", modulesPerDay: 6, breakMinutes: 5, recessStart: "", recessEnd: ""};
+  const journeyMode = typeof currentSchool !== "undefined" && currentSchool?.timetablePreferences?.journeyMode
+    ? currentSchool.timetablePreferences.journeyMode
+    : "levels";
+  byId("timetable-journey-mode").value = journeyMode;
+  window.updateTimetableJourneyMode();
+  for (const [id, field] of [["entry", "entryTime"], ["end", "endTime"], ["count", "modulesPerDay"], ["break", "breakMinutes"], ["recess-start", "recessStart"], ["recess-end", "recessEnd"]]) byId("timetable-" + id).value = journey[field] ?? "";
+  byId("timetable-break-mode").value = journey.breakMinutes ? "break" : "continuous";
+  window.updateTimetableBreakMode();
+  timetableFormDirty = false;
+  // Import names used by old schedules; manual abbreviations are no longer needed.
+  const names = new Map();
+  for (const subject of [...schoolTimetableDraft.subjects || [], ...schoolScheduleDraft.map((row) => ({name: row.subject}))]) {
+    if (subject.name) names.set(timetableSubjectKey(subject.name), {name: subject.name});
+  }
+  schoolTimetableDraft.subjects = [...names.values()];
+  const container = byId("timetable-days");
+  container.replaceChildren();
+  for (const [day, name] of timetableDayNames) {
+    const label = document.createElement("label"), input = document.createElement("input");
+    input.type = "checkbox"; input.checked = schoolTimetableDraft.workDays.includes(day);
+    input.addEventListener("change", () => {
+      const hasPendingSubjects = [...timetablePendingSubjects.keys()].some((key) => JSON.parse(key)[2] === day);
+      if (!input.checked && (schoolScheduleDraft.some((row) => row.day === day) || hasPendingSubjects)) {
+        input.checked = true; byId("school-schedules-status").textContent = `Quite o reubique las clases del ${name} antes de desactivar ese día.`; return;
+      }
+      schoolTimetableDraft.workDays = timetableDayNames.filter(([d]) => d === day ? input.checked : schoolTimetableDraft.workDays.includes(d)).map(([d]) => d);
+      renderTimetableGrid();
+    });
+    label.append(input, ` ${name}`); container.append(label);
+  }
+  const levelsContainer = byId("timetable-journey-levels");
+  levelsContainer.replaceChildren();
+  for (const level of schoolLevels()) {
+    const label = document.createElement("label"), input = document.createElement("input");
+    input.type = "checkbox"; input.value = level; input.checked = true;
+    label.append(input, " " + ({PRE: "Preescolar", PRI: "Primaria", SEC: "Secundaria", BAC: "Bachillerato"})[level]);
+    levelsContainer.append(label);
+  }
+  const loadSelect = byId("timetable-load-level");
+  loadSelect.replaceChildren(new Option("Recuperar jornada de un nivel…", ""));
+  for (const level of schoolLevels()) loadSelect.append(new Option(({PRE: "Preescolar", PRI: "Primaria", SEC: "Secundaria", BAC: "Bachillerato"})[level], level));
+  renderTimetableSubjects();
+  updateTimetableGenerationState();
+  refreshTimetableGroups();
+  window.selectGroupTimetable(schoolTimetableDraft.groups[0] ? timetableGroupKey(schoolTimetableDraft.groups[0]) : "");
+}
+window.updateTimetableJourneyMode = () => {
+  const byLevel = byId("timetable-journey-mode").value === "levels";
+  byId("timetable-level-options").hidden = !byLevel;
+  if (!byLevel) for (const label of byId("timetable-journey-levels").children) label.children[0].checked = true;
+  updateTimetableGenerationState();
+};
+window.loadLevelJourney = () => {
+  const level = byId("timetable-load-level").value;
+  if (!level) return;
+  const journey = window.SchoolTimetable.journeyForLevel(schoolTimetableDraft, level) || schoolTimetableDraft.groups.find((group) => group.level === level);
+  if (!journey) {byId("school-schedules-status").textContent = "Este nivel aún no tiene jornada. Selecciónelo y aplique los parámetros del paso 1."; return;}
+  if (timetableFormDirty && !window.confirm("Hay parámetros sin aplicar. ¿Recuperar la jornada guardada de este nivel?")) return;
+  for (const [id, field] of [["entry", "entryTime"], ["end", "endTime"], ["count", "modulesPerDay"], ["break", "breakMinutes"], ["recess-start", "recessStart"], ["recess-end", "recessEnd"]]) byId("timetable-" + id).value = journey[field] ?? "";
+  byId("timetable-break-mode").value = journey.breakMinutes ? "break" : "continuous";
+  window.updateTimetableBreakMode();
+  for (const label of byId("timetable-journey-levels").children) label.children[0].checked = label.children[0].value === level;
+  timetableFormDirty = false;
+  updateTimetableGenerationState();
+};
+function refreshTimetableGroups() {
+  const list = byId("timetable-groups");
+  list.replaceChildren();
+  const level = byId("timetable-level").value;
+  const names = new Set(schoolTimetableDraft.groups.filter((group) => group.level === level).map((group) => group.group));
+  if (typeof studentCatalogCache !== "undefined") for (const student of studentCatalogCache) {
+    if (normalizeSchoolLevel(student.level || student.nivel) === level) names.add(normalizeGroupName(student.grupo));
+  }
+  for (const name of [...names].filter(Boolean).sort()) list.append(new Option(name, name));
+}
+window.changeTimetableGroup = () => {
+  const key = byId("timetable-level").value + "/" + byId("timetable-group").value.trim().toUpperCase();
+  if (key !== timetableSelected) window.selectGroupTimetable(key);
+  refreshTimetableGroups();
+};
+window.selectGroupTimetable = (key) => {
+  timetableSelected = key;
+  const split = key.indexOf("/");
+  byId("timetable-level").value = split < 0 ? byId("timetable-level").value || schoolLevels()[0] : key.slice(0, split);
+  byId("timetable-group").value = split < 0 ? "" : key.slice(split + 1);
+  refreshTimetableGroups();
+  updateTimetableGenerationState();
+  renderTimetableGrid();
+};
+function updateTimetableGenerationState() {
+  const journey = window.SchoolTimetable.journeyForLevel(schoolTimetableDraft, byId("timetable-level").value);
+  byId("timetable-generate").disabled = !journey || timetableFormDirty || !schoolTimetableDraft.subjects?.length;
+  byId("timetable-journey-summary").textContent = timetableFormDirty ? "Aplique los cambios de la jornada institucional antes de generar o guardar tablas."
+    : journey ? journey.entryTime + "–" + journey.endTime + " · " + journey.modulesPerDay + " módulos diarios para el nivel seleccionado en el paso 3."
+    : "Seleccione los niveles y aplique su jornada. Los demás conservan su configuración.";
+}
+window.applyInstitutionalJourney = (event) => {
+  event.preventDefault();
+  try {
+    if (timetablePendingSubjects.size) throw new Error("Complete o vacíe las materias pendientes antes de cambiar la jornada.");
+    const journey = {entryTime: byId("timetable-entry").value, endTime: byId("timetable-end").value, modulesPerDay: Number(byId("timetable-count").value), breakMinutes: byId("timetable-break-mode").value === "continuous" ? 0 : Number(byId("timetable-break").value), recessStart: byId("timetable-recess-start").value, recessEnd: byId("timetable-recess-end").value};
+    if (byId("timetable-break-mode").value !== "continuous" && journey.breakMinutes < 1) throw new Error("Indique al menos un minuto de traslado o descanso.");
+    const levels = byId("timetable-journey-mode").value === "institutional"
+      ? undefined
+      : Array.from(byId("timetable-journey-levels").children).map((label) => label.children[0]).filter((input) => input.checked).map((input) => input.value);
+    const result = window.SchoolTimetable.applyJourney(schoolTimetableDraft, schoolScheduleDraft, journey, levels);
+    const moved = result.schedules.some((row, i) => row.entryTime !== schoolScheduleDraft[i].entryTime || row.endTime !== schoolScheduleDraft[i].endTime);
+    if (moved && !window.confirm("La jornada cambiará las horas de las materias en los niveles seleccionados. Se conservará su número de módulo. ¿Aplicar y revisar las tablas?")) return;
+    schoolTimetableDraft = result.timetable; schoolScheduleDraft = result.schedules; timetableFormDirty = false;
+    updateTimetableGenerationState(); renderTimetableGrid(); renderSchoolSchedules();
+    byId("school-schedules-status").textContent = "Jornada aplicada a los niveles seleccionados. Los demás conservan su jornada. Guarde los horarios para conservar los cambios.";
+  } catch (error) {byId("school-schedules-status").textContent = error.message;}
+};
+window.updateTimetableBreakMode = () => {
+  const continuous = byId("timetable-break-mode").value === "continuous";
+  byId("timetable-break").disabled = continuous;
+  byId("timetable-break").required = !continuous;
+  timetableFormDirty = true;
+  if (!continuous && Number(byId("timetable-break").value) < 1) byId("timetable-break").value = 5;
+  updateTimetableGenerationState();
+};
+window.generateGroupTimetable = (event) => {
+  event.preventDefault();
+  try {
+    const journey = window.SchoolTimetable.journeyForLevel(schoolTimetableDraft, byId("timetable-level").value);
+    if (!journey || timetableFormDirty) throw new Error("Primero aplique la jornada para este nivel.");
+    if (!schoolTimetableDraft.subjects?.length) throw new Error("Registre las materias antes de generar la tabla del grupo.");
+    if (timetablePendingSubjects.size) throw new Error("Complete o vacíe las materias pendientes antes de generar tablas.");
+    const group = {level: byId("timetable-level").value, group: byId("timetable-group").value.trim().toUpperCase(), ...journey};
+    const key = timetableGroupKey(group);
+    const modules = window.SchoolTimetable.generateModules(group).filter((slot) => slot.type === "module");
+    const existing = schoolScheduleDraft.filter((row) => timetableGroupKey(row) === key);
+    const replacements = [];
+    for (const [day] of timetableDayNames) {
+      const classes = existing.filter((row) => row.day === day).sort((a, b) => a.entryTime.localeCompare(b.entryTime));
+      if (classes.length > modules.length) throw new Error("Hay más clases que módulos. Aumente los módulos o quite clases antes de regenerar.");
+      const used = new Set();
+      for (const row of classes) {
+        const same = modules.findIndex((m) => m.entryTime === row.entryTime && m.endTime === row.endTime);
+        if (same >= 0) {used.add(same); replacements.push({...row});}
+      }
+      for (const row of classes.filter((r) => !modules.some((m) => m.entryTime === r.entryTime && m.endTime === r.endTime))) {
+        const index = modules.findIndex((_, i) => !used.has(i)); used.add(index);
+        replacements.push({...row, entryTime: modules[index].entryTime, endTime: modules[index].endTime});
+      }
+    }
+    const groups = [...schoolTimetableDraft.groups.filter((g) => timetableGroupKey(g) !== key), group];
+    const schedules = [...schoolScheduleDraft.filter((row) => timetableGroupKey(row) !== key), ...replacements];
+    const config = window.SchoolTimetable.validateTimetable({...schoolTimetableDraft, groups}, schedules);
+    if (existing.some((row) => !replacements.some((r) => r.day === row.day && r.subject === row.subject && r.teacherId === row.teacherId && r.entryTime === row.entryTime && r.endTime === row.endTime)) && !window.confirm("Las materias existentes se reubicarán en los nuevos módulos. Revise la tabla antes de guardar. ¿Generar la nueva distribución?")) return;
+    schoolTimetableDraft = config; schoolScheduleDraft = schedules; timetableSelected = key; timetableFormDirty = false;
+    refreshTimetableGroups(); renderTimetableGrid(); renderSchoolSchedules();
+    byId("school-schedules-status").textContent = "Tabla generada. Asigne materias y guarde los horarios para aplicar los cambios.";
+  } catch (error) {byId("school-schedules-status").textContent = error.message;}
+};
+const timetableSubjectKey = (value) => String(value || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+function matchingTimetableSubjects(value) {
+  const key = timetableSubjectKey(value);
+  return (schoolTimetableDraft.subjects || []).filter((subject) => !key || timetableSubjectKey(subject.name).startsWith(key));
+}
+function resolveTimetableSubject(value) {
+  const key = timetableSubjectKey(value);
+  if (!key) return "";
+  const matches = matchingTimetableSubjects(value);
+  const exact = matches.find((subject) => timetableSubjectKey(subject.name) === key);
+  return exact?.name || (matches.length === 1 ? matches[0].name : null);
+}
+function renderTimetableSubjects() {
+  const container = byId("timetable-subjects");
+  container.replaceChildren();
+  for (const subject of schoolTimetableDraft.subjects || []) {
+    const item = document.createElement("span"), remove = document.createElement("button");
+    item.className = "inline-flex items-center gap-2 border rounded-lg p-2";
+    item.append(subject.name);
+    remove.type = "button"; remove.textContent = "Quitar"; remove.className = "text-red-700";
+    remove.setAttribute("aria-label", "Quitar " + subject.name + " del catálogo");
+    remove.addEventListener("click", () => {
+      if (schoolScheduleDraft.some((row) => timetableSubjectKey(row.subject) === timetableSubjectKey(subject.name))) {
+        byId("school-schedules-status").textContent = "Quite primero las clases de esta materia antes de eliminarla del catálogo."; return;
+      }
+      schoolTimetableDraft.subjects = schoolTimetableDraft.subjects.filter((item) => item.name !== subject.name);
+      renderTimetableSubjects(); updateTimetableGenerationState(); renderTimetableGrid();
+    });
+    item.append(remove); container.append(item);
+  }
+  if (!container.children.length) container.textContent = "Agregue las materias antes de generar las tablas de grupo.";
+}
+window.addTimetableSubject = (event) => {
+  event.preventDefault();
+  try {
+    const name = byId("timetable-subject-name").value.trim();
+    const candidate = {...schoolTimetableDraft, subjects: [...schoolTimetableDraft.subjects || [], {name}]};
+    schoolTimetableDraft = window.SchoolTimetable.validateTimetable(candidate, schoolScheduleDraft);
+    byId("timetable-subject-name").value = "";
+    renderTimetableSubjects(); updateTimetableGenerationState(); renderTimetableGrid();
+    byId("school-schedules-status").textContent = "Materia agregada. Pulse Guardar horarios para conservar el catálogo.";
+  } catch (error) {byId("school-schedules-status").textContent = error.message;}
+};
+function renderTimetableGrid() {
+  renderTimetableAssignments();
+  const container = byId("timetable-grid"); container.replaceChildren();
+  const group = schoolTimetableDraft.groups.find((item) => timetableGroupKey(item) === timetableSelected);
+  if (!group) {container.textContent = "Configure la jornada institucional y las materias; después seleccione el grupo y genere su tabla."; return;}
+  const days = timetableDayNames.filter(([day]) => schoolTimetableDraft.workDays.includes(day));
+  const table = document.createElement("table"); table.className = "w-full text-sm border-collapse";
+  const caption = table.createCaption(); caption.textContent = `${group.level} · ${group.group}`; caption.className = "font-bold p-3";
+  const head = table.createTHead().insertRow();
+  for (const name of ["Horario", ...days.map(([, name]) => name)]) {
+    const th = document.createElement("th"); th.scope = "col"; th.textContent = name; th.className = "border p-3 bg-blue-50"; head.append(th);
+  }
+  const body = table.createTBody();
+  for (const slot of window.SchoolTimetable.generateModules(group)) {
+    const tr = body.insertRow(), label = document.createElement("th");
+    label.scope = "row"; label.className = "border p-3 whitespace-nowrap";
+    label.textContent = `${slot.entryTime}–${slot.endTime} · ${slot.type === "module" ? `Módulo ${slot.module}` : slot.type === "recess" ? "Receso" : "Descanso"}`; tr.append(label);
+    if (slot.type !== "module") {const cell = tr.insertCell(); cell.colSpan = Math.max(1, days.length); cell.className = "border p-2 bg-slate-100 text-center"; cell.textContent = slot.type === "recess" ? "Receso" : "Descanso entre módulos"; continue;}
+    for (const [day, name] of days) {
+      const cell = tr.insertCell(); cell.className = "border p-2 align-top";
+      const existing = schoolScheduleDraft.find((row) => timetableGroupKey(row) === timetableSelected && row.day === day && row.entryTime === slot.entryTime && row.endTime === slot.endTime);
+      const subject = document.createElement("input"), clear = document.createElement("button"), suggestions = document.createElement("datalist");
+      const cellKey = JSON.stringify([group.level, group.group, day, slot.entryTime]);
+      const listId = "timetable-matter-" + day + "-" + slot.module;
+      suggestions.id = listId;
+      subject.value = timetablePendingSubjects.get(cellKey) ?? existing?.subject ?? "";
+      subject.placeholder = "Escriba la materia"; subject.maxLength = 80;
+      subject.className = "border rounded-lg p-2 w-full min-w-[160px] mb-2";
+      subject.setAttribute("list", listId); subject.setAttribute("autocomplete", "off");
+      subject.setAttribute("aria-label", name + ", módulo " + slot.module + ": materia");
+      const suggest = () => {
+        suggestions.replaceChildren();
+        for (const match of matchingTimetableSubjects(subject.value)) {
+          const option = document.createElement("option"); option.value = match.name; suggestions.append(option);
+        }
+      };
+      const commit = () => {
+        const name = resolveTimetableSubject(subject.value);
+        if (name === null) {
+          timetablePendingSubjects.set(cellKey, subject.value);
+          subject.setAttribute("aria-invalid", "true");
+          byId("school-schedules-status").textContent = "Elija una materia del catálogo o siga escribiendo para distinguirla.";
+          return;
+        }
+        subject.value = name;
+        subject.setAttribute("aria-invalid", "false");
+        timetablePendingSubjects.delete(cellKey);
+        const prior = schoolScheduleDraft.find((row) => timetableGroupKey(row) === timetableGroupKey(group) && row.day === day && row.entryTime === slot.entryTime);
+        schoolScheduleDraft = schoolScheduleDraft.filter((row) => row !== prior);
+        if (name) schoolScheduleDraft.push({level: group.level, group: group.group, day, entryTime: slot.entryTime, endTime: slot.endTime, subject: name, teacherId: prior?.subject === name ? prior.teacherId || "" : ""});
+        if (!timetablePendingSubjects.size) byId("school-schedules-status").textContent = "";
+        renderTimetableAssignments();
+      };
+      subject.addEventListener("input", () => {timetablePendingSubjects.set(cellKey, subject.value); suggest();});
+      subject.addEventListener("change", commit);
+      subject.addEventListener("focus", suggest);
+      suggest();
+      clear.type = "button"; clear.textContent = "Vaciar"; clear.className = "text-red-700 p-1"; clear.setAttribute("aria-label", "Vaciar " + name + ", módulo " + slot.module);
+      clear.addEventListener("click", () => {subject.value = ""; commit(); suggest();});
+      cell.append(subject, clear, suggestions);
+    }
+  }
+  container.append(table);
+}
+function renderTimetableAssignments() {
+  const container = byId("timetable-assignments"); container.replaceChildren();
+  const grouped = new Map();
+  for (const row of schoolScheduleDraft) {
+    const key = JSON.stringify([row.level, row.group, row.subject]);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(row);
+  }
+  if (!grouped.size) {container.textContent = "Configure los horarios y capture las materias antes de asignar docentes."; return;}
+  for (const rows of grouped.values()) {
+    const first = rows[0], label = document.createElement("label"), select = document.createElement("select");
+    label.className = "block mb-3";
+    label.append(`${first.level} · ${first.group} · ${first.subject} (${rows.length} módulos): `);
+    select.className = "border rounded-lg p-2";
+    select.setAttribute("aria-label", `${first.level} ${first.group}, ${first.subject}: docente`);
+    select.add(new Option("Sin docente · asignar después", ""));
+    for (const teacher of teacherCatalogCache.filter((t) => t.role === "docente" && [undefined, "active"].includes(t.status))) select.add(new Option(teacher.nombre, teacher.id));
+    const ids = [...new Set(rows.map((row) => row.teacherId || ""))];
+    for (const id of ids.filter(Boolean)) if (![...select.options].some((o) => o.value === id)) select.add(new Option(`${id} (revisar)`, id));
+    if (ids.length > 1) select.add(new Option("Asignaciones distintas (conservar)", "__mixed__"));
+    select.value = ids.length > 1 ? "__mixed__" : ids[0];
+    select.addEventListener("change", () => {
+      if (select.value === "__mixed__") return;
+      rows.forEach((row) => {row.teacherId = select.value;});
+      renderSchoolSchedules();
+    });
+    label.append(select); container.append(label);
+  }
+}
+let schoolScheduleRevision = 0;
+let schoolScheduleTarget = "";
+window.openSchoolSchedules = async () => {
+  if (!isAdmin()) return;
+  const target = schoolKey;
+  try {
+    const [teachers, school] = await Promise.all([
+      api.listTeachers({schoolKey: target}),
+      getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios", target)),
+    ]);
+    if (target !== schoolKey || !isAdmin()) return;
+    if (!school.exists()) throw new Error("El plantel no existe.");
+    teacherCatalogCache = teachers.data.teachers;
+    schoolScheduleTarget = target;
+    schoolScheduleDraft = (school.data().subjectSchedules || []).map((row) => ({...row}));
+    schoolScheduleRevision = school.data().schedulesRevision || 0;
+    refreshSchoolLevelSelectors(school.data());
+    byId("school-schedules-school").textContent = `${school.data().name || target} · ${target}`;
+    byId("school-schedules-status").textContent = "";
+    schoolTimetableDraft = school.data().timetable ? JSON.parse(JSON.stringify(school.data().timetable)) : {workDays: [...new Set([1, 2, 3, 4, 5, ...schoolScheduleDraft.map((row) => row.day)])], groups: []};
+    if (Array.isArray(school.data().timetablePreferences?.workDays)) schoolTimetableDraft.workDays = [...school.data().timetablePreferences.workDays];
+    timetableSelected = "";
+    timetableFormDirty = false;
+    initializeTimetableEditor();
+    renderSchoolSchedules();
+    window.safeToggle("modal-school-schedules", false);
+  } catch (error) { window.showModalMsg("Horarios", functionError(error)); }
+};
+
+function renderSchoolSchedules() {
+  renderTimetableAssignments();
+  const container = byId("school-schedules-tables");
+  container.replaceChildren();
+  const legacyRows = schoolScheduleDraft.filter((row) => !schoolTimetableDraft.groups.some((g) => timetableGroupKey(g) === timetableGroupKey(row)));
+  byId("legacy-schedules").hidden = !legacyRows.length;
+  const subjects = [...new Set(legacyRows.map((row) => row.subject))].sort((a, b) => a.localeCompare(b, "es"));
+  for (const subject of subjects) {
+    const section = document.createElement("section");
+    const heading = document.createElement("input");
+    heading.className = "font-black text-blue-800 mb-2";
+    heading.value = subject;
+    heading.maxLength = 80;
+    heading.setAttribute("aria-label", "Nombre de la materia");
+    heading.addEventListener("change", () => {
+      const name = heading.value.trim();
+      if (!name) {heading.value = subject; return;}
+      legacyRows.filter((row) => row.subject === subject).forEach((row) => {row.subject = name;});
+      renderSchoolSchedules();
+    });
+    const scroll = document.createElement("div");
+    scroll.className = "overflow-x-auto";
+    const table = document.createElement("table");
+    table.className = "w-full text-sm text-left border-collapse";
+    const head = table.createTHead().insertRow();
+    for (const label of ["Docente", "Nivel", "Grupo", "Día", "Inicio", "Fin", "Acción"]) {
+      const th = document.createElement("th"); th.textContent = label; th.scope = "col"; th.className = "p-2"; head.append(th);
+    }
+    const body = table.createTBody();
+    for (const row of legacyRows.filter((item) => item.subject === subject)) {
+      const tr = body.insertRow();
+      const control = (key, label, options, type = "text") => {
+        const field = document.createElement(options ? "select" : "input");
+        field.className = "border rounded-lg p-2 w-full min-w-[90px]";
+        field.setAttribute("aria-label", `${subject}: ${label}`);
+        if (options) {
+          for (const [value, text] of options) field.add(new Option(text, value));
+          if (row[key] && !options.some(([value]) => String(value) === String(row[key]))) field.add(new Option(`${row[key]} (revisar)`, row[key]));
+        } else { field.type = type; if (type === "text") field.maxLength = 40; }
+        field.value = row[key] ?? "";
+        field.addEventListener("change", () => {row[key] = key === "day" ? Number(field.value) : field.value.trim();});
+        tr.insertCell().append(field);
+      };
+      control("teacherId", "Docente", [["", "Seleccione docente"], ...teacherCatalogCache.filter((teacher) => teacher.role === "docente" && teacher.status === "active").map((teacher) => [teacher.id, teacher.nombre])]);
+      control("level", "Nivel", [["", "Seleccione nivel"], ...schoolLevels().map((value) => [value, STUDENT_LEVEL_LABELS[value] || value])]);
+      control("group", "Grupo");
+      control("day", "Día", [[1, "Lunes"], [2, "Martes"], [3, "Miércoles"], [4, "Jueves"], [5, "Viernes"], [6, "Sábado"], [0, "Domingo"]]);
+      control("entryTime", "Inicio", null, "time"); control("endTime", "Fin", null, "time");
+      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Quitar"; remove.className = "p-2 text-red-700";
+      remove.addEventListener("click", () => {schoolScheduleDraft = schoolScheduleDraft.filter((item) => item !== row); renderSchoolSchedules();});
+      tr.insertCell().append(remove);
+    }
+    scroll.append(table); section.append(heading, scroll); container.append(section);
+  }
+}
+
+window.saveSchoolSchedules = async () => {
+  if (!isAdmin() || schoolScheduleTarget !== schoolKey) return;
+  if (timetableFormDirty) {byId("school-schedules-status").textContent = "Aplique los cambios de la jornada institucional antes de guardar."; return;}
+  if (timetablePendingSubjects.size) {byId("school-schedules-status").textContent = "Complete o vacíe las materias pendientes antes de guardar."; return;}
+  const button = byId("save-school-schedules");
+  button.disabled = true;
+  byId("close-school-schedules").disabled = true;
+  byId("school-schedules-tables").inert = true;
+  byId("school-timetable-editor").inert = true;
+  try {
+    window.SchoolTimetable.validateTimetable(schoolTimetableDraft, schoolScheduleDraft);
+    const response = await api.updateSchoolSchedules({schoolKey: schoolScheduleTarget, revision: schoolScheduleRevision, schedules: schoolScheduleDraft, timetable: schoolTimetableDraft});
+    if (schoolKey === schoolScheduleTarget) currentSchool = {...currentSchool, subjectSchedules: response.data.schedules, timetable: response.data.timetable, schedulesRevision: response.data.revision};
+    window.safeToggle("modal-school-schedules", true);
+    window.showModalMsg("Horarios guardados", "Las materias y jornadas quedaron guardadas. Puede asignar docentes en el paso 4 al volver a abrir los horarios. Solo las clases con docente habilitan su pase de lista.");
+  } catch (error) {byId("school-schedules-status").textContent = functionError(error);}
+  finally {button.disabled = false; byId("close-school-schedules").disabled = false; byId("school-schedules-tables").inert = false; byId("school-timetable-editor").inert = false;}
+};
+
+let teacherSubjectsTarget = null;
+window.openTeacherSubjects = (id) => {
+  if (!isMaster()) return;
+  const teacher = teacherCatalogCache.find((item) => item.id === id);
+  if (!teacher || teacher.role !== "docente") return;
+  teacherSubjectsTarget = id;
+  byId("teacher-subjects-name").textContent = teacher.nombre;
+  byId("edit-teacher-subjects").value = (teacher.assignedSubjects || []).join(", ");
+  byId("teacher-subjects-status").textContent = "";
+  window.safeToggle("modal-teacher-subjects", false);
+};
+window.saveTeacherSubjects = async (event) => {
+  event.preventDefault();
+  if (!isMaster() || !teacherSubjectsTarget) return;
+  const assignedSubjects = [...new Set(byId("edit-teacher-subjects").value.split(",").map((value) => value.trim()).filter(Boolean))];
+  const button = byId("save-teacher-subjects");
+  button.disabled = true;
+  try {
+    await api.updateTeacherSubjects({schoolKey, teacherId: teacherSubjectsTarget, assignedSubjects});
+    window.safeToggle("modal-teacher-subjects", true);
+    await loadTeachers();
+  } catch (error) {
+    byId("teacher-subjects-status").textContent = functionError(error);
+  } finally {
+    button.disabled = false;
+  }
+};
+
 window.updateTeacherRole = async (id, role) => {
   try {
     await api.updateTeacherRole({schoolKey, teacherId: id, role});
@@ -3121,6 +3665,10 @@ window.createTeacher = async () => {
   const paternalSurname = normalizeText(byId("new-teacher-paternal-surname")?.value, 40).toUpperCase();
   const maternalSurname = normalizeText(byId("new-teacher-maternal-surname")?.value, 40).toUpperCase();
   const role = String(byId("new-teacher-role")?.value || "docente");
+  const assignedSubjects = role !== "docente" ? [] : byId("new-teacher-all-subjects")?.checked
+    ? ["Todas las materias"]
+    : [...new Set(String(byId("new-teacher-assigned-subjects")?.value || "").split(",").map((value) => normalizeText(value, 80)).filter(Boolean))];
+  if (role === "docente" && !assignedSubjects.length) return window.showModalMsg("Alta de personal", "Indique las materias asignadas o marque Todas las materias.");
   if (teacherIdSegment(givenNames).length < 2) return window.showModalMsg("Alta de personal", "Capture el nombre o nombres del usuario.");
   if (teacherIdSegment(paternalSurname).length < 2 || teacherIdSegment(maternalSurname).length < 2) {
     return window.showModalMsg("Alta de personal", "Capture al menos dos letras de cada apellido.");
@@ -3133,12 +3681,15 @@ window.createTeacher = async () => {
     button.textContent = "Guardando…";
   }
   try {
-    const response = await api.createTeacher({schoolKey, givenNames, paternalSurname, maternalSurname, role});
+    const response = await api.createTeacher({schoolKey, givenNames, paternalSurname, maternalSurname, role, assignedSubjects});
     const teacherId = response.data.teacher.id;
     byId("new-teacher-given-names").value = "";
     byId("new-teacher-paternal-surname").value = "";
     byId("new-teacher-maternal-surname").value = "";
     byId("new-teacher-role").value = "docente";
+    byId("new-teacher-assigned-subjects").value = "";
+    byId("new-teacher-all-subjects").checked = false;
+    window.handleTeacherRoleChange();
     window.previewNewTeacherId();
     await loadTeachers();
     window.showModalMsg(
@@ -3155,14 +3706,25 @@ window.createTeacher = async () => {
   }
 };
 
-window.openTeacherRepair = (teacherId, teacherName) => {
+window.openTeacherRepair = (teacherId, teacherName, mode = "edit") => {
+  if (!isAdmin()) return;
   teacherBeingRepaired = normalizeCode(teacherId, 160);
   byId("repair-teacher-name").value = normalizeText(teacherName, 100);
   byId("repair-teacher-password").value = "";
+  byId("teacher-repair-panel").dataset.mode = mode;
+  byId("teacher-repair-title").textContent = mode === "password" ? "Restablecer contraseña" : "Editar personal";
+  byId("repair-teacher-name").disabled = mode === "password";
+  window.safeToggle("repair-teacher-password-field", mode !== "password");
+  window.safeToggle("repair-teacher-password-help", mode !== "password");
   byId("repair-teacher-label").textContent = `Cuenta seleccionada: ${normalizeText(teacherName, 100)}`;
+  const teacher = teacherCatalogCache.find((item) => item.id === teacherId);
+  window.safeToggle("repair-teacher-subjects-button", mode === "password" || !isMaster() || teacher?.role !== "docente");
   window.safeToggle("teacher-repair-panel", false);
-  byId("repair-teacher-name").focus();
+  byId("teacher-repair-panel").scrollIntoView({behavior: "smooth", block: "center"});
+  byId(mode === "password" ? "repair-teacher-password" : "repair-teacher-name").focus();
 };
+
+window.editSelectedTeacherSubjects = () => window.openTeacherSubjects(teacherBeingRepaired);
 
 window.cancelTeacherRepair = () => {
   teacherBeingRepaired = "";
@@ -3175,6 +3737,7 @@ window.saveTeacherRepair = async () => {
   if (!teacherBeingRepaired) return window.showModalMsg("Corregir cuenta", "Seleccione primero una cuenta de la tabla.");
   const name = normalizeText(byId("repair-teacher-name")?.value, 100).toUpperCase();
   const temporaryPassword = String(byId("repair-teacher-password")?.value || "");
+  if (byId("teacher-repair-panel").dataset.mode === "password" && !temporaryPassword) return window.showModalMsg("Contraseña", "Capture la nueva contraseña temporal.");
   if (name.length < 5) return window.showModalMsg("Corregir cuenta", "Capture el nombre completo del docente.");
   if (temporaryPassword && !validPassword(temporaryPassword)) return window.showModalMsg("Corregir cuenta", "La contraseña temporal debe tener entre 8 y 72 caracteres e incluir letras y números.");
   const button = byId("btn-repair-teacher");
@@ -3303,45 +3866,92 @@ window.renderAuditHistory = () => {
   if (!body) return;
   const search = normalizeText(byId("audit-history-search")?.value, 120).toUpperCase();
   const category = String(byId("audit-history-filter")?.value || "");
+  const cutoff = Date.now() - 14 * 86400000;
   const visible = auditHistory.filter((entry) => {
+    if (!Number.isFinite(entry.createdAt) || entry.createdAt < cutoff) return false;
     if (category && auditCategory(entry.action) !== category) return false;
     if (!search) return true;
-    return [entry.schoolKey, entry.actorName, entry.actorId, entry.action, entry.targetId, entry.targetLabel, entry.summary]
+    return [auditSchoolNames.get(entry.schoolKey), entry.schoolKey, entry.actorName, entry.actorId, entry.action, entry.targetId, entry.targetLabel, entry.summary]
       .some((value) => normalizeText(value, 240).toUpperCase().includes(search));
   });
+  visible.sort((a, b) => b.createdAt - a.createdAt || String(b.id).localeCompare(String(a.id)));
+  const expanded = new Set(Array.from(body.querySelectorAll("details[open]")).map((item) => item.dataset.schoolKey));
   body.replaceChildren();
+  const groups = new Map();
   for (const entry of visible) {
-    const row = document.createElement("tr");
-    row.append(
-      createCell(auditDateLabel(entry.createdAt), "p-3 whitespace-nowrap text-slate-600"),
-      createCell(`${normalizeText(entry.actorName || entry.actorId)} · ${normalizeText(entry.actorRole)}`, "font-bold text-slate-800"),
-      createCell(normalizeCode(entry.schoolKey, 40) || "SISTEMA", "font-black"),
-      createCell(AUDIT_ACTION_LABELS[entry.action] || normalizeText(entry.action), "font-bold"),
-      createCell(normalizeText(entry.targetLabel || entry.targetId) || "—"),
-      createCell(normalizeText(entry.summary) || "—", "max-w-sm normal-case text-slate-600"),
-    );
-    body.append(row);
+    const key = entry.schoolKey || "SISTEMA";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  for (const [key, entries] of groups) {
+    const section = document.createElement("details");
+    section.dataset.schoolKey = key;
+    section.open = expanded.has(key) || Boolean(search || category);
+    section.className = "rounded-2xl border border-slate-200 bg-white";
+    const summary = document.createElement("summary");
+    summary.className = "cursor-pointer p-4 text-xs font-bold text-slate-700";
+    summary.textContent = (auditSchoolNames.has(key) ? auditSchoolNames.get(key) + " / " + key : key) + " · " + entries.length + " acciones · Última: " + auditDateLabel(entries[0].createdAt);
+    section.append(summary);
+    const scroll = document.createElement("div");
+    scroll.className = "max-h-96 overflow-auto";
+    const table = document.createElement("table");
+    table.className = "w-full min-w-[700px] text-left text-[10px]";
+    const head = document.createElement("thead");
+    head.className = "sticky top-0 bg-slate-50";
+    const headers = document.createElement("tr");
+    for (const label of ["Fecha", "Usuario", "Acción", "Objetivo", "Detalle"]) {
+      const th = document.createElement("th");
+      th.scope = "col";
+      th.className = "p-3";
+      th.textContent = label;
+      headers.append(th);
+    }
+    head.append(headers);
+    const rows = document.createElement("tbody");
+    rows.className = "divide-y divide-slate-100";
+    for (const entry of entries) {
+      const row = document.createElement("tr");
+      row.append(
+        createCell(auditDateLabel(entry.createdAt), "p-3 whitespace-nowrap text-slate-600"),
+        createCell(normalizeText(entry.actorName || entry.actorId) + " · " + normalizeText(entry.actorRole), "p-3 font-bold"),
+        createCell(AUDIT_ACTION_LABELS[entry.action] || normalizeText(entry.action), "p-3 font-bold"),
+        createCell(normalizeText(entry.targetLabel || entry.targetId) || "—", "p-3"),
+        createCell(normalizeText(entry.summary) || "—", "p-3 text-slate-600"),
+      );
+      rows.append(row);
+    }
+    table.append(head, rows);
+    scroll.append(table);
+    section.append(scroll);
+    body.append(section);
   }
   if (!visible.length) {
-    const row = document.createElement("tr");
-    const cell = document.createElement("td");
-    cell.colSpan = 6;
-    cell.className = "p-8 text-center text-slate-400";
-    cell.textContent = auditHistory.length ? "Ninguna acción coincide con los filtros." : "Todavía no hay acciones registradas.";
-    row.append(cell);
-    body.append(row);
+    const empty = document.createElement("p");
+    empty.className = "p-8 text-center text-slate-400";
+    empty.textContent = search || category ? "Ninguna acción coincide con los filtros." : "No hay acciones en las últimas dos semanas.";
+    body.append(empty);
   }
-  if (byId("audit-history-status")) byId("audit-history-status").textContent = `${visible.length} de ${auditHistory.length} acciones`;
+  if (byId("audit-history-status")) byId("audit-history-status").textContent = visible.length + " acciones · " + groups.size + " escuelas / sistema · últimos 14 días";
+
 };
 
 window.loadAuditHistory = async () => {
   if (loggedTeacher?.role !== "super") return;
+  const loadVersion = ++auditHistoryLoadVersion;
   if (byId("audit-history-status")) byId("audit-history-status").textContent = "Cargando historial…";
   try {
-    const response = await api.listAuditLogs({limit: 250});
-    auditHistory = Array.isArray(response.data?.logs) ? response.data.logs : [];
+    const logs = [];
+    let cursor = null;
+    do {
+      const response = await api.listAuditLogs({cursor});
+      if (loadVersion !== auditHistoryLoadVersion || loggedTeacher?.role !== "super") return;
+      logs.push(...(Array.isArray(response.data?.logs) ? response.data.logs : []));
+      cursor = response.data?.nextCursor || null;
+    } while (cursor);
+    auditHistory = logs;
     window.renderAuditHistory();
   } catch (error) {
+    if (loadVersion !== auditHistoryLoadVersion || loggedTeacher?.role !== "super") return;
     if (byId("audit-history-status")) byId("audit-history-status").textContent = functionError(error, "No fue posible cargar el historial.");
   }
 };
@@ -3359,8 +3969,10 @@ window.loadAllSchools = async () => {
   try {
     const snapshot = await getDocs(collection(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios"));
     if (loadVersion !== globalSchoolsLoadVersion) return;
+    auditSchoolNames.clear();
     for (const entry of snapshot.docs) {
       const school = entry.data();
+      auditSchoolNames.set(entry.id, normalizeText(school.name));
       const row = document.createElement("tr");
       row.append(createCell(entry.id));
       row.append(createCell(normalizeText(school.name)));
@@ -3411,6 +4023,7 @@ window.loadAllSchools = async () => {
       row.append(actions);
       body.append(row);
     }
+    window.renderAuditHistory();
   } catch (error) {
     if (loadVersion !== globalSchoolsLoadVersion) return;
     window.showModalMsg("Error", functionError(error));
@@ -3537,6 +4150,24 @@ function selectedReportGroups() {
   }));
 }
 
+function populateReportClasses(rows = []) {
+  const select = byId("report-class");
+  if (!select) return;
+  const selected = select.value;
+  const classes = new Map();
+  for (const row of currentSchool?.subjectSchedules || []) classes.set(row.id, {subject: row.subject, level: row.level, group: row.group, day: row.day, entryTime: row.entryTime});
+  for (const row of rows) if (row.scheduleId && !classes.has(row.scheduleId)) classes.set(row.scheduleId, {subject: row.subject, level: row.scheduleLevel, group: row.scheduleGroup, day: row.scheduleDay, entryTime: row.entryTime});
+  select.replaceChildren(new Option("Entrada general (portería)", ""));
+  const days = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+  for (const [id, row] of classes) {
+    const option = new Option(`${row.subject} · ${row.group} · ${days[row.day] || ""} ${row.entryTime}`, id);
+    option.dataset.day = String(row.day);
+    option.dataset.groupKey = scheduleGroupKey(row.level, row.group);
+    select.add(option);
+  }
+  if (classes.has(selected)) select.value = selected;
+}
+
 function attendanceReportDates(from, to) {
   const dates = [];
   const cursor = new Date(`${from}T12:00:00Z`);
@@ -3582,7 +4213,7 @@ function createAttendanceReportHeader(report, sectionLabel = "") {
   title.textContent = schoolName || "Control de asistencia";
   const groups = document.createElement("p");
   groups.className = "mt-1 text-[9px] font-black uppercase text-slate-700";
-  groups.textContent = `Grupos: ${report.groups.map((group) => group.label).join(" · ")}`;
+  groups.textContent = `Grupos: ${report.groups.map((group) => group.label).join(" · ")}${report.classLabel ? ` · ${report.classLabel}` : ""}`;
   const period = document.createElement("p");
   period.className = "mt-1 text-[9px] font-bold uppercase text-slate-600";
   period.textContent = `Periodo: ${visibleReportDate(report.from, true)} a ${visibleReportDate(report.to, true)} · CCT: ${schoolKey}${sectionLabel ? ` · ${sectionLabel}` : ""}`;
@@ -3612,7 +4243,7 @@ function isJustifiedAbsence(attendance) {
 
 const ATTENDANCE_PRINT_DATES_PER_PAGE = 50;
 
-function createAttendanceMatrixTable(report, dates = report.dates) {
+function createAttendanceMatrixTable(report, dates = report.dates, editable = false) {
   const attendanceByStudentAndDate = new Map(report.rows.map((row) => [`${row.studentId}|${row.date}`, row]));
   const attendanceCounts = attendanceCountsByStudent(report);
   const table = document.createElement("table");
@@ -3647,15 +4278,24 @@ function createAttendanceMatrixTable(report, dates = report.dates) {
       const attendance = attendanceByStudentAndDate.get(`${student.id}|${date}`);
       const status = attendance ? normalizedAttendanceStatus(attendance.status) : "FALTA NORMAL";
       const justified = isJustifiedAbsence(attendance);
-      const mark = justified ? "J" : status === "FALTA POR RETARDOS" ? "R" : status === "RETARDO" ? "T" : attendance ? "●" : "/";
+      const mark = justified ? "J" : status === "FALTA POR RETARDOS" ? "R" : status === "RETARDO" ? "T" : attendance && status !== "FALTA NORMAL" ? "●" : "/";
       const color = justified ? "text-blue-700" : status === "FALTA POR RETARDOS"
         ? "text-red-700"
-        : status === "RETARDO" ? "text-amber-700" : attendance ? "text-green-800" : "text-slate-500";
+        : status === "RETARDO" ? "text-amber-700" : attendance && status !== "FALTA NORMAL" ? "text-green-800" : "text-slate-500";
       const cell = createCell(mark, `attendance-mark-cell ${color}`);
       cell.title = attendance
         ? `${visibleReportDate(date, true)} · ${justified ? "FALTA JUSTIFICADA" : status} · ${attendance.time || "Sin hora"}`
         : `${visibleReportDate(date, true)} · Falta normal`;
       cell.setAttribute("aria-label", cell.title);
+      if (editable && isAdmin()) {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "w-full min-h-8 rounded hover:bg-orange-100 focus:ring-2 focus:ring-orange-500";
+        edit.textContent = mark;
+        edit.setAttribute("aria-label", `Corregir ${student.name}: ${cell.title}`);
+        edit.addEventListener("click", () => window.openAttendanceCorrection(report, student, date, attendance));
+        cell.replaceChildren(edit);
+      }
       row.append(cell);
     });
     const total = attendanceCounts.get(normalizeCode(student.id, 40)) || 0;
@@ -3687,11 +4327,17 @@ function renderAttendanceReport(report) {
   preview.append(createAttendanceReportHeader(report));
   const scroller = document.createElement("div");
   scroller.className = "attendance-report-scroller overflow-x-auto";
-  scroller.append(createAttendanceMatrixTable(report));
+  scroller.append(createAttendanceMatrixTable(report, report.dates, true));
   const legend = document.createElement("p");
   legend.className = "p-3 text-right text-[9px] font-black uppercase text-slate-600";
   legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · J Falta justificada · / Falta normal · Total: asistencias del periodo";
   preview.append(scroller, legend);
+  if (isAdmin()) {
+    const help = document.createElement("p");
+    help.className = "p-3 text-sm text-slate-700";
+    help.textContent = "Para corregir una falta o un retardo, pulse la celda del alumno y la fecha correspondiente. Verifique la clase seleccionada antes de editar.";
+    preview.append(help);
+  }
   summary.textContent = `${report.students.length} ${report.students.length === 1 ? "alumno" : "alumnos"} · ${report.dates.length} ${report.dates.length === 1 ? "fecha" : "fechas"} · ${report.groups.length} ${report.groups.length === 1 ? "grupo" : "grupos"}${report.truncated ? " · historial limitado a 5000 registros" : ""}`;
   window.safeToggle("btn-print-attendance", report.students.length === 0 || report.dates.length === 0);
   window.safeToggle("btn-export-attendance-xls", report.students.length === 0 || report.dates.length === 0);
@@ -3721,14 +4367,25 @@ window.loadAttendanceReport = async () => {
   if (button) button.disabled = true;
   try {
     const response = await api.listAttendanceReport({schoolKey, from, to});
-    const currentStudentIdByAttendanceId = new Map(students.flatMap((student) => student.attendanceIds.map((id) => [id, student.id])));
+    populateReportClasses(response.data.rows || []);
+    const selectedClassId = byId("report-class")?.value || "";
+    const selectedClass = byId("report-class")?.selectedOptions[0];
+    const classDay = Number(selectedClass?.dataset.day);
+    const classGroupKey = selectedClass?.dataset.groupKey;
+    const classStudentIds = new Set(studentCatalogCache.filter((student) => reportGroupFromStudent(student)?.key === classGroupKey).map((student) => normalizeCode(student.id, 40)));
+    const reportStudents = selectedClassId ? students.filter((student) => classStudentIds.has(student.id)) : students;
+    if (!reportStudents.length) return window.showModalMsg("Reporte", "Seleccione el grupo al que corresponde esta clase.");
+    const currentStudentIdByAttendanceId = new Map(reportStudents.flatMap((student) => student.attendanceIds.map((id) => [id, student.id])));
     latestAttendanceReport = {
       from,
       to,
-      groups,
-      students,
-      dates: attendanceReportDates(from, to),
+      groups: selectedClassId ? groups.filter((group) => group.key === classGroupKey) : groups,
+      scheduleId: selectedClassId,
+      classLabel: selectedClass?.textContent || "Entrada general (portería)",
+      students: reportStudents,
+      dates: attendanceReportDates(from, to).filter((date) => !selectedClassId || !Number.isInteger(classDay) || new Date(`${date}T12:00:00Z`).getUTCDay() === classDay),
       rows: (response.data.rows || [])
+        .filter((row) => (row.scheduleId || "") === selectedClassId)
         .filter((row) => currentStudentIdByAttendanceId.has(normalizeCode(row.studentId, 40)))
         .map((row) => ({...row, studentId: currentStudentIdByAttendanceId.get(normalizeCode(row.studentId, 40))})),
       truncated: response.data.truncated === true,
@@ -3741,13 +4398,53 @@ window.loadAttendanceReport = async () => {
   }
 };
 
+let attendanceCorrection = null;
+let attendanceCorrectionSaving = false;
+window.openAttendanceCorrection = (report, student, date, attendance) => {
+  if (!isAdmin() || attendanceCorrectionSaving) return;
+  attendanceCorrection = {schoolKey, studentId: student.id, date, scheduleId: report.scheduleId || "", expectedVersion: attendance?.version || ""};
+  byId("correction-context").textContent = `${student.name} · ${visibleReportDate(date, true)} · ${report.classLabel} · Actual: ${attendance?.status || "FALTA NORMAL"}`;
+  byId("correction-status").value = attendance?.status === "RETARDO" || attendance?.status === "FALTA POR RETARDOS" ? "RETARDO" : attendance?.status === "A TIEMPO" ? "A TIEMPO" : "FALTA NORMAL";
+  byId("correction-time").value = attendance?.time || "";
+  byId("correction-reason").value = "";
+  byId("correction-error").textContent = "";
+  byId("modal-correct-attendance").classList.remove("hidden");
+  byId("modal-correct-attendance").setAttribute("aria-hidden", "false");
+  byId("correction-status").focus();
+};
+window.closeAttendanceCorrection = () => {
+  if (attendanceCorrectionSaving) return;
+  byId("modal-correct-attendance").classList.add("hidden");
+  byId("modal-correct-attendance").setAttribute("aria-hidden", "true");
+  attendanceCorrection = null;
+};
+window.saveAttendanceCorrection = async (event) => {
+  event.preventDefault();
+  if (!isAdmin() || !attendanceCorrection || attendanceCorrectionSaving) return;
+  attendanceCorrectionSaving = true;
+  byId("btn-save-correction").disabled = true;
+  byId("correction-error").textContent = "";
+  try {
+    const response = await api.correctAttendance({...attendanceCorrection, status: byId("correction-status").value, time: byId("correction-time").value, reason: byId("correction-reason").value.trim()});
+    attendanceCorrectionSaving = false;
+    window.closeAttendanceCorrection();
+    await window.loadAttendanceReport();
+    window.showModalMsg("Asistencia corregida", `Estado guardado: ${response.data.status}. Se actualizaron los retardos acumulados y se registró el motivo en el historial.`);
+  } catch (error) {
+    byId("correction-error").textContent = functionError(error);
+  } finally {
+    attendanceCorrectionSaving = false;
+    byId("btn-save-correction").disabled = false;
+  }
+};
+
 window.justifySelectedAbsence = async ({studentId, date}) => {
   const student = studentCatalogCache.find((entry) => normalizeCode(entry.id, 40) === normalizeCode(studentId, 40));
   if (!student || isStudentInactive(student)) return window.showModalMsg("Justificar falta", "Seleccione un alumno activo del plantel.");
   const button = byId("btn-submit-justify-absence");
   if (button) button.disabled = true;
   try {
-    await api.justifyAttendance({schoolKey, studentId: student.id, date});
+    await api.justifyAttendance({schoolKey, studentId: student.id, date, scheduleId: latestAttendanceReport?.scheduleId || ""});
     window.closeJustifyAbsenceModal();
     window.showModalMsg("Falta justificada", "La falta quedó marcada con J para fines informativos y seguirá contando como falta.");
     if (byId("report-date-from")?.value && byId("report-date-to")?.value) await window.loadAttendanceReport();
@@ -3815,7 +4512,7 @@ window.exportAttendanceReportXls = () => {
       report: latestAttendanceReport,
       schoolName,
       schoolKey,
-      attendanceLabel: (attendance) => normalizedAttendanceStatus(attendance.status),
+      attendanceLabel: (attendance) => isJustifiedAbsence(attendance) ? "FALTA JUSTIFICADA" : normalizedAttendanceStatus(attendance.status),
     });
     const worksheet = xlsx.utils.aoa_to_sheet(exportData.rows, {cellDates: true, dateNF: "dd/mm/yyyy"});
     worksheet["!cols"] = [
@@ -4264,7 +4961,7 @@ window.processAttendance = async (rawId, options = {}) => {
       }
       return true;
     } else {
-      setScannerStatus(`${studentName} ya tenía asistencia hoy.`, "error");
+      setScannerStatus(`${studentName} ya tiene asistencia registrada${loggedTeacher.role === "docente" ? " en esta clase" : " hoy"}.`, "error");
       await playScanSound("error");
       return false;
     }
@@ -4387,7 +5084,7 @@ function listenToAttendanceToday() {
       name.textContent = [log.apellido, log.materno, log.nombre].map((value) => normalizeText(value)).filter(Boolean).join(" ");
       const time = document.createElement("p");
       time.className = "text-xs text-slate-500";
-      time.textContent = `Hora de registro: ${normalizeText(log.hora)} · ${log.captureMethod === "manual" ? "Manual" : "QR"} · ${normalizeText(log.profesorNombre) || "Sin responsable"}`;
+      time.textContent = `Hora de registro: ${normalizeText(log.hora)} · ${normalizeText(log.subject) || "Entrada general"} · ${log.captureMethod === "manual" ? "Manual" : "QR"} · ${normalizeText(log.profesorNombre) || "Sin responsable"}`;
       description.append(name, time);
       const state = document.createElement("span");
       const attendanceState = normalizedAttendanceStatus(log.status);
@@ -4461,3 +5158,4 @@ onAuthStateChanged(auth, async (user) => {
 window.addEventListener("online", () => setConnection(true));
 window.addEventListener("offline", () => setConnection(false));
 setConnection(navigator.onLine, navigator.onLine ? "Conectado" : "Sin conexión");
+window.AppStartup?.ready();

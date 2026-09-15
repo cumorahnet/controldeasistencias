@@ -26,7 +26,7 @@ export function createAttendanceExportData({
     ["Plantel", schoolName || "Control de asistencia"],
     ["CCT", schoolKey],
     ["Periodo", `${report.from} a ${report.to}`],
-    ["Grupos", (report.groups || []).map((group) => group.label).filter(Boolean).join(" · ")],
+    ["Grupos", (report.groups || []).map((group) => group.label).filter(Boolean).join(" · "), ...(report.classLabel ? ["Clase", report.classLabel] : [])],
     [],
     ["Nombre del alumno", ...dates.map((date) => new Date(`${date}T12:00:00Z`)), "Total asistencias"],
   ];

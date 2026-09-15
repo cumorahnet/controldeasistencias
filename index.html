@@ -8,10 +8,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
-    <title>Control de Asistencia — VERSION 36.47</title>
+    <title>Control de Asistencia — VERSION 36.67</title>
     <link rel="manifest" href="./manifest.webmanifest?v=36.46.0">
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.46.0">
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.46.0">
+    <script src="./app-startup.js?v=36.67.0"></script>
     <script src="./pwa-install.js?v=36.46.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
@@ -310,6 +311,86 @@
         </div>
     </div>
 
+    <div id="modal-school-schedules" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="school-schedules-title" class="fixed inset-0 z-[980] hidden flex items-center justify-center bg-slate-900/90 p-4">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-6xl max-h-[90vh] overflow-y-auto space-y-4">
+            <h2 id="school-schedules-title" class="text-xl font-black">Horarios por materia del plantel</h2>
+            <p class="text-sm text-slate-600">Primero configure la jornada institucional y registre las materias. Después genere y llene las tablas de los grupos. Al terminar, asigne docentes por materia y grupo en el paso 4. El pase de lista se habilita durante la clase; no se permiten cruces de docente o grupo.</p>
+            <p id="school-schedules-school" class="font-bold"></p>
+            <div id="school-timetable-editor" class="space-y-4">
+                <form id="timetable-form" onsubmit="window.applyInstitutionalJourney(event)" class="border rounded-xl p-3 space-y-3">
+                    <h3 class="font-bold">1. Jornada</h3>
+                    <label class="block">Tipo de jornada<select id="timetable-journey-mode" onchange="window.updateTimetableJourneyMode()" class="block border rounded-lg p-2" disabled><option value="institutional">Institucional (todos los niveles)</option><option value="levels">Por niveles</option></select></label>
+                    <p class="text-sm text-slate-600">La jornada se conserva al cambiar de grupo. Seleccione los niveles que compartirán estos parámetros. Para una jornada diferente, seleccione los niveles correspondientes y aplique los nuevos valores. Los días laborables son comunes al plantel.</p>
+                    <div id="timetable-level-options" hidden>
+                      <label class="block">Consultar o editar una jornada<select id="timetable-load-level" onchange="window.loadLevelJourney()" class="block border rounded-lg p-2"></select></label>
+                      <fieldset><legend class="font-bold">Aplicar jornada a estos niveles</legend><div id="timetable-journey-levels" class="flex flex-wrap gap-4"></div></fieldset>
+                    </div>
+                    <fieldset><legend class="font-bold">Días laborables</legend><div id="timetable-days" class="flex flex-wrap gap-4"></div></fieldset>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <label>Entrada<input id="timetable-entry" required type="time" value="08:00" class="block border rounded-lg p-2 w-full"></label>
+                        <label>Salida<input id="timetable-end" required type="time" value="14:00" class="block border rounded-lg p-2 w-full"></label>
+                        <label>Módulos por día<input id="timetable-count" required type="number" min="1" max="20" value="6" class="block border rounded-lg p-2 w-full"></label>
+                        <label>Entre módulos<select id="timetable-break-mode" onchange="window.updateTimetableBreakMode()" class="block border rounded-lg p-2 w-full"><option value="continuous">Continuo</option><option value="break">Con traslado / descanso</option></select></label>
+                        <label id="timetable-break-field" hidden>Traslado / descanso (min)<input id="timetable-break" disabled type="number" min="1" max="120" value="5" class="block border rounded-lg p-2 w-full"></label>
+                        <label>Inicio del receso (opcional)<input id="timetable-recess-start" type="time" class="block border rounded-lg p-2 w-full"></label>
+                        <label>Fin del receso (opcional)<input id="timetable-recess-end" type="time" class="block border rounded-lg p-2 w-full"></label>
+                    </div>
+                    <p class="text-sm text-slate-600">Los módulos se distribuyen hasta la salida. El receso sustituye al descanso en ese punto. Deje ambas horas de receso vacías si no existe.</p>
+                    <button id="timetable-apply" type="submit" class="bg-blue-700 text-white rounded-xl p-3 font-bold">Aplicar jornada institucional</button>
+                    <p id="timetable-journey-summary" role="status" class="text-sm text-slate-600"></p>
+                </form>
+                <section class="border rounded-xl p-3 space-y-3" aria-labelledby="timetable-subjects-title">
+                    <h3 id="timetable-subjects-title" class="font-bold">2. Materias que se imparten</h3>
+                    <p class="text-sm text-slate-600">Registre los nombres de las materias antes de generar las tablas. Al llenarlas, las sugerencias se filtrarán conforme escriba.</p>
+                    <form onsubmit="window.addTimetableSubject(event)" class="flex flex-wrap gap-3 items-end">
+                        <label>Nivel<select id="timetable-subject-level" onchange="window.changeTimetableSubjectLevel()" class="block border rounded-lg p-2"></select></label>
+                        <label>Materia<input id="timetable-subject-name" oninput="window.uppercaseTimetableSubject(this)" required maxlength="80" placeholder="MATEMÁTICAS" class="block border rounded-lg p-2"></label>
+                        <button type="submit" class="bg-blue-700 text-white rounded-xl p-3 font-bold">Agregar materia</button>
+                    </form>
+                    <div id="timetable-subjects" class="flex flex-wrap gap-2"></div>
+                </section>
+                <form id="timetable-group-form" onsubmit="window.generateGroupTimetable(event)" class="border rounded-xl p-3 space-y-3">
+                    <h3 class="font-bold">3. Tabla de horarios por grupo</h3>
+                    <p class="text-sm text-slate-600">Seleccione el grupo. Su tabla utiliza la jornada aplicada a su nivel en el paso 1.</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label id="timetable-level-field">Nivel<select onchange="window.changeTimetableGroup()" id="timetable-level" class="block border rounded-lg p-2 w-full"><option value="PRE">Preescolar</option><option value="PRI">Primaria</option><option value="SEC" selected>Secundaria</option><option value="BAC">Bachillerato</option></select></label>
+                        <label>Grupo<input id="timetable-group" list="timetable-groups" onchange="window.changeTimetableGroup()" required maxlength="40" placeholder="Seleccione o escriba, ej. 1A" class="block border rounded-lg p-2 w-full"><datalist id="timetable-groups"></datalist></label>
+                    </div>
+                    <button id="timetable-generate" type="submit" class="bg-blue-700 text-white rounded-xl p-3 font-bold disabled:opacity-50">Generar tabla del grupo</button>
+                </form>
+                <h3 class="font-bold">Materias por módulo</h3>
+                <p class="text-sm text-slate-600">Escriba una o más letras del nombre y elija la materia sugerida. Las celdas vacías quedan libres. Puede guardar sin asignar docentes.</p>
+                <div id="timetable-grid" class="overflow-x-auto"></div>
+                <details><summary class="font-bold cursor-pointer">4. Asignar docentes a materias y grupos</summary>
+                    <p class="text-sm text-slate-600 my-3">Después de configurar los horarios, seleccione el docente de cada materia y grupo. La asignación aplica a todos sus módulos semanales. Puede dejar materias pendientes y guardar; solo las clases con docente habilitan su pase de lista. Los cruces se validan al guardar.</p>
+                    <div id="timetable-assignments"></div>
+                </details>
+            </div>
+            <details id="legacy-schedules"><summary class="font-bold cursor-pointer">Horarios anteriores pendientes de convertir a módulos</summary>
+            <div id="school-schedules-tables" class="space-y-5"></div>
+            </details>
+            <p id="school-schedules-status" role="alert" class="text-red-700 text-sm"></p>
+            <div class="flex justify-end gap-3">
+                <button id="close-school-schedules" type="button" onclick="window.safeToggle('modal-school-schedules', true)" class="p-3">Cerrar</button>
+                <button id="save-school-schedules" type="button" onclick="window.saveSchoolSchedules()" class="bg-blue-700 text-white rounded-xl p-3 font-bold">Guardar horarios</button>
+            </div>
+        </div>
+    </div>
+    <div id="modal-teacher-subjects" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="teacher-subjects-title" class="fixed inset-0 z-[970] hidden items-center justify-center bg-slate-900/90 p-4">
+        <form onsubmit="window.saveTeacherSubjects(event)" class="w-full max-w-lg space-y-4 rounded-3xl bg-white p-6">
+            <h2 id="teacher-subjects-title" class="text-xl font-black">Asignar o editar materias</h2>
+            <p id="teacher-subjects-name" class="font-bold"></p>
+            <label for="edit-teacher-subjects" class="block">Materias separadas por comas</label>
+            <textarea id="edit-teacher-subjects" rows="4" class="w-full border rounded-xl p-3" aria-describedby="teacher-subjects-help"></textarea>
+            <p id="teacher-subjects-help" class="text-sm text-slate-600">Hasta 40 materias de 80 caracteres. Deje vacío para quitar la asignación específica. Se conservarán los horarios y registros anteriores. El docente verá los cambios al volver a ingresar.</p>
+            <p id="teacher-subjects-status" role="alert" class="text-sm text-red-700"></p>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="window.safeToggle('modal-teacher-subjects', true)" class="p-3">Cancelar</button>
+                <button id="save-teacher-subjects" type="submit" class="rounded-xl bg-blue-700 text-white p-3 font-bold">Guardar materias</button>
+            </div>
+        </form>
+    </div>
+
     <!-- RECUPERACIÓN DE ACCESO DOCENTE -->
     <div id="modal-teacher-recovery" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="teacher-recovery-title" aria-describedby="teacher-recovery-description" class="fixed inset-0 z-[970] hidden items-center justify-center bg-slate-900/90 p-4 text-center backdrop-blur-md">
         <div class="w-full max-w-md space-y-6 rounded-[3rem] border-t-[12px] border-blue-600 bg-white p-8 shadow-2xl sm:p-10">
@@ -336,7 +417,7 @@
             <div class="space-y-2">
                 <i class="fas fa-clock text-4xl text-orange-500"></i>
                 <h3 id="teacher-schedule-title" class="text-xl font-black theme-text uppercase">Horario para pasar lista</h3>
-                <p class="text-xs text-slate-600 font-bold">Configure la hora y tolerancia de cada grupo. Estos datos determinan si el registro queda a tiempo o como retardo.</p>
+                <p class="text-xs text-slate-600 font-bold">Seleccione grupo, materia y hora del pase de lista. Los demás parámetros del horario docente los configura el administrador del plantel. El pase de lista solo estará disponible durante ese módulo.</p>
             </div>
             <div class="space-y-4 text-left">
                 <label class="block text-[10px] font-black uppercase text-slate-600">Grupo
@@ -344,12 +425,19 @@
                         <option value="">Cargando grupos…</option>
                     </select>
                 </label>
-                <div class="grid grid-cols-2 gap-3">
-                    <label class="text-[10px] font-black uppercase text-slate-600">Hora del pase de lista<input id="schedule-entry-time" type="time" required class="mt-1 w-full rounded-xl border bg-white p-3"></label>
+                <!-- New field for Materia -->
+                <label class="block text-[10px] font-black uppercase text-slate-600">Materia
+                    <select id="schedule-subject" class="mt-1 w-full rounded-xl border bg-white p-3 font-bold normal-case" disabled>
+                        <option value="">Seleccione una materia</option>
+                    </select>
+                </label>
+                <label class="block text-[10px] font-black uppercase text-slate-600">Hora del pase de lista<input id="schedule-entry-time" type="time" required class="mt-1 w-full rounded-xl border bg-white p-3"></label>
+                <div id="schedule-admin-parameters" class="hidden grid grid-cols-2 gap-3">
                     <label class="text-[10px] font-black uppercase text-slate-600">Tolerancia (min)<input id="schedule-tolerance" type="number" min="0" max="120" value="10" class="mt-1 w-full rounded-xl border bg-white p-3"></label>
                     <label class="text-[10px] font-black uppercase text-slate-600">Regreso del receso<input id="schedule-recess-return" type="time" class="mt-1 w-full rounded-xl border bg-white p-3"></label>
                     <label class="text-[10px] font-black uppercase text-slate-600">Duración del módulo (min)<input id="schedule-class-duration" type="number" min="1" max="240" value="50" class="mt-1 w-full rounded-xl border bg-white p-3"></label>
                 </div>
+                <p id="schedule-admin-defaults" class="text-xs text-slate-600"></p>
                 <p id="schedule-setup-status" role="status" aria-live="polite" class="min-h-5 text-center text-xs font-bold text-slate-600"></p>
             </div>
             <div class="flex flex-col gap-2">
@@ -388,7 +476,6 @@
                 </div>
                 <div class="flex flex-col gap-3">
                     <button id="btn-validate-cct" onclick="window.validateSchoolCCT()" class="w-full theme-accent text-white font-black py-5 rounded-3xl shadow-xl uppercase active:scale-95 btn-disabled">Validar Escuela</button>
-                    <button onclick="window.logout()" class="w-full bg-slate-50 text-slate-400 py-3 rounded-2xl font-bold uppercase text-[9px] border border-slate-100">Salir</button>
                 </div>
             </div>
 
@@ -406,7 +493,7 @@
                     <div><label for="register-admin-password-confirm" class="block text-xs font-black uppercase text-slate-600 mb-1">Confirmar contraseña</label><div class="pass-container"><input id="register-admin-password-confirm" type="password" minlength="8" maxlength="72" autocomplete="new-password" required class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl focus:border-orange-500 font-black"><button type="button" class="toggle-eye" aria-label="Mostrar confirmación de contraseña" aria-pressed="false" onclick="window.togglePass('register-admin-password-confirm', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div></div>
                 </div>
                 <p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-2xl p-3">El plantel quedará activo pero sin verificar hasta que se revise su titularidad y/o se pague la versión Plus.</p>
-                <button id="btn-request-school" type="button" onclick="window.requestSchoolRegistration()" class="w-full theme-accent text-white font-black py-4 rounded-3xl shadow-xl uppercase disabled:opacity-50">Crear plantel y continuar</button>
+                <button id="btn-request-school" type="button" onclick="window.requestSchoolRegistration()" class="w-full theme-accent text-white font-black py-4 rounded-3xl shadow-xl disabled:opacity-50">Crear plantel y continuar</button>
                 <button type="button" onclick="window.resetGateway()" class="text-slate-600 font-bold uppercase text-xs underline">Corregir CCT</button>
             </div>
 
@@ -480,12 +567,11 @@
                 <div class="theme-primary p-6 text-white text-center"><h2 class="text-lg font-black uppercase tracking-wide">Pase de Lista</h2><p id="current-schedule-label" class="mt-2 text-[9px] font-black uppercase opacity-80">Sin horario configurado</p></div>
                 <div class="p-8 space-y-6">
                     <div id="teacher-attendance-group-panel" class="hidden space-y-3 rounded-[2rem] border border-blue-200 bg-blue-50 p-5 text-left">
-                        <label for="attendance-group" class="block text-[10px] font-black uppercase text-blue-900">Grupo para pasar lista</label>
+                        <label for="attendance-group" class="block text-[10px] font-black uppercase text-blue-900">Clase asignada por el administrador</label>
                         <select id="attendance-group" onchange="window.selectAttendanceGroup()" class="w-full rounded-2xl border-2 border-blue-100 bg-white px-4 py-3 text-center text-sm font-black uppercase focus:border-blue-500">
                             <option value="">Seleccione un grupo</option>
                         </select>
                         <p id="attendance-group-status" role="status" aria-live="polite" class="min-h-5 text-center text-[10px] font-bold leading-relaxed text-blue-800">Seleccione el grupo antes de encender la cámara o registrar manualmente.</p>
-                        <button id="btn-configure-attendance-group" type="button" onclick="window.openSelectedAttendanceSchedule()" class="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-[9px] font-black uppercase text-blue-800">Configurar horario del grupo</button>
                     </div>
                     <div id="qr-reader-home">
                         <div id="qr-reader" aria-label="Lector de código QR" class="rounded-[2.5rem] overflow-hidden border-4 border-dashed border-slate-100 bg-slate-50 min-h-[350px]"></div>
@@ -496,14 +582,13 @@
                         <div class="relative">
                             <div class="flex gap-3">
                                 <input id="input-manual-student-search" type="search" aria-label="Buscar alumno por nombre" aria-controls="manual-student-results" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="ESCRIBA EL NOMBRE DEL ALUMNO" class="min-w-0 flex-1 px-5 py-3 border-2 border-slate-100 rounded-3xl uppercase text-sm font-black focus:ring-2 focus:ring-orange-500 shadow-sm text-center">
-                                <button type="button" onclick="window.manualAttendance()" class="theme-accent text-white px-6 py-3 rounded-3xl text-xs font-black uppercase shadow-lg">Registrar</button>
+                                <button id="btn-manual-attendance" type="button" onclick="window.manualAttendance()" class="theme-accent text-white px-6 py-3 rounded-3xl text-xs font-black uppercase shadow-lg">Registrar</button>
                             </div>
-                            <div id="manual-student-results" role="listbox" aria-label="Resultados de alumnos" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 text-left shadow-2xl"></div>
+                            <div id="manual-student-results" role="listbox" aria-label="Resultado de alumnos" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 text-left shadow-2xl"></div>
                         </div>
                         <p id="manual-student-selection" role="status" aria-live="polite" class="min-h-4 text-[10px] font-bold text-slate-500">Busque y seleccione un alumno.</p>
                     </div>
                     <p id="scanner-status" role="status" aria-live="polite" class="min-h-5 text-sm font-bold text-slate-600"></p>
-                    <button type="button" onclick="window.openScheduleSetup(false)" class="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-[10px] font-black uppercase text-slate-700"><i class="fas fa-clock mr-2 text-orange-500"></i>Configurar mis horarios</button>
                     <button onclick="window.logout()" class="w-full bg-red-50 text-red-500 py-3 rounded-2xl font-bold uppercase text-[9px] border border-red-100 active:scale-95 transition-all text-center">Salir del Sistema</button>
                 </div>
             </div>
@@ -658,7 +743,7 @@
                             <summary class="cursor-pointer text-[9px] font-black uppercase text-center">Opciones avanzadas</summary>
                             <label for="batch-name-order" class="block mt-3 mb-1 text-[9px] font-black uppercase">Orden del nombre</label>
                             <select id="batch-name-order" class="w-full px-3 py-3 border rounded-2xl font-black text-center bg-white">
-                                <option value="auto">Detectar autom&aacute;cticamente</option>
+                                <option value="auto">Detectar autom&aacute;ticamente</option>
                                 <option value="surnames-first">Apellidos primero</option>
                                 <option value="names-first">Nombres primero</option>
                             </select>
@@ -714,7 +799,7 @@
                             </div>
                             <div class="space-y-1">
                                 <label for="new-teacher-role" class="text-xs font-black text-slate-600 uppercase">Rol inicial</label>
-                                <select id="new-teacher-role" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl font-black text-center focus:border-blue-500">
+                                <select id="new-teacher-role" onchange="window.handleTeacherRoleChange()" name="new-teacher-role" class="w-full px-4 py-3 border-2 border-slate-100 rounded-2xl font-black text-center focus:border-blue-500">
                                     <option value="docente">Docente</option>
                                     <option value="porteria">Portería / Entrada</option>
                                     <option value="admin_jr">Administrador JR</option>
@@ -722,27 +807,40 @@
                                     <option value="admin_maestro">Administrador maestro</option>
                                 </select>
                             </div>
+                            <!-- New fields for docente role -->
+                            <div id="teacher-subjects-fields" class="space-y-4 hidden md:col-span-2">
+                                <div class="space-y-1">
+                                    <label for="new-teacher-assigned-subjects" class="block text-xs font-black uppercase text-slate-600">Materias Asignadas (separar por comas)</label>
+                                    <textarea id="new-teacher-assigned-subjects" rows="3" maxlength="500" class="w-full px-5 py-3 border-2 border-slate-100 rounded-2xl uppercase font-bold text-center focus:border-blue-500" placeholder="Ej: Matemáticas, Español, Ciencias"></textarea>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <input id="new-teacher-all-subjects" type="checkbox" onchange="window.handleAllSubjectsChange()" class="h-5 w-5 accent-blue-500">
+                                    <label for="new-teacher-all-subjects" class="text-xs font-black uppercase text-slate-600">Todas las materias</label>
+                                </div>
+                            </div>
                         </div>
                         <button id="btn-create-teacher" type="button" onclick="window.createTeacher()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase shadow-xl disabled:opacity-50 disabled:cursor-wait">Crear cuenta</button>
                     </div>
                     <div id="teacher-repair-panel" aria-hidden="true" class="hidden bg-blue-50 p-8 rounded-[3rem] border border-blue-200 shadow-xl max-w-3xl mx-auto space-y-5">
                         <div>
-                            <h3 class="font-black text-blue-900 uppercase text-base">Corregir o recuperar una cuenta</h3>
-                            <p id="repair-teacher-label" class="text-xs text-blue-800 mt-2" aria-live="polite">Seleccione el botón de llave de una cuenta.</p>
+                            <h3 id="teacher-repair-title" class="font-black text-blue-900 uppercase text-base">Editar personal</h3>
+                            <p id="repair-teacher-label" class="text-xs text-blue-800 mt-2" aria-live="polite">Seleccione Editar en la lista del personal.</p>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="space-y-1">
                                 <label for="repair-teacher-name" class="text-xs font-black text-slate-600 uppercase">Nombre correcto</label>
                                 <input id="repair-teacher-name" type="text" autocomplete="name" maxlength="100" class="w-full px-5 py-3 border-2 border-blue-100 rounded-2xl uppercase font-bold text-center focus:border-blue-600">
                             </div>
-                            <div class="space-y-1">
-                                <label for="repair-teacher-password" class="text-xs font-black text-slate-600 uppercase">Contraseña temporal nueva (opcional)</label>
+                            <div id="repair-teacher-password-field" class="space-y-1 hidden">
+                                <label for="repair-teacher-password" class="text-xs font-black text-slate-600 uppercase">Contraseña temporal nueva</label>
                                 <div class="pass-container"><input id="repair-teacher-password" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="SOLO SI OLVIDÓ SU CONTRASEÑA" class="w-full px-5 py-3 border-2 border-blue-100 rounded-2xl font-black text-center focus:border-blue-600"><button type="button" class="toggle-eye" aria-label="Mostrar contraseña temporal nueva" aria-pressed="false" onclick="window.togglePass('repair-teacher-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div>
                             </div>
                         </div>
-                        <p class="text-xs text-slate-600">Si captura una contraseña temporal, se cerrarán las sesiones anteriores y el docente deberá cambiarla al ingresar.</p>
+                        <button id="repair-teacher-subjects-button" type="button" onclick="window.editSelectedTeacherSubjects()" class="hidden rounded-xl border border-blue-300 bg-white px-4 py-3 font-bold text-blue-700">Asignar o editar materias</button>
+                        <p class="text-xs text-slate-600">El rol se corrige desde el selector de la lista del personal.</p>
+                        <p id="repair-teacher-password-help" class="hidden text-xs text-slate-600">Al guardar la contraseña temporal, se cerrarán las sesiones anteriores y el docente deberá cambiarla al ingresar.</p>
                         <div class="flex flex-col sm:flex-row gap-3">
-                            <button id="btn-repair-teacher" type="button" onclick="window.saveTeacherRepair()" class="flex-1 bg-blue-700 text-white font-black py-4 rounded-3xl uppercase shadow-lg disabled:opacity-50 disabled:cursor-wait">Guardar corrección</button>
+                            <button id="btn-repair-teacher" type="button" onclick="window.saveTeacherRepair()" class="flex-1 bg-blue-700 text-white font-black py-4 rounded-3xl uppercase shadow-lg disabled:opacity-50 disabled:cursor-wait">Guardar cambios</button>
                             <button type="button" onclick="window.cancelTeacherRepair()" class="flex-1 bg-white text-slate-700 font-black py-4 rounded-3xl uppercase border border-slate-300">Cancelar</button>
                         </div>
                     </div>
@@ -751,7 +849,7 @@
                         <input id="teacher-search" type="search" oninput="window.filterTeacherCatalog()" placeholder="BUSCAR POR NOMBRE O USUARIO" class="mb-5 w-full rounded-2xl border border-slate-200 px-5 py-3 text-center font-black uppercase">
                         <table class="w-full text-center">
                             <caption class="sr-only">Personal registrado y funciones de administración</caption>
-                            <thead><tr class="bg-slate-50 text-[8px] uppercase border-b text-center"><th class="p-3 text-center">Usuario</th><th class="text-center">Nombre</th><th class="text-center">Rol</th><th class="text-center">Acción</th></tr></thead>
+                            <thead><tr class="bg-slate-50 text-[8px] uppercase border-b text-center"><th class="p-3 text-center">Acciones</th><th class="p-3 text-center">Usuario</th><th class="text-center">Nombre</th><th class="text-center">Rol</th><th class="text-center">Materias</th></tr></thead>
                             <tbody id="teacher-table-body" class="divide-y divide-slate-100 text-[10px] font-bold uppercase text-center text-center"></tbody>
                         </table>
                         <button onclick="window.logout()" class="w-full mt-6 text-slate-400 font-bold uppercase text-[9px] underline text-center">Cerrar Sesión / Salir</button>
@@ -762,6 +860,7 @@
                 <div id="div-mantenimiento-reportes" class="hidden space-y-6">
                     <div class="rounded-[3rem] border border-slate-200 bg-white p-8 shadow-xl">
                         <div class="flex flex-col gap-4 border-b pb-5 md:flex-row md:flex-wrap md:items-end">
+                            <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Clase<select id="report-class" class="mt-1 w-full rounded-2xl border px-4 py-3"><option value="">Entrada general (portería)</option></select></label>
                             <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Desde<input id="report-date-from" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
                             <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Hasta<input id="report-date-to" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
                             <button id="btn-load-attendance" type="button" onclick="window.loadAttendanceReport()" class="rounded-2xl theme-accent px-7 py-3 font-black uppercase text-white disabled:opacity-50">Consultar</button>
@@ -803,14 +902,9 @@
                                     <label for="edit-school-contact-email" class="text-[9px] font-black text-slate-500 uppercase block text-center">Correo de contacto</label>
                                     <input id="edit-school-contact-email" type="email" maxlength="160" autocomplete="email" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold shadow-sm text-center">
                                 </div>
-                                <!-- DISPOSICIÓN SOLICITADA -->
-                                <div class="grid grid-cols-2 gap-4 text-center">
-                                    <div class="text-center"><label for="edit-entry-time" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Hora de Entrada</label><input id="edit-entry-time" type="time" class="w-full px-2 py-2 border rounded-xl text-center"></div>
-                                    <div class="text-center"><label for="edit-recess-return" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Regreso del receso</label><input id="edit-recess-return" type="time" class="w-full px-2 py-2 border rounded-xl text-center"></div>
-                                </div>
+                                <p class="text-xs text-slate-600">La jornada institucional y las materias se establecen en Configurar horarios. Todos los grupos heredan sus parámetros.</p>
                                 <div class="grid grid-cols-2 gap-4 text-center text-center">
                                     <div class="text-center"><label for="edit-tolerance" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Tolerancia (m)</label><input id="edit-tolerance" type="number" min="0" max="120" placeholder="10" class="w-full px-2 py-2 border rounded-xl text-center"></div>
-                                    <div class="text-center"><label for="edit-class-duration" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Módulo (m)</label><input id="edit-class-duration" type="number" min="1" max="240" placeholder="50" class="w-full px-2 py-2 border rounded-xl text-center"></div>
                                 </div>
                                 <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
                                     <label for="edit-tardies-per-absence" class="text-[9px] font-black text-amber-900 block mb-2 uppercase">Número de retardos igual a una falta</label>
@@ -845,7 +939,44 @@
                                 </div>
                             </div>
                         </div>
+                        <fieldset class="mt-6 border rounded-2xl p-4 text-left">
+                            <legend class="font-bold">Niveles de la institución</legend>
+                            <p class="text-sm text-slate-600 mb-3">Seleccione los niveles que ofrece la escuela. Solo estos aparecerán en los selectores. Guarde los ajustes antes de configurar los horarios.</p>
+                            <div class="flex flex-wrap gap-4">
+                                <label><input id="edit-level-PRE" type="checkbox"> Preescolar</label>
+                                <label><input id="edit-level-PRI" type="checkbox"> Primaria</label>
+                                <label><input id="edit-level-SEC" type="checkbox"> Secundaria</label>
+                                <label><input id="edit-level-BAC" type="checkbox"> Bachillerato</label>
+                            </div>
+                        </fieldset>
+                        <fieldset class="mt-6 border rounded-2xl p-4 text-left">
+                            <legend class="font-bold">Jornada institucional</legend>
+                            <p class="text-sm text-slate-600 mb-3">Defina los días en que trabaja la escuela y si todos los niveles comparten la misma jornada o cada nivel tiene una diferente.</p>
+                            <label class="block mb-3">Tipo de jornada
+                                <select id="edit-journey-mode" class="block border rounded-lg p-2 w-full max-w-sm">
+                                    <option value="institutional">Una jornada para todos los niveles</option>
+                                    <option value="levels">Una jornada diferente por nivel</option>
+                                </select>
+                            </label>
+                            <fieldset>
+                                <legend class="font-bold">Días laborables</legend>
+                                <div class="flex flex-wrap gap-4">
+                                    <label><input id="edit-work-day-1" type="checkbox"> Lunes</label>
+                                    <label><input id="edit-work-day-2" type="checkbox"> Martes</label>
+                                    <label><input id="edit-work-day-3" type="checkbox"> Miércoles</label>
+                                    <label><input id="edit-work-day-4" type="checkbox"> Jueves</label>
+                                    <label><input id="edit-work-day-5" type="checkbox"> Viernes</label>
+                                    <label><input id="edit-work-day-6" type="checkbox"> Sábado</label>
+                                    <label><input id="edit-work-day-0" type="checkbox"> Domingo</label>
+                                </div>
+                            </fieldset>
+                        </fieldset>
                         <button onclick="window.updateSchoolGlobalData()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase mt-8 shadow-xl text-center text-center text-center">Guardar Ajustes</button>
+                        <div class="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-5 text-left">
+                            <h4 class="font-bold text-blue-900">Configuración de horarios</h4>
+                            <p class="text-sm text-slate-600 my-3">Continúe para registrar las materias y configurar los horarios por grupo. Después asigne los docentes.</p>
+                            <button id="open-school-schedules" type="button" onclick="window.openSchoolSchedules()" class="rounded-2xl bg-blue-700 text-white px-6 py-4 font-bold">Continuar a materias y horarios</button>
+                        </div>
                         <div id="super-cct-correction-panel" class="hidden mt-6 bg-red-50 border border-red-200 rounded-[2rem] p-6 text-left">
                             <h4 class="font-black text-red-800 uppercase">Corrección de CCT por disputa</h4>
                             <p class="text-xs text-slate-600 my-3">Use esta opción únicamente después de revisar los documentos probatorios. Se conservarán docentes, alumnos, asistencias y contraseñas, pero se cerrarán las sesiones activas.</p>
@@ -902,13 +1033,8 @@
                         <label class="text-[9px] font-black uppercase text-slate-600">Tipo<select id="audit-history-filter" onchange="window.renderAuditHistory()" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold"><option value="">Todas las acciones</option><option value="delete">Eliminaciones y bajas</option><option value="print">Impresiones</option><option value="premium">Premium e identidad</option><option value="security">Usuarios y permisos</option><option value="school">Planteles</option></select></label>
                     </div>
                     <p id="audit-history-status" role="status" aria-live="polite" class="mb-3 min-h-5 text-xs font-bold text-slate-500"></p>
-                    <div class="max-h-[32rem] overflow-auto rounded-2xl border border-slate-200">
-                        <table class="w-full min-w-[760px] border-collapse text-left">
-                            <caption class="sr-only">Historial de acciones administrativas</caption>
-                            <thead class="sticky top-0 bg-slate-50 text-[9px] uppercase text-slate-600"><tr><th class="p-3">Fecha</th><th>Usuario</th><th>CCT</th><th>Acción</th><th>Objetivo</th><th>Detalle</th></tr></thead>
-                            <tbody id="audit-history-body" class="divide-y divide-slate-100 text-[10px]"><tr><td colspan="6" class="p-8 text-center text-slate-400">Cargando historial…</td></tr></tbody>
-                        </table>
-                    </div>
+                    <p class="mb-3 text-xs text-slate-500">Historial por escuela, del más reciente al más antiguo. Se conservan únicamente los últimos 14 días.</p>
+                    <div id="audit-history-body" class="space-y-3"></div>
                 </div>
             </div>
         </section>
@@ -918,6 +1044,22 @@
     </main>
 
     <section id="student-print-area" class="print-only" aria-hidden="true"></section>
+
+    <div id="modal-correct-attendance" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="correction-title" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[920] hidden flex items-center justify-center p-4">
+        <form onsubmit="window.saveAttendanceCorrection(event)" class="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 space-y-4 shadow-xl">
+            <h3 id="correction-title" class="text-lg font-black">Corregir asistencia</h3>
+            <p id="correction-context" class="text-sm text-slate-700"></p>
+            <label class="block font-bold" for="correction-status">Estado correcto</label>
+            <select id="correction-status" class="w-full border rounded-xl p-3"><option>A TIEMPO</option><option>RETARDO</option><option>FALTA NORMAL</option></select>
+            <label class="block font-bold" for="correction-time">Hora de llegada (opcional)</label>
+            <input id="correction-time" type="time" step="1" class="w-full border rounded-xl p-3">
+            <label class="block font-bold" for="correction-reason">Motivo de la corrección</label>
+            <textarea id="correction-reason" required minlength="3" maxlength="500" rows="3" placeholder="Ejemplo: el alumno llegó a tiempo y se omitió el registro." class="w-full border rounded-xl p-3"></textarea>
+            <p class="text-xs text-slate-600">Se guardará quién realizó el cambio y su motivo. Los retardos y las faltas por acumulación se recalcularán; un retardo puede convertirse en falta según la regla del plantel.</p>
+            <p id="correction-error" role="alert" class="text-sm text-red-700"></p>
+            <div class="flex gap-3"><button type="button" onclick="window.closeAttendanceCorrection()" class="rounded-xl bg-slate-100 p-3">Cancelar</button><button id="btn-save-correction" type="submit" class="rounded-xl bg-orange-500 text-white font-bold p-3 disabled:opacity-50">Guardar corrección</button></div>
+        </form>
+    </div>
 
     <div id="modal-justify-absence" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="justify-absence-title" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[920] hidden flex items-center justify-center p-4 text-center">
         <div class="bg-white rounded-[2.5rem] shadow-2xl max-w-md w-full p-8 sm:p-10 space-y-6 border-t-8 border-orange-500">
@@ -1149,6 +1291,7 @@
 
 
     </script>
-    <script type="module" src="./app.js?v=36.46.0"></script>
+    <script src="./school-timetable.js?v=36.67.0"></script>
+    <script id="app-runtime" type="module" src="./app.js?v=36.67.0"></script>
 </body>
 </html>
