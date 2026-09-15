@@ -1,3 +1,7 @@
+## 15/09/2026 - Version visible de la portada
+
+- app-startup.js sincroniza el boton de acceso con la version del titulo al cargar el DOM, sin depender del arranque de Firebase. El titulo debe mantenerse alineado con version.json; este JSON no se publica en Hosting.
+
 ## 15/09/2026 - Retencion del historial administrativo
 
 - Solo audit_logs conserva una ventana de 14 dias. La consulta excluye vencidos inmediatamente; cleanupAuditLogs los elimina por lotes cada hora, incluidos registros anteriores al cambio. El borrado fisico puede tardar hasta la siguiente ejecucion exitosa.

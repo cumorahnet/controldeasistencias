@@ -380,7 +380,7 @@ test("manifiesto, iconos y app shell cumplen los requisitos PWA", () => {
     assert.equal(png.readUInt32BE(20), requiredSize);
   }
 
-  assert.match(serviceWorker, /control-asistencia-36\.67\.0-pwa-v32/);
+  assert.match(serviceWorker, /control-asistencia-36\.67\.0-pwa-v33/);
   assert.match(serviceWorker, /"camera-data-scanner\.js"/);
   assert.match(serviceWorker, /"manifest\.webmanifest"/);
   assert.match(serviceWorker, /"pwa-install\.js"/);

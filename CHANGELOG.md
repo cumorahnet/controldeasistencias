@@ -1,3 +1,8 @@
+## 15/09/2026 - Version de la portada
+
+- El boton obtiene automaticamente la version del titulo de la pagina, incluido su nombre accesible; elimina el numero fijo 36.46.0.
+- Actualiza la cache PWA. Requiere publicar Hosting junto con los pendientes de 36.67.
+
 ## 36.67 - 15/09/2026 - Historial por escuela
 
 - Secciones desplegables por escuela, ordenadas por actividad reciente, con acciones descendentes y filtros existentes.

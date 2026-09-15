@@ -36,7 +36,15 @@
     if (event.target?.id === "app-runtime") fail("No se pudo cargar la aplicación o sus dependencias de Firebase. Compruebe la conexión y la dirección del servidor local; después pulse Reintentar.");
     else if (event.error) fail(`La aplicación no pudo iniciar: ${event.message || "error de JavaScript"}. Recargue la página; si persiste, comparta este mensaje.`);
   }, true);
-  document.addEventListener("DOMContentLoaded", render);
+  document.addEventListener("DOMContentLoaded", () => {
+    const version = document.title.match(/VERSI[ÓO]N\s+(\d+(?:\.\d+)+)/i)?.[1];
+    const versionButton = document.getElementById("btn-super-access");
+    if (version && versionButton) {
+      versionButton.textContent = `VERSIÓN ${version}`;
+      versionButton.setAttribute("aria-label", `Versión ${version}`);
+    }
+    render();
+  });
   if (location.protocol === "file:") {
     clearTimeout(timer);
     fail("La aplicación no puede iniciarse abriendo index.html como archivo. Ábrala mediante un servidor local HTTP (http://localhost:…) o use el sitio publicado.");
