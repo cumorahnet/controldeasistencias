@@ -1,4 +1,5 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import {initializeAppCheck, ReCaptchaEnterpriseProvider} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app-check.js";
 import {
   collection,
   doc,
@@ -40,6 +41,13 @@ const APP_ROOT_PATH = "listadeasistencia";
 const DEFAULT_ACCENT = "#3b82f6";
 const DEFAULT_APP_ICON = "./icons/app-icon-192.png?v=36.46.0";
 const firebaseApp = initializeApp(firebaseConfig);
+const appCheckSiteKey = window.FirebaseAppCheckConfig?.siteKey;
+if (appCheckSiteKey) {
+  initializeAppCheck(firebaseApp, {
+    provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
 const functions = getFunctions(firebaseApp, "us-central1");
@@ -356,6 +364,12 @@ function functionError(error, fallback = "No fue posible completar la operación
     "auth/network-request-failed": "No fue posible conectarse con Firebase. Revise su conexión.",
     "functions/internal": "Firebase encontró un error interno al procesar la solicitud. Inténtelo nuevamente o contacte a soporte.",
     "functions/unavailable": "El servicio de acceso no está disponible temporalmente. Inténtelo nuevamente en unos minutos.",
+    "functions/permission-denied": "No tiene permisos para realizar esta operación.",
+    "functions/unauthenticated": "No se pudo verificar el acceso. Recargue la página e inicie sesión; si persiste, contacte a soporte.",
+    "functions/deadline-exceeded": "La solicitud tardó demasiado. Compruebe si el cambio se guardó antes de volver a intentarlo.",
+    "functions/resource-exhausted": "Se alcanzó el límite de solicitudes. Espere unos minutos antes de volver a intentarlo.",
+    "unavailable": "No fue posible actualizar los datos. Revise su conexión e inténtelo nuevamente.",
+    "deadline-exceeded": "La consulta tardó demasiado. Revise su conexión e inténtelo nuevamente.",
     "permission-denied": "La sesión no tiene permisos para consultar los datos solicitados. Cierre la sesión e inténtelo nuevamente.",
   };
   if (friendlyMessages[error?.code]) return friendlyMessages[error.code];
@@ -625,7 +639,10 @@ function startSchoolProfileListener() {
           : "Puede prepararlo ahora; se aplicará automáticamente cuando Soporte active Premium.";
       }
     }
-  }, () => {});
+  }, (error) => {
+    setConnection(false, "Perfil sin actualizar");
+    window.showModalMsg("Actualización del plantel", `${functionError(error)} Los datos del plantel pueden estar desactualizados. Recargue la página para volver a conectar.`);
+  });
 }
 
 window.resetGateway = () => {
@@ -4375,6 +4392,21 @@ window.loadAttendanceReport = async () => {
     const classStudentIds = new Set(studentCatalogCache.filter((student) => reportGroupFromStudent(student)?.key === classGroupKey).map((student) => normalizeCode(student.id, 40)));
     const reportStudents = selectedClassId ? students.filter((student) => classStudentIds.has(student.id)) : students;
     if (!reportStudents.length) return window.showModalMsg("Reporte", "Seleccione el grupo al que corresponde esta clase.");
+    const scheduledDaysByGroup = new Map();
+    const addScheduledDay = (level, group, day) => {
+      const key = scheduleGroupKey(level, group);
+      if (!selectedGroupKeys.has(key) || !Number.isInteger(Number(day))) return;
+      if (!scheduledDaysByGroup.has(key)) scheduledDaysByGroup.set(key, new Set());
+      scheduledDaysByGroup.get(key).add(Number(day));
+    };
+    for (const row of currentSchool?.subjectSchedules || []) addScheduledDay(row.level, row.group, row.day);
+    for (const row of response.data.rows || []) addScheduledDay(row.scheduleLevel, row.scheduleGroup, row.scheduleDay);
+    const configuredWorkDays = currentSchool?.timetablePreferences?.workDays || currentSchool?.timetable?.workDays;
+    const workDays = new Set(Array.isArray(configuredWorkDays) ? configuredWorkDays.map(Number) : [1, 2, 3, 4, 5]);
+    const scheduledDays = selectedClassId && classGroupKey && Number.isInteger(classDay)
+      ? [classDay]
+      : [...scheduledDaysByGroup.values()].flatMap((days) => [...days]);
+    const allowedDays = new Set(scheduledDays.filter((day) => workDays.has(day)));
     const currentStudentIdByAttendanceId = new Map(reportStudents.flatMap((student) => student.attendanceIds.map((id) => [id, student.id])));
     latestAttendanceReport = {
       from,
@@ -4383,7 +4415,7 @@ window.loadAttendanceReport = async () => {
       scheduleId: selectedClassId,
       classLabel: selectedClass?.textContent || "Entrada general (portería)",
       students: reportStudents,
-      dates: attendanceReportDates(from, to).filter((date) => !selectedClassId || !Number.isInteger(classDay) || new Date(`${date}T12:00:00Z`).getUTCDay() === classDay),
+      dates: attendanceReportDates(from, to).filter((date) => allowedDays.has(new Date(`${date}T12:00:00Z`).getUTCDay())),
       rows: (response.data.rows || [])
         .filter((row) => (row.scheduleId || "") === selectedClassId)
         .filter((row) => currentStudentIdByAttendanceId.has(normalizeCode(row.studentId, 40)))

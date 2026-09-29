@@ -9,3 +9,5 @@ firebase-debug.*.log
 !.env.example
 *.local
 *-test-results.txt
+
+dist/

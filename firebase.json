@@ -7,7 +7,7 @@
   },
   "hosting": {
     "site": "controldeasistencias-8308c",
-    "public": ".",
+    "public": "dist",
     "ignore": [
       "firebase.json",
       ".firebaserc",
@@ -37,7 +37,19 @@
             "value": "no-cache"
           }
         ]
+      },
+      {
+        "source": "**/*.????????????????.@(js|png|svg|ico)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
       }
+    ],
+    "predeploy": [
+      "node scripts/build-hosting.cjs"
     ]
   }
 }

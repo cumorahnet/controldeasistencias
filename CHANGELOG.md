@@ -1,3 +1,9 @@
+## 36.68 - Errores, cache y preparacion de App Check
+
+- Mensajes de permisos, verificacion de acceso, limites y tiempo agotado; el fallo del listener de plantel ahora se informa.
+- Hosting se genera en dist con nombres por hash; solo esos recursos reciben cache inmutable de un ano. HTML, service worker y URLs anteriores conservan no-cache.
+- App Check Enterprise configurado con la clave publica proporcionada; el usuario confirma registro en Firebase App Check. Hosting publicado el 15/09/2026 a las 22:11 (Ciudad de Mexico), version d586582b7c16c6f4. Las 120 pruebas pasan y 7 archivos publicados coinciden por HTTPS con los locales, con cabeceras de cache correctas. Pendiente validar tokens y metricas con uso real antes de exigir App Check; no se desplegaron funciones en esta publicacion.
+
 ## 15/09/2026 - Version de la portada
 
 - El boton obtiene automaticamente la version del titulo de la pagina, incluido su nombre accesible; elimina el numero fijo 36.46.0.
@@ -23,6 +29,101 @@
 - Validación: 49 pruebas de asistencia, correcciones, arranque y PWA aprobadas. La suite general detectó ocho fallos existentes en horarios; se actualizó la expectativa de caché para esta versión. Revisión visual y despliegue pendientes.
 
 # CHANGELOG
+
+<!-- cdc-session:session-20260916030834-9fa419 -->
+## Sesión 15/09/2026, 10:38 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 17 cambio(s): 6 creado(s), 11 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting.ZGlzdA.cache
+- .gitignore
+- CHANGELOG.md
+- DECISIONS.md
+- DEPLOY_FIREBASE.md
+- app-check-config.js
+- app.js
+- firebase-debug.log
+- firebase.json
+- functions/.env.example
+- functions/index.js
+- index.html
+- scripts/build-hosting.cjs
+- sw.js
+- tests/hosting-errors.test.cjs
+- tests/pwa-install.test.cjs
+- version.json
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20260916030305-040b00 -->
+## Sesión 15/09/2026, 09:06 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 0 cambio(s): 0 creado(s), 0 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- No se detectaron archivos modificados.
+
+### Riesgos
+
+- No se detectaron archivos modificados. Confirma que el trabajo se haya guardado dentro del proyecto y fuera de carpetas ignoradas.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Definir el siguiente objetivo de trabajo del proyecto.
+
+<!-- cdc-session:session-20260915200522-635b6b -->
+## Sesión 15/09/2026, 05:03 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 17 cambio(s): 3 creado(s), 13 modificado(s) y 1 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting..cache
+- .firebaserc
+- .gitignore
+- CHANGELOG.md
+- DECISIONS.md
+- DEPLOY_FIREBASE.md
+- NEXT.md
+- app-startup.js
+- app.js
+- audit-test-results.txt
+- firebase-debug.log
+- functions/index.js
+- index.html
+- sw.js
+- tests/audit-history.test.cjs
+- tests/pwa-install.test.cjs
+- version.json
+
+### Riesgos
+
+- Se eliminaron 1 archivo(s). Confirma que las eliminaciones sean intencionales antes de integrar los cambios.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
 
 <!-- cdc-session:session-20260915044205-b161a6 -->
 ## Sesión 14/09/2026, 10:42 p.m.

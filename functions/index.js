@@ -13,7 +13,9 @@ const {onSchedule} = require("firebase-functions/v2/scheduler");
 const AUDIT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 initializeApp();
-setGlobalOptions({region: "us-central1", maxInstances: 20});
+// Enable only after the web client sends verified App Check tokens.
+setGlobalOptions({region: "us-central1", maxInstances: 20,
+  enforceAppCheck: process.env.ENFORCE_APP_CHECK === "true"});
 
 const db = getFirestore();
 const ROOT = "listadeasistencia";

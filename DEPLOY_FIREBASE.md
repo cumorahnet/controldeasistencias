@@ -1,3 +1,15 @@
+## 36.68 - Publicacion de estas mejoras
+
+Hosting publicado el 15/09/2026 a las 22:11 (Ciudad de Mexico), version d586582b7c16c6f4, con clave publica de App Check y registro confirmado por el usuario. Validacion: 120 pruebas aprobadas; HTML, service worker y cinco scripts coinciden por HTTPS con dist y tienen cache correcta. Pendientes: comprobar arranque PWA sin conexion y tokens/metricas reales de App Check antes de exigirlo. Esta publicacion no incluye funciones.
+
+1. Ejecutar `node --test tests/*.test.cjs functions/tests/*.test.js`.
+2. Publicar Hosting: `firebase deploy --project controldeasistencias-8308c --only hosting --non-interactive`. El predeploy genera dist automaticamente. Para GitHub Pages, publicar el contenido de dist despues de ejecutar `node scripts/build-hosting.cjs`.
+3. Verificar que HTML y sw.js tengan no-cache, y los JS con hash tengan public, max-age=31536000, immutable; comprobar recarga y arranque PWA sin conexion.
+
+App Check requiere registrar reCAPTCHA Enterprise y dominios autorizados en Firebase, colocar su clave PUBLICA en app-check-config.js y publicar Hosting. Revisar metricas de App Check con clientes reales antes de exigirlo. Para activar, definir ENFORCE_APP_CHECK=true en functions/.env.controldeasistencias-8308c y desplegar functions. Para volver al modo sin exigencia, establecer false y volver a desplegar functions. No publicar tokens de depuracion.
+
+Referencia: https://firebase.google.com/docs/app-check/web/recaptcha-enterprise-provider
+
 ## 36.67 - Pendiente de publicar
 
 Validar y desplegar con:

@@ -1,3 +1,8 @@
+## 36.68 - Publicacion y App Check
+
+- node scripts/build-hosting.cjs genera dist y se ejecuta en predeploy de Hosting. No editar dist. Se conservan archivos originales con revalidacion para clientes anteriores. Los nombres por hash se calculan despues de resolver dependencias; la PWA precarga los mismos archivos y su cache cambia con el contenido.
+- App Check se inicializa antes de Auth/Firestore/Functions cuando app-check-config.js contiene la clave publica Enterprise. ENFORCE_APP_CHECK=true exige tokens en las onCall v2 mediante setGlobalOptions; mantener false hasta verificar metricas. No reemplaza autenticacion, roles ni plantel.
+
 ## 15/09/2026 - Version visible de la portada
 
 - app-startup.js sincroniza el boton de acceso con la version del titulo al cargar el DOM, sin depender del arranque de Firebase. El titulo debe mantenerse alineado con version.json; este JSON no se publica en Hosting.

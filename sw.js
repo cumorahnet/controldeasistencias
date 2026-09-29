@@ -1,10 +1,11 @@
-const CACHE_NAME = "control-asistencia-36.67.0-pwa-v33";
+const CACHE_NAME = "control-asistencia-36.68.0-pwa-v34";
 const APP_BASE_URL = new URL("./", self.location.href);
 const appUrl = (path) => new URL(path, APP_BASE_URL).href;
 const APP_SHELL = [
   "./",
   "index.html",
   "app.js",
+  "app-check-config.js",
   "app-startup.js",
   "school-timetable.js",
   "attendance-report-export.js",
