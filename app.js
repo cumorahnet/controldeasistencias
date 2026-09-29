@@ -5143,7 +5143,7 @@ byId("move-student-level")?.addEventListener("change", window.populateMoveStuden
 onAuthStateChanged(auth, async (user) => {
   setConnection(true);
   if (!user) {
-    window.safeToggle("section-gateway", false);
+    window.safeToggle("section-gateway", true);
     return;
   }
   try {

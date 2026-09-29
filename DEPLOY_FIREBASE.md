@@ -1,3 +1,11 @@
+## 36.69 - Salida para cambiar de usuario o escuela
+
+Publicar únicamente Hosting:
+
+```powershell
+firebase deploy --project controldeasistencias-8308c --only hosting --non-interactive
+```
+
 ## 36.68 - Publicacion de estas mejoras
 
 Hosting publicado el 15/09/2026 a las 22:11 (Ciudad de Mexico), version d586582b7c16c6f4, con clave publica de App Check y registro confirmado por el usuario. Validacion: 120 pruebas aprobadas; HTML, service worker y cinco scripts coinciden por HTTPS con dist y tienen cache correcta. Pendientes: comprobar arranque PWA sin conexion y tokens/metricas reales de App Check antes de exigirlo. Esta publicacion no incluye funciones.
