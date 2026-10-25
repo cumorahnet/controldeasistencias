@@ -124,6 +124,11 @@ let teacherCatalogCache = [];
 let latestAttendanceReport = null;
 let incidentCache = [];
 let pendingLogoDataUrl = "";
+let calendarExceptionsDraft = [];
+let attendancePeriodsDraft = [];
+let institutionalAttendancePolicyDraft = {};
+let levelAttendancePoliciesDraft = {};
+let attendancePolicyScopeDraft = "";
 const attendanceInFlight = new Set();
 let schoolSelectionLoadVersion = 0;
 let globalSchoolsLoadVersion = 0;
@@ -706,6 +711,11 @@ window.logout = async () => {
   window.safeToggle("modal-move-student", true);
   window.safeToggle("modal-delete-student-group", true);
   window.closeSchoolCalendar();
+  document.querySelectorAll('[role="dialog"]').forEach((dialog) => {
+    dialog.classList.add("hidden");
+    dialog.setAttribute("aria-hidden", "true");
+  });
+  document.body.classList.remove("overflow-hidden");
   window.safeToggle("section-gateway", false);
   window.resetGateway();
   await signOut(auth).catch(() => {});
@@ -1494,7 +1504,7 @@ function updateAttendanceGroupStatus() {
     select.disabled = true;
   }
   const message = active
-    ? active.subject + " · " + active.level + " · Grupo " + active.group + " · " + active.entryTime + "–" + active.endTime + ". Pase de lista habilitado."
+    ? active.subject + " · " + active.level + " · Grupo " + active.group + " · " + active.entryTime + "–" + active.endTime + " · " + (scheduleClockMinutes(active.endTime) - scheduleClockMinutes(active.entryTime)) + " min. Pase de lista habilitado."
     : "No tiene clase en este momento. El pase de lista se habilitará automáticamente según el horario del administrador.";
   if (byId("attendance-group-status")) byId("attendance-group-status").textContent = message;
   if (byId("current-schedule-label")) byId("current-schedule-label").textContent = message;
@@ -1606,14 +1616,26 @@ function effectiveSchedule(level, group) {
   const school = currentSchool || {};
   const groupSchedule = (Array.isArray(teacher.groupSchedules) ? teacher.groupSchedules : []).find((item) =>
     normalizeSchoolLevel(item?.level) === level && normalizeGroupName(item?.group) === group);
-  const parameters = teacher.role === "docente" ? school : {
+  const attendancePolicy = school.timetablePreferences?.journeyMode === "levels" ? school.levelAttendancePolicies?.[level] || school : school;
+  if (teacher.role === "docente" && Array.isArray(school.subjectSchedules)) {
+    const active = activeTeacherClass();
+    const matches = active && normalizeSchoolLevel(active.level) === level && normalizeGroupName(active.group) === group;
+    return {entryTime: matches ? active.entryTime : "", endTime: matches ? active.endTime : "",
+      classDuration: matches ? scheduleClockMinutes(active.endTime) - scheduleClockMinutes(active.entryTime) : 0,
+      tolerance: Math.max(0, Math.min(120, Number(attendancePolicy.tolerance) || 0)),
+      recessReturnTime: "", configuredForGroup: Boolean(matches), id: matches ? active.id : "", scheduleId: matches ? active.id : ""};
+  }
+  const configuredEntry = school.levelEntryTimes !== undefined
+    ? school.timetablePreferences?.journeyMode === "levels" ? school.levelEntryTimes[level] || school.timetable?.levelJourneys?.[level]?.entryTime || school.timetable?.journey?.entryTime || school.entryTime : school.entryTime || school.timetable?.journey?.entryTime
+    : school.timetable?.levelJourneys?.[level]?.entryTime || school.timetable?.journey?.entryTime;
+  const parameters = teacher.role === "docente" ? {...school, tolerance: attendancePolicy.tolerance} : {
     recessReturnTime: groupSchedule?.recessReturnTime || teacher.recessReturnTime || school.recessReturnTime,
-    tolerance: groupSchedule?.tolerance ?? teacher.tolerance ?? school.tolerance,
+    tolerance: school.levelAttendancePolicies ? attendancePolicy.tolerance : groupSchedule?.tolerance ?? teacher.tolerance ?? school.tolerance,
     classDuration: groupSchedule?.classDuration ?? teacher.classDuration ?? school.classDuration,
   };
   const duration = Math.trunc(Number(parameters.classDuration ?? 50));
   return {
-    entryTime: String(groupSchedule?.entryTime || teacher.entryTime || school.entryTime || "").slice(0, 5),
+    entryTime: String(configuredEntry || groupSchedule?.entryTime || teacher.entryTime || school.entryTime || "").slice(0, 5),
     recessReturnTime: String(parameters.recessReturnTime || "").slice(0, 5),
     tolerance: Math.max(0, Math.min(120, Number(parameters.tolerance ?? 0) || 0)),
     classDuration: Number.isFinite(duration) ? Math.max(1, Math.min(240, duration)) : 50,
@@ -2031,6 +2053,27 @@ window.loadIncidents = async () => {
   }
 };
 
+async function openAuthenticatedApp() {
+  try {
+    await enterApp();
+  } catch (error) {
+    // Un fallo de interfaz o de cámara no invalida las credenciales.
+    window.showModalMsg("No se pudo completar la carga", functionError(error, "Vuelva a intentar abrir la sección o recargue la página."));
+  }
+}
+
+function clearSessionView() {
+  unsubscribeAttendance?.();
+  unsubscribeAttendance = null;
+  stopSchoolProfileListener();
+  loggedTeacher = null;
+  window.safeToggle("main-header", true);
+  window.safeToggle("main-content", true);
+  window.safeToggle("modal-change-password", true);
+  document.body.classList.remove("overflow-hidden");
+  window.safeToggle("section-gateway", false);
+}
+
 async function enterApp() {
   if (!loggedTeacher) return;
   window.safeToggle("section-gateway", true);
@@ -2441,6 +2484,7 @@ window.switchMaintCategory = async (category) => {
   }
   if (category === "reportes") {
     populateReportClasses();
+    populateReportPeriods();
     const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
     if (byId("report-date-from") && !byId("report-date-from").value) byId("report-date-from").value = today;
     if (byId("report-date-to") && !byId("report-date-to").value) byId("report-date-to").value = today;
@@ -2468,6 +2512,9 @@ window.switchMaintCategory = async (category) => {
   for (const level of ["PRE", "PRI", "SEC", "BAC"]) byId(`edit-level-${level}`).checked = schoolLevels(data).includes(level);
   const workDays = Array.isArray(data.timetablePreferences?.workDays) ? data.timetablePreferences.workDays : [1, 2, 3, 4, 5];
   for (const day of [1, 2, 3, 4, 5, 6, 0]) byId(`edit-work-day-${day}`).checked = workDays.includes(day);
+  initializeAttendancePolicyEditor(data);
+  calendarExceptionsDraft = Array.isArray(data.calendarExceptions) ? data.calendarExceptions.map((item) => ({...item})) : [];
+  renderCalendarExceptions();
   pendingLogoDataUrl = String(data.isPremium === true ? data.logoDataUrl || "" : data.pendingLogoDataUrl || "");
   const logoPreview = byId("brand-logo-preview");
   if (logoPreview) {
@@ -2549,23 +2596,222 @@ window.updateLogoBackgroundPreview = () => {
   if (colorInput) colorInput.disabled = mode !== "color";
 };
 
+function configuredAttendancePolicyLevels() {
+  return ["PRE", "PRI", "SEC", "BAC"].filter((level) => byId(`edit-level-${level}`)?.checked);
+}
+
+function storeAttendancePolicyDraft() {
+  const policy = {
+    entryTime: byId("edit-entry-time").value || "",
+    tolerance: Number(byId("edit-tolerance").value),
+    tardiesPerAbsence: Number(byId("edit-tardies-per-absence").value),
+    attendancePeriods: attendancePeriodsDraft.map((period) => ({...period})),
+    workDays: [1, 2, 3, 4, 5, 6, 0].filter((day) => byId(`edit-work-day-${day}`)?.checked),
+    pendingStart: byId("attendance-period-start").value,
+    pendingEnd: byId("attendance-period-end").value,
+  };
+  if (attendancePolicyScopeDraft) levelAttendancePoliciesDraft[attendancePolicyScopeDraft] = policy;
+  else institutionalAttendancePolicyDraft = policy;
+}
+
+function initializeAttendancePolicyEditor(data) {
+  institutionalAttendancePolicyDraft = {entryTime: data.levelEntryTimes !== undefined ? data.entryTime || data.timetable?.journey?.entryTime || "" : data.timetable?.journey?.entryTime || data.entryTime || "",
+    tolerance: data.tolerance ?? 0, tardiesPerAbsence: data.tardiesPerAbsence ?? 0,
+    attendancePeriods: (data.attendancePeriods || []).map((period) => ({...period})),
+    workDays: [...data.timetablePreferences?.workDays || data.timetable?.workDays || [1, 2, 3, 4, 5]]};
+  levelAttendancePoliciesDraft = JSON.parse(JSON.stringify(data.levelAttendancePolicies || {}));
+  for (const level of new Set([...Object.keys(levelAttendancePoliciesDraft), ...Object.keys(data.timetablePreferences?.levelWorkDays || {}), ...Object.keys(data.levelEntryTimes || {}), ...Object.keys(data.timetable?.levelJourneys || {})])) {
+    if (!levelAttendancePoliciesDraft[level]) levelAttendancePoliciesDraft[level] = JSON.parse(JSON.stringify(institutionalAttendancePolicyDraft));
+    levelAttendancePoliciesDraft[level].workDays = [...data.timetablePreferences?.levelWorkDays?.[level] || institutionalAttendancePolicyDraft.workDays];
+    levelAttendancePoliciesDraft[level].entryTime = data.levelEntryTimes?.[level] || data.timetable?.levelJourneys?.[level]?.entryTime || institutionalAttendancePolicyDraft.entryTime;
+  }
+  attendancePolicyScopeDraft = "";
+  renderAttendancePolicyEditor();
+}
+
+function renderAttendancePolicyEditor() {
+  const byLevel = byId("edit-journey-mode").value === "levels";
+  const levels = configuredAttendancePolicyLevels();
+  byId("school-attendance-configuration").hidden = !levels.length;
+  for (const level of byLevel ? levels : []) if (!levelAttendancePoliciesDraft[level]) {
+    levelAttendancePoliciesDraft[level] = JSON.parse(JSON.stringify(institutionalAttendancePolicyDraft));
+  }
+  const select = byId("attendance-policy-level");
+  const selected = levels.includes(select.value) ? select.value : levels[0] || "";
+  select.replaceChildren();
+  for (const level of levels) select.add(new Option(STUDENT_LEVEL_LABELS[level], level));
+  select.value = selected;
+  byId("attendance-policy-level-field").hidden = !byLevel;
+  attendancePolicyScopeDraft = byLevel ? selected : "";
+  const policy = attendancePolicyScopeDraft ? levelAttendancePoliciesDraft[attendancePolicyScopeDraft] : institutionalAttendancePolicyDraft;
+  byId("attendance-policy-scope").textContent = byLevel ? selected ? `Reglas de ${STUDENT_LEVEL_LABELS[selected]}` : "Seleccione al menos un nivel educativo." : "Reglas para toda la institución";
+  for (const day of [1, 2, 3, 4, 5, 6, 0]) byId(`edit-work-day-${day}`).checked = (policy.workDays || institutionalAttendancePolicyDraft.workDays).includes(day);
+  byId("edit-entry-time").value = policy.entryTime || "";
+  byId("edit-tolerance").value = policy.tolerance ?? 0;
+  byId("edit-tardies-per-absence").value = policy.tardiesPerAbsence ?? 0;
+  attendancePeriodsDraft = (policy.attendancePeriods || []).map((period) => ({...period}));
+  byId("attendance-period-start").value = policy.pendingStart || "";
+  byId("attendance-period-end").value = policy.pendingEnd || "";
+  renderAttendancePeriods();
+}
+
+window.changeAttendancePolicyMode = () => {storeAttendancePolicyDraft(); renderAttendancePolicyEditor();};
+window.selectAttendancePolicyLevel = () => {storeAttendancePolicyDraft(); renderAttendancePolicyEditor();};
+window.refreshAttendancePolicyLevels = () => {storeAttendancePolicyDraft(); renderAttendancePolicyEditor();};
+
+function attendancePolicyProfile() {
+  storeAttendancePolicyDraft();
+  const clean = (policy) => ({tolerance: Number(policy.tolerance), tardiesPerAbsence: Number(policy.tardiesPerAbsence),
+    attendancePeriods: (policy.attendancePeriods || []).map((period) => ({...period}))});
+  const institutional = clean(institutionalAttendancePolicyDraft);
+  const levels = Object.fromEntries(Object.entries(levelAttendancePoliciesDraft).map(([level, policy]) => [level, clean(policy)]));
+  const active = byId("edit-journey-mode").value === "levels"
+    ? configuredAttendancePolicyLevels().map((level) => [STUDENT_LEVEL_LABELS[level], levels[level], levelAttendancePoliciesDraft[level]]) : [["Institución", institutional, institutionalAttendancePolicyDraft]];
+  for (const [label, policy, source] of active) {
+    if (!policy || !Number.isInteger(policy.tolerance) || policy.tolerance < 0 || policy.tolerance > 120
+      || !Number.isInteger(policy.tardiesPerAbsence) || policy.tardiesPerAbsence < 0 || policy.tardiesPerAbsence > 30) throw new Error(`Revise la tolerancia y el número de retardos de ${label}.`);
+    if (policy.tardiesPerAbsence > 0 && !policy.attendancePeriods.length) throw new Error(`Configure al menos un periodo para ${label}.`);
+    if (!source?.workDays?.length) throw new Error(`Seleccione al menos un día laborable para ${label}.`);
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(source.entryTime || "")) throw new Error(`Configure la hora de entrada para ${label}.`);
+  }
+  return {...institutional, entryTime: institutionalAttendancePolicyDraft.entryTime || "",
+    levelEntryTimes: Object.fromEntries(Object.entries(levelAttendancePoliciesDraft).filter(([, policy]) => policy.entryTime).map(([level, policy]) => [level, policy.entryTime])),
+    levelAttendancePolicies: levels, timetablePreferences: {
+    journeyMode: byId("edit-journey-mode").value === "levels" ? "levels" : "institutional",
+    workDays: [...institutionalAttendancePolicyDraft.workDays],
+    levelWorkDays: Object.fromEntries(Object.entries(levelAttendancePoliciesDraft).map(([level, policy]) => [level, [...policy.workDays || institutionalAttendancePolicyDraft.workDays]])),
+  }};
+}
+
+function renderAttendancePeriods() {
+  const container = byId("attendance-periods-list");
+  if (!container) return;
+  container.replaceChildren();
+  attendancePeriodsDraft.forEach((period, index) => {
+    const row = document.createElement("div");
+    row.className = "flex items-center justify-between gap-3 rounded-xl border bg-white p-3 text-xs";
+    const label = document.createElement("span");
+    label.textContent = `Periodo ${index + 1}: ${period.start} al ${period.end}`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "font-bold text-red-700";
+    remove.textContent = "Quitar";
+    remove.setAttribute("aria-label", `Quitar periodo ${index + 1}`);
+    remove.onclick = () => {attendancePeriodsDraft.splice(index, 1); renderAttendancePeriods();};
+    row.append(label, remove);
+    container.append(row);
+  });
+  if (!attendancePeriodsDraft.length) container.textContent = "No hay periodos configurados.";
+}
+
+window.addAttendancePeriod = () => {
+  const start = byId("attendance-period-start").value;
+  const end = byId("attendance-period-end").value;
+  if (!start || !end || start > end) return window.showModalMsg("Periodos", "Capture las fechas inicial y final en orden.");
+  if (attendancePeriodsDraft.length >= 40) return window.showModalMsg("Periodos", "Puede configurar hasta 40 periodos.");
+  if (attendancePeriodsDraft.some((period) => start <= period.end && end >= period.start)) {
+    return window.showModalMsg("Periodos", "Los periodos no pueden superponerse. Ambas fechas están incluidas.");
+  }
+  attendancePeriodsDraft.push({start, end});
+  attendancePeriodsDraft.sort((a, b) => a.start.localeCompare(b.start));
+  byId("attendance-period-start").value = "";
+  byId("attendance-period-end").value = "";
+  renderAttendancePeriods();
+};
+
+function populateReportPeriods() {
+  const select = byId("report-period");
+  if (!select) return;
+  select.replaceChildren(new Option("Rango personalizado", ""));
+  const today = new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date());
+  const periodSources = currentSchool?.timetablePreferences?.journeyMode === "levels"
+    ? schoolLevels().flatMap((level) => (currentSchool?.levelAttendancePolicies?.[level]?.attendancePeriods || currentSchool?.attendancePeriods || []).map((period) => ({...period, label: STUDENT_LEVEL_LABELS[level]})))
+    : (currentSchool?.attendancePeriods || []);
+  periodSources.forEach((period, index) => {
+    const option = new Option(`${period.label ? period.label + " · " : ""}Periodo ${index + 1}: ${period.start} al ${period.end}`, `${period.start}/${period.end}`);
+    select.add(option);
+    if (period.start <= today && today <= period.end) select.value = option.value;
+  });
+  window.selectReportPeriod();
+}
+
+window.selectReportPeriod = () => {
+  const value = byId("report-period")?.value;
+  if (!value) return;
+  const [start, end] = value.split("/");
+  byId("report-date-from").value = start;
+  byId("report-date-to").value = end;
+};
+
+function renderCalendarExceptions() {
+  const list = byId("calendar-exceptions-list");
+  if (!list) return;
+  list.replaceChildren();
+  [...calendarExceptionsDraft].sort((a, b) => a.date.localeCompare(b.date)).forEach((exception) => {
+    const item = document.createElement("li");
+    item.className = "flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2";
+    const description = document.createElement("span");
+    const typeLabel = exception.type === "festivo" ? "Festivo" : exception.type === "consejo_tecnico" ? "Consejo Técnico" : "Suspensión";
+    description.textContent = `${visibleReportDate(exception.date, true)} · ${typeLabel}${exception.label ? ` · ${exception.label}` : ""}`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "shrink-0 font-bold text-red-700 underline";
+    remove.textContent = "Quitar";
+    remove.setAttribute("aria-label", `Quitar ${typeLabel} del ${exception.date}`);
+    remove.addEventListener("click", () => {
+      calendarExceptionsDraft = calendarExceptionsDraft.filter((entry) => entry.date !== exception.date);
+      renderCalendarExceptions();
+    });
+    item.append(description, remove);
+    list.append(item);
+  });
+  if (!calendarExceptionsDraft.length) {
+    const empty = document.createElement("li");
+    empty.className = "text-sm italic text-slate-500";
+    empty.textContent = "No hay fechas especiales registradas.";
+    list.append(empty);
+  }
+}
+
+window.addCalendarException = () => {
+  const date = byId("calendar-exception-date")?.value || "";
+  const type = byId("calendar-exception-type")?.value || "festivo";
+  const label = byId("calendar-exception-label")?.value?.trim() || "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T12:00:00Z`).getTime())) {
+    return window.showModalMsg("Calendario escolar", "Seleccione una fecha válida.");
+  }
+  const parsed = new Date(`${date}T12:00:00Z`);
+  if (parsed.toISOString().slice(0, 10) !== date) return window.showModalMsg("Calendario escolar", "Seleccione una fecha válida.");
+  const existing = calendarExceptionsDraft.find((entry) => entry.date === date);
+  if (existing) Object.assign(existing, {type, label});
+  else calendarExceptionsDraft.push({date, type, label});
+  if (calendarExceptionsDraft.length > 366) {
+    calendarExceptionsDraft = calendarExceptionsDraft.filter((entry) => entry.date !== date || entry !== calendarExceptionsDraft.at(-1));
+    return window.showModalMsg("Calendario escolar", "Puede registrar hasta 366 fechas especiales.");
+  }
+  byId("calendar-exception-label").value = "";
+  renderCalendarExceptions();
+};
+
 window.updateSchoolGlobalData = async () => {
   if (!isAdmin()) return;
-  const workDays = [1, 2, 3, 4, 5, 6, 0].filter((day) => byId(`edit-work-day-${day}`)?.checked);
+  const workDays = [...institutionalAttendancePolicyDraft.workDays || [1, 2, 3, 4, 5]];
   const profile = {
     name: byId("edit-school-name").value,
     levels: ["PRE", "PRI", "SEC", "BAC"].filter((level) => byId(`edit-level-${level}`).checked),
     director: byId("edit-director-name").value,
     entryTime: currentSchool?.entryTime || "",
     recessReturnTime: currentSchool?.recessReturnTime || "",
-    tolerance: byId("edit-tolerance").value,
+    tolerance: institutionalAttendancePolicyDraft.tolerance ?? 0,
     classDuration: currentSchool?.classDuration ?? 50,
-    tardiesPerAbsence: byId("edit-tardies-per-absence")?.value || 0,
+    tardiesPerAbsence: institutionalAttendancePolicyDraft.tardiesPerAbsence ?? 0,
+    attendancePeriods: institutionalAttendancePolicyDraft.attendancePeriods || [],
     contactEmail: byId("edit-school-contact-email")?.value || "",
     timetablePreferences: {
       workDays,
       journeyMode: byId("edit-journey-mode")?.value === "levels" ? "levels" : "institutional",
     },
+    calendarExceptions: calendarExceptionsDraft.map(({date, type, label}) => ({date, type, label})),
   };
   if (currentSchool?.isPremium === true || byId("premium-branding-panel")?.classList.contains("hidden") === false) {
     profile.brandPrimaryColor = byId("edit-brand-primary")?.value || "#1e293b";
@@ -2577,6 +2823,7 @@ window.updateSchoolGlobalData = async () => {
     profile.pendingLogoDataUrl = pendingLogoDataUrl;
   }
   try {
+    Object.assign(profile, attendancePolicyProfile());
     if (!profile.levels.length) throw new Error("Seleccione al menos un nivel de la institución.");
     if (!profile.timetablePreferences.workDays.length) throw new Error("Seleccione al menos un día laborable.");
     await api.updateSchool({schoolKey, profile});
@@ -3225,9 +3472,12 @@ function initializeTimetableEditor() {
   timetablePendingSubjects.clear();
   byId("timetable-form").oninput = () => {timetableFormDirty = true; updateTimetableGenerationState();};
   const journey = window.SchoolTimetable.journeyForLevel(schoolTimetableDraft, schoolLevels()[0]) || schoolTimetableDraft.groups[0] || {entryTime: "08:00", endTime: "14:00", modulesPerDay: 6, breakMinutes: 5, recessStart: "", recessEnd: ""};
-  const journeyMode = typeof currentSchool !== "undefined" && currentSchool?.timetablePreferences?.journeyMode
-    ? currentSchool.timetablePreferences.journeyMode
-    : "levels";
+  const journeyMode = typeof currentSchool !== "undefined" && currentSchool?.levelAttendancePolicies && currentSchool?.timetablePreferences?.journeyMode ? currentSchool.timetablePreferences.journeyMode
+    : Object.keys(schoolTimetableDraft.levelJourneys || {}).length ? "levels"
+    : schoolTimetableDraft.journey ? "institutional"
+    : typeof currentSchool !== "undefined" && currentSchool?.timetablePreferences?.journeyMode
+      ? currentSchool.timetablePreferences.journeyMode
+      : "levels";
   byId("timetable-journey-mode").value = journeyMode;
   window.updateTimetableJourneyMode();
   for (const [id, field] of [["entry", "entryTime"], ["end", "endTime"], ["count", "modulesPerDay"], ["break", "breakMinutes"], ["recess-start", "recessStart"], ["recess-end", "recessEnd"]]) byId("timetable-" + id).value = journey[field] ?? "";
@@ -3240,21 +3490,6 @@ function initializeTimetableEditor() {
     if (subject.name) names.set(timetableSubjectKey(subject.name), {name: subject.name});
   }
   schoolTimetableDraft.subjects = [...names.values()];
-  const container = byId("timetable-days");
-  container.replaceChildren();
-  for (const [day, name] of timetableDayNames) {
-    const label = document.createElement("label"), input = document.createElement("input");
-    input.type = "checkbox"; input.checked = schoolTimetableDraft.workDays.includes(day);
-    input.addEventListener("change", () => {
-      const hasPendingSubjects = [...timetablePendingSubjects.keys()].some((key) => JSON.parse(key)[2] === day);
-      if (!input.checked && (schoolScheduleDraft.some((row) => row.day === day) || hasPendingSubjects)) {
-        input.checked = true; byId("school-schedules-status").textContent = `Quite o reubique las clases del ${name} antes de desactivar ese día.`; return;
-      }
-      schoolTimetableDraft.workDays = timetableDayNames.filter(([d]) => d === day ? input.checked : schoolTimetableDraft.workDays.includes(d)).map(([d]) => d);
-      renderTimetableGrid();
-    });
-    label.append(input, ` ${name}`); container.append(label);
-  }
   const levelsContainer = byId("timetable-journey-levels");
   levelsContainer.replaceChildren();
   for (const level of schoolLevels()) {
@@ -3271,6 +3506,30 @@ function initializeTimetableEditor() {
   refreshTimetableGroups();
   window.selectGroupTimetable(schoolTimetableDraft.groups[0] ? timetableGroupKey(schoolTimetableDraft.groups[0]) : "");
 }
+function renderTimetableDays() {
+  const selectedLevel = byId("timetable-level").value || schoolLevels()[0];
+  const byLevel = Boolean(schoolTimetableDraft.levelWorkDays?.[selectedLevel]);
+  const selectedDays = schoolTimetableDraft.levelWorkDays?.[selectedLevel] || schoolTimetableDraft.workDays;
+  const container = byId("timetable-days");
+  container.replaceChildren();
+  for (const [day, name] of timetableDayNames) {
+    const label = document.createElement("label"), input = document.createElement("input");
+    input.type = "checkbox"; input.checked = selectedDays.includes(day);
+    input.disabled = typeof currentSchool !== "undefined" && currentSchool?.timetablePreferences?.levelWorkDays !== undefined;
+    input.addEventListener("change", () => {
+      const hasPendingSubjects = [...timetablePendingSubjects.keys()].some((key) => JSON.parse(key)[2] === day && (!byLevel || JSON.parse(key)[0] === selectedLevel));
+      if (!input.checked && (schoolScheduleDraft.some((row) => row.day === day && (!byLevel || row.level === selectedLevel)) || hasPendingSubjects)) {
+        input.checked = true; byId("school-schedules-status").textContent = `Quite o reubique las clases del ${name} antes de desactivar ese día.`; return;
+      }
+      const nextDays = timetableDayNames.filter(([d]) => d === day ? input.checked : selectedDays.includes(d)).map(([d]) => d);
+      if (byLevel) schoolTimetableDraft.levelWorkDays[selectedLevel] = nextDays;
+      else schoolTimetableDraft.workDays = nextDays;
+      renderTimetableDays();
+      renderTimetableGrid();
+    });
+    label.append(input, ` ${name}`); container.append(label);
+  }
+}
 window.updateTimetableJourneyMode = () => {
   const byLevel = byId("timetable-journey-mode").value === "levels";
   byId("timetable-level-options").hidden = !byLevel;
@@ -3281,7 +3540,11 @@ window.loadLevelJourney = () => {
   const level = byId("timetable-load-level").value;
   if (!level) return;
   const journey = window.SchoolTimetable.journeyForLevel(schoolTimetableDraft, level) || schoolTimetableDraft.groups.find((group) => group.level === level);
-  if (!journey) {byId("school-schedules-status").textContent = "Este nivel aún no tiene jornada. Selecciónelo y aplique los parámetros del paso 1."; return;}
+  if (!journey) {
+    for (const label of byId("timetable-journey-levels").children) label.children[0].checked = label.children[0].value === level;
+    byId("school-schedules-status").textContent = "Este nivel aún no tiene jornada. Capture su entrada y salida y aplique los parámetros del paso 1.";
+    return;
+  }
   if (timetableFormDirty && !window.confirm("Hay parámetros sin aplicar. ¿Recuperar la jornada guardada de este nivel?")) return;
   for (const [id, field] of [["entry", "entryTime"], ["end", "endTime"], ["count", "modulesPerDay"], ["break", "breakMinutes"], ["recess-start", "recessStart"], ["recess-end", "recessEnd"]]) byId("timetable-" + id).value = journey[field] ?? "";
   byId("timetable-break-mode").value = journey.breakMinutes ? "break" : "continuous";
@@ -3310,6 +3573,7 @@ window.selectGroupTimetable = (key) => {
   const split = key.indexOf("/");
   byId("timetable-level").value = split < 0 ? byId("timetable-level").value || schoolLevels()[0] : key.slice(0, split);
   byId("timetable-group").value = split < 0 ? "" : key.slice(split + 1);
+  renderTimetableDays();
   refreshTimetableGroups();
   updateTimetableGenerationState();
   renderTimetableGrid();
@@ -3428,7 +3692,7 @@ function renderTimetableGrid() {
   const container = byId("timetable-grid"); container.replaceChildren();
   const group = schoolTimetableDraft.groups.find((item) => timetableGroupKey(item) === timetableSelected);
   if (!group) {container.textContent = "Configure la jornada institucional y las materias; después seleccione el grupo y genere su tabla."; return;}
-  const days = timetableDayNames.filter(([day]) => schoolTimetableDraft.workDays.includes(day));
+  const days = timetableDayNames.filter(([day]) => (schoolTimetableDraft.levelWorkDays?.[byId("timetable-level").value] || schoolTimetableDraft.workDays).includes(day));
   const table = document.createElement("table"); table.className = "w-full text-sm border-collapse";
   const caption = table.createCaption(); caption.textContent = `${group.level} · ${group.group}`; caption.className = "font-bold p-3";
   const head = table.createTHead().insertRow();
@@ -3537,6 +3801,7 @@ window.openSchoolSchedules = async () => {
     byId("school-schedules-status").textContent = "";
     schoolTimetableDraft = school.data().timetable ? JSON.parse(JSON.stringify(school.data().timetable)) : {workDays: [...new Set([1, 2, 3, 4, 5, ...schoolScheduleDraft.map((row) => row.day)])], groups: []};
     if (Array.isArray(school.data().timetablePreferences?.workDays)) schoolTimetableDraft.workDays = [...school.data().timetablePreferences.workDays];
+    if (school.data().timetablePreferences?.levelWorkDays !== undefined) schoolTimetableDraft.levelWorkDays = school.data().timetablePreferences.journeyMode === "levels" ? JSON.parse(JSON.stringify(school.data().timetablePreferences.levelWorkDays)) : {};
     timetableSelected = "";
     timetableFormDirty = false;
     initializeTimetableEditor();
@@ -3792,6 +4057,13 @@ window.deleteTeacher = (id) => window.showConfirmMsg("Eliminar personal", `¿Eli
   await api.deleteTeacher({schoolKey, teacherId: id});
   await loadTeachers();
 });
+
+window.cancelSchoolCreation = () => {
+  if (byId("btn-create-school")?.disabled) return;
+  ["school-create-cct", "school-create-name", "school-create-director", "school-create-admin-name", "school-create-admin-id", "school-create-password", "school-create-password-confirm"]
+    .forEach((id) => { if (byId(id)) byId(id).value = ""; });
+  byId("school-create-cct")?.focus();
+};
 
 window.createSchool = async () => {
   if (loggedTeacher?.role !== "super") return window.showModalMsg("Alta de plantel", "Esta operación requiere el acceso maestro global.");
@@ -4178,6 +4450,7 @@ function populateReportClasses(rows = []) {
   const days = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
   for (const [id, row] of classes) {
     const option = new Option(`${row.subject} · ${row.group} · ${days[row.day] || ""} ${row.entryTime}`, id);
+    option.dataset.subject = normalizeText(row.subject);
     option.dataset.day = String(row.day);
     option.dataset.groupKey = scheduleGroupKey(row.level, row.group);
     select.add(option);
@@ -4241,10 +4514,13 @@ function createAttendanceReportHeader(report, sectionLabel = "") {
 
 function attendanceCountsByStudent(report) {
   const counts = new Map();
+  const includedDates = new Set(report.dates || []);
+  const excludedDates = new Set((report.calendarExceptions || []).map((entry) => entry.date));
   const recordedAttendances = new Set();
   for (const attendance of report.rows || []) {
     const studentId = normalizeCode(attendance?.studentId, 40);
     const date = String(attendance?.date || "");
+    if (!includedDates.has(date) || excludedDates.has(date)) continue;
     if (!studentId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isTardyAbsence(attendance?.status) || isJustifiedAbsence(attendance) || /^FALTA\b/i.test(normalizeText(attendance?.status, 40))) continue;
     const key = `${studentId}|${date}`;
     if (recordedAttendances.has(key)) continue;
@@ -4262,6 +4538,7 @@ const ATTENDANCE_PRINT_DATES_PER_PAGE = 50;
 
 function createAttendanceMatrixTable(report, dates = report.dates, editable = false) {
   const attendanceByStudentAndDate = new Map(report.rows.map((row) => [`${row.studentId}|${row.date}`, row]));
+  const exceptionsByDate = new Map((report.calendarExceptions || []).map((entry) => [entry.date, entry]));
   const attendanceCounts = attendanceCountsByStudent(report);
   const table = document.createElement("table");
   table.className = "attendance-report-grid";
@@ -4274,7 +4551,10 @@ function createAttendanceMatrixTable(report, dates = report.dates, editable = fa
   dates.forEach((date) => {
     const dateHeading = document.createElement("th");
     dateHeading.className = "attendance-date-cell";
-    dateHeading.title = visibleReportDate(date, true);
+    const exception = exceptionsByDate.get(date);
+    dateHeading.title = exception
+      ? `${visibleReportDate(date, true)} · ${exception.type === "festivo" ? "Festivo" : exception.type === "consejo_tecnico" ? "Consejo Técnico" : "Suspensión de clases"}${exception.label ? ` · ${exception.label}` : ""}`
+      : visibleReportDate(date, true);
     const label = document.createElement("span");
     label.className = "attendance-date-label";
     label.textContent = visibleReportDate(date);
@@ -4292,7 +4572,23 @@ function createAttendanceMatrixTable(report, dates = report.dates, editable = fa
     const row = document.createElement("tr");
     row.append(createCell(student.name, "attendance-name-cell"));
     dates.forEach((date) => {
+      const exception = exceptionsByDate.get(date);
+      if (exception) {
+        const mark = exception.type === "festivo" ? "F" : exception.type === "consejo_tecnico" ? "C" : "S";
+        const typeLabel = exception.type === "festivo" ? "Festivo" : exception.type === "consejo_tecnico" ? "Consejo Técnico" : "Suspensión de clases";
+        const cell = createCell(mark, "attendance-mark-cell text-purple-800 bg-purple-50");
+        cell.title = `${visibleReportDate(date, true)} · ${typeLabel}${exception.label ? ` · ${exception.label}` : ""}`;
+        cell.setAttribute("aria-label", `${student.name}: ${cell.title}; no cuenta como falta ni asistencia`);
+        row.append(cell);
+        return;
+      }
       const attendance = attendanceByStudentAndDate.get(`${student.id}|${date}`);
+      if (!attendance && report.levelWorkDays?.[student.level] && !report.levelWorkDays[student.level].includes(new Date(`${date}T12:00:00Z`).getUTCDay())) {
+        const cell = createCell("–", "attendance-mark-cell text-slate-400 bg-slate-50");
+        cell.title = "Día no laborable para este nivel; no cuenta como falta";
+        row.append(cell);
+        return;
+      }
       const status = attendance ? normalizedAttendanceStatus(attendance.status) : "FALTA NORMAL";
       const justified = isJustifiedAbsence(attendance);
       const mark = justified ? "J" : status === "FALTA POR RETARDOS" ? "R" : status === "RETARDO" ? "T" : attendance && status !== "FALTA NORMAL" ? "●" : "/";
@@ -4347,7 +4643,8 @@ function renderAttendanceReport(report) {
   scroller.append(createAttendanceMatrixTable(report, report.dates, true));
   const legend = document.createElement("p");
   legend.className = "p-3 text-right text-[9px] font-black uppercase text-slate-600";
-  legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · J Falta justificada · / Falta normal · Total: asistencias del periodo";
+  legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · J Falta justificada · / Falta normal · – Día no laborable · Total: asistencias del periodo";
+  legend.textContent += " · F Festivo · S Suspensión · C Consejo Técnico (no cuentan en los totales)";
   preview.append(scroller, legend);
   if (isAdmin()) {
     const help = document.createElement("p");
@@ -4372,6 +4669,7 @@ window.loadAttendanceReport = async () => {
     .map((student) => ({
       id: normalizeCode(student.id, 40),
       name: studentDisplayName(student),
+      level: normalizeSchoolLevel(student.level || student.nivel),
       attendanceIds: [...new Set([
         student.id,
         ...(Array.isArray(student.previousStudentIds) ? student.previousStudentIds : []),
@@ -4388,40 +4686,43 @@ window.loadAttendanceReport = async () => {
     const selectedClassId = byId("report-class")?.value || "";
     const selectedClass = byId("report-class")?.selectedOptions[0];
     const classDay = Number(selectedClass?.dataset.day);
-    const classGroupKey = selectedClass?.dataset.groupKey;
+    const reportScheduleId = selectedClassId && normalizeText(selectedClass?.dataset.subject)
+      && Number.isInteger(classDay) && classDay >= 0 && classDay <= 6
+      ? selectedClassId
+      : "";
+    const classGroupKey = reportScheduleId ? selectedClass?.dataset.groupKey : "";
     const classStudentIds = new Set(studentCatalogCache.filter((student) => reportGroupFromStudent(student)?.key === classGroupKey).map((student) => normalizeCode(student.id, 40)));
-    const reportStudents = selectedClassId ? students.filter((student) => classStudentIds.has(student.id)) : students;
+    const reportStudents = reportScheduleId ? students.filter((student) => classStudentIds.has(student.id)) : students;
     if (!reportStudents.length) return window.showModalMsg("Reporte", "Seleccione el grupo al que corresponde esta clase.");
-    const scheduledDaysByGroup = new Map();
-    const addScheduledDay = (level, group, day) => {
-      const key = scheduleGroupKey(level, group);
-      if (!selectedGroupKeys.has(key) || !Number.isInteger(Number(day))) return;
-      if (!scheduledDaysByGroup.has(key)) scheduledDaysByGroup.set(key, new Set());
-      scheduledDaysByGroup.get(key).add(Number(day));
-    };
-    for (const row of currentSchool?.subjectSchedules || []) addScheduledDay(row.level, row.group, row.day);
-    for (const row of response.data.rows || []) addScheduledDay(row.scheduleLevel, row.scheduleGroup, row.scheduleDay);
     const configuredWorkDays = currentSchool?.timetablePreferences?.workDays || currentSchool?.timetable?.workDays;
-    const workDays = new Set(Array.isArray(configuredWorkDays) ? configuredWorkDays.map(Number) : [1, 2, 3, 4, 5]);
-    const scheduledDays = selectedClassId && classGroupKey && Number.isInteger(classDay)
+    const workDays = new Set(Array.isArray(configuredWorkDays) && configuredWorkDays.length
+      ? configuredWorkDays.map(Number)
+      : [1, 2, 3, 4, 5]);
+    const levelWorkDays = currentSchool?.timetablePreferences?.journeyMode === "levels" ? currentSchool.timetablePreferences.levelWorkDays || {} : {};
+    const reportDays = reportScheduleId
       ? [classDay]
-      : [...scheduledDaysByGroup.values()].flatMap((days) => [...days]);
-    const allowedDays = new Set(scheduledDays.filter((day) => workDays.has(day)));
+      : [...new Set(reportStudents.flatMap((student) => levelWorkDays[student.level] || [...workDays]))];
+    const allowedDays = new Set(reportDays);
     const currentStudentIdByAttendanceId = new Map(reportStudents.flatMap((student) => student.attendanceIds.map((id) => [id, student.id])));
     latestAttendanceReport = {
       from,
       to,
-      groups: selectedClassId ? groups.filter((group) => group.key === classGroupKey) : groups,
-      scheduleId: selectedClassId,
+      groups: reportScheduleId ? groups.filter((group) => group.key === classGroupKey) : groups,
+      scheduleId: reportScheduleId,
       classLabel: selectedClass?.textContent || "Entrada general (portería)",
+      calendarExceptions: Array.isArray(currentSchool?.calendarExceptions) ? currentSchool.calendarExceptions : [],
       students: reportStudents,
-      dates: attendanceReportDates(from, to).filter((date) => allowedDays.has(new Date(`${date}T12:00:00Z`).getUTCDay())),
+      levelWorkDays: reportScheduleId ? {} : levelWorkDays,
+      dates: attendanceReportDates(from, to).filter((date) => date <= new Intl.DateTimeFormat("en-CA", {timeZone: "America/Mexico_City"}).format(new Date())).filter((date) => allowedDays.has(new Date(`${date}T12:00:00Z`).getUTCDay())),
       rows: (response.data.rows || [])
-        .filter((row) => (row.scheduleId || "") === selectedClassId)
+        .filter((row) => (row.scheduleId || "") === reportScheduleId)
         .filter((row) => currentStudentIdByAttendanceId.has(normalizeCode(row.studentId, 40)))
         .map((row) => ({...row, studentId: currentStudentIdByAttendanceId.get(normalizeCode(row.studentId, 40))})),
       truncated: response.data.truncated === true,
     };
+    latestAttendanceReport.classLabel = reportScheduleId
+      ? selectedClass?.textContent || ""
+      : "Entrada general (portería)";
     renderAttendanceReport(latestAttendanceReport);
   } catch (error) {
     window.showModalMsg("Reporte", functionError(error));
@@ -4524,7 +4825,8 @@ window.printAttendanceReport = () => {
     );
     const legend = document.createElement("p");
     legend.className = "mt-2 text-right text-[8px] font-black uppercase";
-    legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · J Falta justificada · / Falta normal · Total: asistencias del periodo";
+    legend.textContent = "● A tiempo · T Retardo · R Falta por retardos · J Falta justificada · / Falta normal · – Día no laborable · Total: asistencias del periodo";
+    legend.textContent += " · F Festivo · S Suspensión · C Consejo Técnico (no cuentan en los totales)";
     section.append(legend);
     content.append(section);
   });
@@ -4545,6 +4847,7 @@ window.exportAttendanceReportXls = () => {
       schoolName,
       schoolKey,
       attendanceLabel: (attendance) => isJustifiedAbsence(attendance) ? "FALTA JUSTIFICADA" : normalizedAttendanceStatus(attendance.status),
+      calendarExceptions: latestAttendanceReport.calendarExceptions,
     });
     const worksheet = xlsx.utils.aoa_to_sheet(exportData.rows, {cellDates: true, dateNF: "dd/mm/yyyy"});
     worksheet["!cols"] = [
@@ -5140,14 +5443,17 @@ window.enterApp = enterApp;
 window.switchTab = switchTab;
 byId("move-student-level")?.addEventListener("change", window.populateMoveStudentGroupOptions);
 
+let authStateVersion = 0;
 onAuthStateChanged(auth, async (user) => {
+  const version = ++authStateVersion;
   setConnection(true);
   if (!user) {
-    window.safeToggle("section-gateway", true);
+    clearSessionView();
     return;
   }
   try {
     const tokenResult = await user.getIdTokenResult(true);
+    if (version !== authStateVersion) return;
     const claims = tokenResult.claims;
     if (!claims.role && claims.firebase?.sign_in_provider === "password") {
       window.safeToggle("section-gateway", false);
@@ -5158,7 +5464,7 @@ onAuthStateChanged(auth, async (user) => {
       loggedTeacher = {id: "MASTER", nombre: normalizeText(claims.name || "SGE GLOBAL"), role: "super", passwordChangeRequired: false};
       schoolKey = "SISTEMA";
       schoolName = "SGE GLOBAL";
-      await enterApp();
+      await openAuthenticatedApp();
       return;
     }
     schoolKey = normalizeCode(claims.schoolKey, 40);
@@ -5175,13 +5481,16 @@ onAuthStateChanged(auth, async (user) => {
       getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", "colegios", schoolKey)),
       getDoc(doc(db, "artifacts", APP_ROOT_PATH, "public", "data", `${schoolKey}_maestros`, teacherId)),
     ]);
+    if (version !== authStateVersion) return;
     if (!schoolSnapshot.exists() || !teacherSnapshot.exists()) throw new Error("La escuela o el usuario ya no existen.");
     currentSchool = {...schoolSnapshot.data(), id: schoolKey};
     schoolName = normalizeText(currentSchool.name || schoolKey);
     loggedTeacher = {...teacherSnapshot.data(), id: teacherId, nombre: normalizeText(claims.name || teacherSnapshot.get("nombre")), role: claims.role};
     window.applySchoolBranding(currentSchool);
-    await enterApp();
+    await openAuthenticatedApp();
   } catch (error) {
+    if (version !== authStateVersion) return;
+    clearSessionView();
     await signOut(auth).catch(() => {});
     window.showModalMsg("Sesión", functionError(error, "La sesión no es válida. Inicie nuevamente."));
   }

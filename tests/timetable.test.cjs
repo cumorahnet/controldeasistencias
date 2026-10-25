@@ -178,3 +178,15 @@ test('una materia pendiente sigue visible al cambiar grupo y bloquea desactivar 
   assert.equal(run('schoolTimetableDraft.workDays.includes(1)'), false);
   assert.equal(run('timetablePendingSubjects.size'), 0);
 });
+
+test('motor y editor muestran dias distintos por nivel sin afectar otros grupos',()=>{
+ const timetable=config({levelWorkDays:{SEC:[6],PRI:[1]},groups:[group(),group({level:'PRI'})]});
+ const rows=[{level:'SEC',group:'1A',day:6,subject:'Mate',entryTime:'08:00',endTime:'08:45'}];
+ const module=generateModules(group()).find(s=>s.type==='module');rows[0].entryTime=module.entryTime;rows[0].endTime=module.endTime;
+ const saved=validateTimetable(timetable,rows);assert.deepEqual(saved.levelWorkDays.SEC,[6]);assert.throws(()=>validateTimetable(timetable,[{...rows[0],level:'PRI'}]));
+ for(const levelWorkDays of [{SEC:[]},{BAD:[1]},{SEC:[1,1]},{SEC:[7]}])assert.throws(()=>validateTimetable({...timetable,levelWorkDays},[]));
+ const h=preparedEditor();h.context.schoolLevels=()=>['PRI','SEC'];h.run('schoolTimetableDraft.levelWorkDays={SEC:[1],PRI:[6]}; schoolTimetableDraft.levelJourneys.PRI={...schoolTimetableDraft.levelJourneys.SEC}');
+ h.context.window.selectGroupTimetable('PRI/1A');h.context.window.generateGroupTimetable({preventDefault(){}});
+ assert.deepEqual(h.byId('timetable-grid').children[0].children[1].children[0].children.map(c=>c.textContent),['Horario','Sábado']);
+ h.context.window.selectGroupTimetable('SEC/1A');assert.deepEqual(h.byId('timetable-grid').children[0].children[1].children[0].children.map(c=>c.textContent),['Horario','Lunes']);
+});

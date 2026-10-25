@@ -4,7 +4,6 @@
   const EXPERIENCE_VERSION = 6;
   const SEEN_KEY = `control-asistencia-pwa-install-seen-v${EXPERIENCE_VERSION}`;
   const STATUS_KEY = `control-asistencia-pwa-install-status-v${EXPERIENCE_VERSION}`;
-  const FIRST_VISIT_DELAY_MS = 2000;
   const STATUS = Object.freeze({
     accepted: "accepted",
     dismissed: "dismissed",
@@ -23,7 +22,6 @@
   let activeView = VIEW.hidden;
   let deferredPrompt = null;
   let domReady = false;
-  let firstVisitTimer = null;
 
   const byId = (id) => document.getElementById(id);
 
@@ -257,39 +255,8 @@
     return androidGuide(firstVisit);
   }
 
-  function showFirstVisitExperience() {
-    const state = installState();
-    if (state.installed || !state.mobile || !state.firstVisitPending) return false;
-
-    let shown;
-    if (state.nativeAvailable) shown = nativeOffer(true);
-    else if (isEmbeddedBrowser()) shown = embeddedBrowserGuide(true);
-    else if (state.iosInstructions) shown = iosGuide(true);
-    else shown = firstVisitInvitation();
-
-    if (shown) writeStorage(SEEN_KEY, "seen");
-    return shown;
-  }
-
-  function scheduleFirstVisitExperience() {
-    const state = installState();
-    if (state.installed || !state.mobile || !state.firstVisitPending || firstVisitTimer) return;
-    if (state.nativeAvailable || state.iosInstructions || isEmbeddedBrowser()) {
-      showFirstVisitExperience();
-      return;
-    }
-    firstVisitTimer = window.setTimeout(() => {
-      firstVisitTimer = null;
-      showFirstVisitExperience();
-    }, FIRST_VISIT_DELAY_MS);
-  }
-
   function markInstalled() {
     deferredPrompt = null;
-    if (firstVisitTimer) {
-      window.clearTimeout(firstVisitTimer);
-      firstVisitTimer = null;
-    }
     writeStorage(STATUS_KEY, STATUS.installed);
     setInstallActions(false);
     closeSheet();
@@ -355,26 +322,16 @@
     }));
     byId("btn-install-app")?.addEventListener("click", handlePrimaryAction);
     byId("btn-install-later")?.addEventListener("click", handleSecondaryAction);
-    scheduleFirstVisitExperience();
   }
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     if (isStandalone()) return;
     deferredPrompt = event;
-    if (firstVisitTimer) {
-      window.clearTimeout(firstVisitTimer);
-      firstVisitTimer = null;
-    }
     if (!domReady) return;
 
     const state = installState();
     refreshInstallActions({highlight: state.mobile && state.firstVisitPending});
-    if (state.mobile && state.firstVisitPending) {
-      showFirstVisitExperience();
-    } else if (activeView === VIEW.invitation) {
-      nativeOffer(true);
-    }
   });
 
   window.addEventListener("appinstalled", markInstalled);
@@ -394,7 +351,8 @@
     });
     window.addEventListener("load", async () => {
       try {
-        const registration = await window.navigator.serviceWorker.register("./sw.js?v=36.46.0", {
+        const appVersion = document.title.match(/VERSION\s+(\d+(?:\.\d+)+)/i)?.[1] || "latest";
+        const registration = await window.navigator.serviceWorker.register(`./sw.js?v=${encodeURIComponent(appVersion)}`, {
           scope: "./",
           updateViaCache: "none",
         });

@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const {recalculateTardies} = require("../functions/attendance-corrections");
-const {tardyLimit} = require("../functions/attendance-utils");
+const {resolveAttendancePolicy, tardyLimit, attendancePeriodForDate} = require("../functions/attendance-utils");
 const backend = fs.readFileSync(require.resolve("../functions/index.js"), "utf8");
 
 function harness({role = "admin_jr", records = [], student = {}, school = {}} = {}) {
@@ -21,7 +21,7 @@ function harness({role = "admin_jr", records = [], student = {}, school = {}} = 
     requireDate: (date) => {if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new error("invalid-argument"); return date;},
     requireText: (text) => {if (!text || text.trim().length < 3) throw new error("invalid-argument"); return text.trim();},
     normalizeText: (text) => text || "", normalizeSchoolLevel: (level) => level, normalizeGroupName: (group) => group,
-    tardyLimit, recalculateTardies, FieldValue: {serverTimestamp: () => "server-time"},
+    resolveAttendancePolicy, tardyLimit, attendancePeriodForDate, recalculateTardies, FieldValue: {serverTimestamp: () => "server-time"},
     schoolsRef: () => ({doc: () => ref("school")}), auditLogsRef: () => ({doc: () => ref("audit")}), auditLogData: (_, data) => data,
     schoolCollection: (_, type) => ({doc: (id) => ref(type === "alumnos" ? "student" : id), where: (_, op, id) => ({limit: () => ({queryId: id})})}),
     db: {runTransaction: async (callback) => callback({
@@ -85,4 +85,19 @@ test("recalcula entre clases con límites históricos y no cuenta faltas normale
   assert.equal(result.pendingTardies, 0);
   assert.equal(result.tardyAbsences, 1);
   assert.equal(result.updates.find((r) => r.id === "2").fields.status, "FALTA POR RETARDOS");
+});
+
+test('una omision corregida aplica la regla del nivel y una captura historica conserva la suya', async () => {
+ const school = {timetablePreferences:{journeyMode:'levels'},levelAttendancePolicies:{SEC:{tolerance:5,tardiesPerAbsence:2,attendancePeriods:[{start:'2026-09-01',end:'2026-09-15'}]}}};
+ const h = harness({school});
+ await h.save({status:'RETARDO'});
+ const capture = h.writes.find(w=>w.id==='2026-09-01_STUDENT').data;
+ assert.equal(capture.tardyLimitApplied,2);
+ assert.equal(capture.attendancePolicyScopeApplied,'SEC');
+ assert.equal(capture.attendancePeriodApplied.end,'2026-09-15');
+ const old = {...capture,alumnoId:'STUDENT',tardyLimitApplied:4,attendancePolicyScopeApplied:'PRI'};
+ const historical = harness({school,records:[{id:'old',data:old}]});
+ await historical.save({status:'RETARDO',expectedVersion:'2026-09-01T12:00:00.000Z'});
+ assert.equal(historical.writes.find(w=>w.id==='old').data.tardyLimitApplied,4);
+ assert.equal(historical.writes.find(w=>w.id==='old').data.attendancePolicyScopeApplied,'PRI');
 });

@@ -70,8 +70,8 @@ test("las impresiones y eliminaciones sensibles generan eventos auditables", () 
 
 test("los retardos pueden convertirse en una falta diferenciada", () => {
   assert.match(html, /id="edit-tardies-per-absence"[^>]+min="0"[^>]+max="30"/);
-  assert.match(app, /tardiesPerAbsence: byId\("edit-tardies-per-absence"\)/);
-  assert.match(functions, /applyTardyPolicy\(/);
+  assert.match(app, /tardiesPerAbsence: Number\(byId\("edit-tardies-per-absence"\)/);
+  assert.match(functions, /applyPeriodTardyPolicy\(/);
   assert.match(functions, /status: policy\.status/);
   assert.match(app, /FALTA POR RETARDOS/);
   assert.match(app, /R Falta por retardos/);

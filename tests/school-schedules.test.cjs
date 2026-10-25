@@ -176,3 +176,35 @@ test('jornadas por nivel persisten sin grupos y clientes anteriores las conserva
  await assert.rejects(save({revision:2,schedules:[],timetable:{workDays:[1],groups:[],levelJourneys:{BAC:journey}}}),{code:'failed-precondition'});
  assert.equal(state.school.schedulesRevision,2);
 });
+
+test('el servidor rechaza clases fuera de los dias del nivel incluso sin timetable',async()=>{
+ const {state,save}=adminHarness();state.school.timetablePreferences={workDays:[1],journeyMode:'levels',levelWorkDays:{SEC:[6]}};
+ await save({schedules:[row({day:6})]});assert.equal(state.school.subjectSchedules[0].day,6);
+ await assert.rejects(save({revision:1,schedules:[row({day:1})]}),{code:'invalid-argument'});
+ assert.equal(state.school.schedulesRevision,1);
+});
+
+test('captura docente calcula retardos desde cada modulo y rechaza fuera de clase pese a entradas generales distintas',async()=>{
+ let time='2026-09-07T13:59:00Z';const records=new Map();
+ const school={entryTime:'05:00',classDuration:180,tolerance:99,levelEntryTimes:{SEC:'06:30'},timetablePreferences:{journeyMode:'levels',workDays:[1],levelWorkDays:{SEC:[1]}},levelAttendancePolicies:{SEC:{tolerance:5,tardiesPerAbsence:0,attendancePeriods:[]}},subjectSchedules:[row({id:'first',entryTime:'08:00',endTime:'08:45'}),row({id:'second',entryTime:'08:45',endTime:'09:35'})]};
+ const students={STUD1:{level:'SEC',grupo:'1A'},STUD2:{level:'SEC',grupo:'1A'}};
+ const snap=data=>({exists:Boolean(data),data:()=>data,get:key=>data?.[key]});
+ const read=path=>snap(path==='school'?school:path.startsWith('alumnos/')?students[path.split('/')[1]]:path.startsWith('maestros/')?{entryTime:'04:00',classDuration:200,tolerance:120}:records.get(path));
+ const ref=path=>({path,get:async()=>read(path)});
+ const context=vm.createContext({...utils,exports:{},onCall:fn=>fn,HttpsError,
+ Date:class extends Date{constructor(...args){super(...(args.length?args:[time]));}},
+ ATTENDANCE_ROLES:[],assertRole:async()=>({role:'docente',teacherId:'DOC1'}),assertSameSchool:(_,key)=>key,requireIdentifier:v=>v,
+ normalizeText:v=>String(v||''),normalizeCode:v=>String(v||'').toUpperCase(),normalizeSchoolLevel:v=>v,normalizeGroupName:v=>v,
+ schoolCollection:(_,name)=>({doc:id=>ref(`${name}/${id}`)}),schoolsRef:()=>({doc:()=>ref('school')}),FieldValue:{serverTimestamp:()=>1},
+ db:{runTransaction:async fn=>fn({get:async r=>read(r.path),create:(r,data)=>records.set(r.path,data),set:(r,data)=>Object.assign(students[r.path.split('/')[1]],data)})}});
+ vm.runInContext(backend.slice(backend.indexOf('exports.recordAttendance ='),backend.indexOf('exports.justifyAttendance =')),context);
+ const capture=studentId=>context.exports.recordAttendance({data:{schoolKey:'SCHOOL',studentId,scheduleLevel:'SEC',scheduleGroup:'1A'}});
+ await assert.rejects(capture('STUD1'),{code:'failed-precondition'});
+ time='2026-09-07T14:05:00Z';assert.equal((await capture('STUD1')).status,'A TIEMPO');
+ time='2026-09-07T14:06:00Z';assert.equal((await capture('STUD2')).status,'RETARDO');
+ const first=records.get('asistencias/2026-09-07_STUD2_first');assert.equal(first.entryTimeApplied,'08:00');assert.equal(first.classDurationApplied,45);assert.equal(first.toleranceApplied,5);
+ time='2026-09-07T14:45:00Z';assert.equal((await capture('STUD1')).status,'A TIEMPO');
+ time='2026-09-07T14:51:00Z';assert.equal((await capture('STUD2')).status,'RETARDO');
+ const second=records.get('asistencias/2026-09-07_STUD2_second');assert.equal(second.entryTimeApplied,'08:45');assert.equal(second.classDurationApplied,50);
+ time='2026-09-07T15:35:00Z';await assert.rejects(capture('STUD1'),{code:'failed-precondition'});assert.equal(records.size,4);
+});

@@ -3,7 +3,7 @@
 const {createHash, randomBytes, scryptSync, timingSafeEqual} = require("node:crypto");
 const {validateTimetable} = require("./school-timetable");
 const {recalculateTardies} = require("./attendance-corrections");
-const {applyTardyPolicy, attendanceStatus, attendanceWindow, clockMinutes, resolveAttendanceSchedule, tardyLimit, validateSubjectSchedules} = require("./attendance-utils");
+const {validateLevelEntryTimes, resolveSchoolWorkDays, validateWorkDays, validateLevelWorkDays, resolveAttendancePolicy, validateLevelAttendancePolicies, applyPeriodTardyPolicy, attendancePeriodForDate, validateAttendancePeriods, attendanceStatus, attendanceWindow, clockMinutes, resolveAttendanceSchedule, tardyLimit, validateSubjectSchedules} = require("./attendance-utils");
 const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
 const {FieldPath, FieldValue, Timestamp, getFirestore} = require("firebase-admin/firestore");
@@ -383,10 +383,14 @@ function safeSchoolProfile(snapshot) {
     director: normalizeText(data.director),
     administrator: normalizeText(data.administrator),
     entryTime: String(data.entryTime || ""),
+    ...(data.levelEntryTimes !== undefined ? {levelEntryTimes: data.levelEntryTimes} : {}),
     recessReturnTime: String(data.recessReturnTime || ""),
     tolerance: Number(data.tolerance || 0),
     classDuration: Number(data.classDuration || 0),
     tardiesPerAbsence: tardyLimit(data.tardiesPerAbsence),
+    attendancePeriods: data.attendancePeriods || [],
+    levelAttendancePolicies: data.levelAttendancePolicies || {},
+    timetablePreferences: data.timetablePreferences || {},
     isPremium: premium,
     allowBranding: premium,
     verificationStatus: new Set(["verified", "unverified", "disputed"]).has(data.verificationStatus) ? data.verificationStatus : "unverified",
@@ -417,7 +421,7 @@ async function assertActiveTeacher(token, allowPasswordChange = false) {
   }
   if (!snapshot.exists) throw new HttpsError("permission-denied", "La cuenta ya no existe o fue restablecida. Inicie sesión nuevamente.");
   const teacher = snapshot.data() || {};
-  if (["pending", "disabled"].includes(teacher.status)) {
+  if (String(teacher.status || "active") !== "active") {
     throw new HttpsError("permission-denied", "La cuenta no está activa.");
   }
   const currentRole = ALLOWED_ROLES.has(teacher.role) ? teacher.role : "docente";
@@ -1159,6 +1163,17 @@ exports.updateSchoolSchedules = onCall(async (request) => {
       try { timetable = validateTimetable(school.get("timetable"), rows); }
       catch (error) { throw new HttpsError("invalid-argument", error.message); }
     }
+    const dayPreferences = school.get("timetablePreferences");
+    if (dayPreferences?.levelWorkDays !== undefined && rows.some((row) => !resolveSchoolWorkDays({timetablePreferences: dayPreferences}, row.level).includes(row.day))) {
+      throw new HttpsError("invalid-argument", "Hay clases en días no laborables del nivel. Revise los ajustes de Escuela.");
+    }
+    if (timetable && dayPreferences?.levelWorkDays !== undefined) {
+      try { timetable = validateTimetable({...timetable, workDays: dayPreferences.workDays, levelWorkDays: dayPreferences.journeyMode === "levels" ? dayPreferences.levelWorkDays : {}}, rows); }
+      catch (error) { throw new HttpsError("invalid-argument", error.message); }
+    } else if (timetable && timetable.levelWorkDays === undefined && school.get("timetable")?.levelWorkDays !== undefined) {
+      try { timetable = validateTimetable({...timetable, levelWorkDays: school.get("timetable").levelWorkDays}, rows); }
+      catch (error) { throw new HttpsError("invalid-argument", error.message); }
+    }
     // Older clients do not send the catalog; preserve it with the current revision.
     if (timetable && timetable.subjects === undefined && school.get("timetable")?.subjects !== undefined) {
       timetable.subjects = school.get("timetable").subjects;
@@ -1371,24 +1386,70 @@ exports.updateSchool = onCall(async (request) => {
   if (Object.hasOwn(input, "levels") && (!Array.isArray(input.levels) || !input.levels.length || input.levels.length > 4 || new Set(input.levels).size !== input.levels.length || input.levels.some((level) => !["PRE", "PRI", "SEC", "BAC"].includes(level)))) {
     throw new HttpsError("invalid-argument", "Seleccione al menos un nivel válido de la institución, sin duplicados.");
   }
+  let levelEntryTimes;
+  if (Object.hasOwn(input, "levelEntryTimes")) {
+    try { levelEntryTimes = validateLevelEntryTimes(input.levelEntryTimes); }
+    catch (error) { throw new HttpsError("invalid-argument", error.message); }
+  }
+  if (input.entryTime && (typeof input.entryTime !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(input.entryTime))) throw new HttpsError("invalid-argument", "Configure una hora de entrada institucional válida.");
+  let attendancePeriods;
+  let levelAttendancePolicies;
+  if (Object.hasOwn(input, "levelAttendancePolicies") && (!Number.isInteger(input.tolerance) || input.tolerance < 0 || input.tolerance > 120 || !Number.isInteger(input.tardiesPerAbsence) || input.tardiesPerAbsence < 0 || input.tardiesPerAbsence > 30)) {
+    throw new HttpsError("invalid-argument", "Revise la tolerancia y el límite institucional de retardos.");
+  }
+  if (Object.hasOwn(input, "levelAttendancePolicies")) {
+    try { levelAttendancePolicies = validateLevelAttendancePolicies(input.levelAttendancePolicies); }
+    catch (error) { throw new HttpsError("invalid-argument", error.message); }
+  }
+  if (Object.hasOwn(input, "attendancePeriods")) {
+    try { attendancePeriods = validateAttendancePeriods(input.attendancePeriods); }
+    catch (error) { throw new HttpsError("invalid-argument", error.message); }
+    if (input.timetablePreferences?.journeyMode !== "levels" && tardyLimit(input.tardiesPerAbsence) > 0 && !attendancePeriods.length) {
+      throw new HttpsError("invalid-argument", "Configure al menos un periodo para activar la regla de retardos.");
+    }
+  }
   let timetablePreferences;
   if (Object.hasOwn(input, "timetablePreferences")) {
     const preferences = input.timetablePreferences || {};
     if (!Array.isArray(preferences.workDays) || !preferences.workDays.length || preferences.workDays.length > 7 || new Set(preferences.workDays).size !== preferences.workDays.length || preferences.workDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6) || !["institutional", "levels"].includes(preferences.journeyMode)) {
       throw new HttpsError("invalid-argument", "Seleccione días laborables válidos y el tipo de jornada.");
     }
-    timetablePreferences = {workDays: [...preferences.workDays], journeyMode: preferences.journeyMode};
+    try {
+      timetablePreferences = {workDays: validateWorkDays(preferences.workDays), journeyMode: preferences.journeyMode,
+        ...(Object.hasOwn(preferences, "levelWorkDays") ? {levelWorkDays: validateLevelWorkDays(preferences.levelWorkDays)} : {})};
+    } catch (error) { throw new HttpsError("invalid-argument", error.message); }
+  }
+  let calendarExceptions;
+  if (Object.hasOwn(input, "calendarExceptions")) {
+    if (!Array.isArray(input.calendarExceptions) || input.calendarExceptions.length > 366) {
+      throw new HttpsError("invalid-argument", "El calendario admite hasta 366 fechas especiales.");
+    }
+    const uniqueDates = new Set();
+    calendarExceptions = input.calendarExceptions.map((entry) => {
+      const date = String(entry?.date || "");
+      const parsed = new Date(`${date}T00:00:00Z`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date
+        || !["festivo", "suspension", "consejo_tecnico"].includes(entry?.type) || uniqueDates.has(date)) {
+        throw new HttpsError("invalid-argument", "Revise las fechas especiales: deben ser válidas, únicas y tener un tipo permitido.");
+      }
+      uniqueDates.add(date);
+      return {date, type: entry.type, label: normalizeText(entry.label, 80)};
+    }).sort((a, b) => a.date.localeCompare(b.date));
   }
   const profile = {
     ...(Object.hasOwn(input, "levels") ? {levels: ["PRE", "PRI", "SEC", "BAC"].filter((level) => input.levels.includes(level))} : {}),
     name: normalizeText(input.name, 120).toUpperCase(),
     director: normalizeText(input.director, 120).toUpperCase(),
-    entryTime: String(input.entryTime || "").slice(0, 5),
+    ...(Object.hasOwn(input, "entryTime") ? {entryTime: String(input.entryTime || "").slice(0, 5)} : {}),
     recessReturnTime: String(input.recessReturnTime || "").slice(0, 5),
     tolerance: Math.max(0, Math.min(120, Number(input.tolerance || 0))),
     classDuration: Math.max(1, Math.min(240, Number(input.classDuration || 50))),
     tardiesPerAbsence: tardyLimit(input.tardiesPerAbsence),
+    ...(attendancePeriods ? {attendancePeriods} : {}),
+    ...(levelAttendancePolicies ? {levelAttendancePolicies} : {}),
+    ...(levelEntryTimes ? {levelEntryTimes} : {}),
     ...(timetablePreferences ? {timetablePreferences} : {}),
+    ...(calendarExceptions ? {calendarExceptions} : {}),
     updatedAt: FieldValue.serverTimestamp(),
     updatedBy: token.teacherId || token.role,
   };
@@ -1440,6 +1501,23 @@ exports.updateSchool = onCall(async (request) => {
   await db.runTransaction(async (transaction) => {
     const latest = await transaction.get(schoolRef);
     if (!latest.exists) throw new HttpsError("not-found", "El plantel ya no existe.");
+    const activeLevels = profile.levels || latest.get("levels") || ["PRE", "PRI", "SEC", "BAC"];
+    if (timetablePreferences && timetablePreferences.levelWorkDays === undefined && latest.get("timetablePreferences")?.levelWorkDays !== undefined) {
+      timetablePreferences.levelWorkDays = latest.get("timetablePreferences").levelWorkDays;
+    }
+    const preferences = timetablePreferences || latest.get("timetablePreferences");
+    if (levelEntryTimes && preferences?.journeyMode === "levels" && activeLevels.some((level) => !levelEntryTimes[level])) throw new HttpsError("invalid-argument", "Configure la hora de entrada de cada nivel habilitado.");
+    if (levelEntryTimes && preferences?.journeyMode !== "levels" && !(profile.entryTime ?? latest.get("entryTime"))) throw new HttpsError("invalid-argument", "Configure la hora de entrada institucional.");
+    if (preferences?.journeyMode === "levels" && preferences.levelWorkDays && activeLevels.some((level) => !preferences.levelWorkDays[level])) {
+      throw new HttpsError("invalid-argument", "Configure los días laborables de cada nivel habilitado.");
+    }
+    if (timetablePreferences && (latest.get("subjectSchedules") || []).some((row) => !resolveSchoolWorkDays({timetablePreferences: preferences}, row.level).includes(row.day))) {
+      throw new HttpsError("failed-precondition", "No puede desactivar un día con clases en ese nivel. Reubique las materias antes de cambiar los días laborables.");
+    }
+    const policies = levelAttendancePolicies || latest.get("levelAttendancePolicies");
+    if (preferences?.journeyMode === "levels" && policies && activeLevels.some((level) => !policies[level])) {
+      throw new HttpsError("invalid-argument", "Configure las reglas de asistencia de todos los niveles habilitados.");
+    }
     if (profile.levels) {
       const schedules = [...latest.get("subjectSchedules") || [], ...latest.get("timetable")?.groups || [], ...Object.keys(latest.get("timetable")?.levelJourneys || {}).map((level) => ({level}))];
       if (schedules.some((row) => !profile.levels.includes(row.level))) throw new HttpsError("failed-precondition", "No puede desactivar un nivel con jornadas o materias configuradas.");
@@ -1669,7 +1747,6 @@ exports.recordAttendance = onCall(async (request) => {
   }
   const entryTime = schedule.entryTime;
   const tolerance = schedule.tolerance;
-  const arrivalStatus = attendanceStatus(hora, entryTime, tolerance, schedule.classDuration);
   const captureMethod = request.data?.captureMethod === "manual" ? "manual" : "qr";
   const studentRef = schoolCollection(schoolKey, "alumnos").doc(studentId);
   const sessionSuffix = schedule.scheduleId ? `_${schedule.scheduleId}` : "";
@@ -1698,9 +1775,21 @@ exports.recordAttendance = onCall(async (request) => {
         ? "Este QR pertenece al lugar eliminado del grupo anterior. Use el QR nuevo del alumno."
         : "El alumno está dado de baja y su QR no puede registrar asistencia.");
     }
-    const policy = applyTardyPolicy({
-      arrivalStatus,
-      tardiesPerAbsence: school.tardiesPerAbsence,
+    if (currentSchoolSnapshot.get("timetablePreferences")?.levelWorkDays !== undefined && !resolveSchoolWorkDays(currentSchoolSnapshot.data(), normalizeSchoolLevel(currentStudentData.level || currentStudentData.nivel)).includes(new Date(`${fecha}T12:00:00Z`).getUTCDay())) {
+      throw new HttpsError("failed-precondition", "Hoy no es día laborable para el nivel del alumno.");
+    }
+    const attendancePolicy = resolveAttendancePolicy(currentSchoolSnapshot.data(), normalizeSchoolLevel(currentStudentData.level || currentStudentData.nivel));
+    const appliedTolerance = currentSchoolSnapshot.get("levelAttendancePolicies") ? attendancePolicy.tolerance : tolerance;
+    const appliedEntryTime = token.role === "docente" ? entryTime : resolveAttendanceSchedule({teacher, school: currentSchoolSnapshot.data(), role: token.role, level: studentLevel, group: studentGroup, teacherId: token.teacherId, now}).entryTime;
+    const appliedArrivalStatus = attendanceStatus(hora, appliedEntryTime, appliedTolerance, schedule.classDuration);
+    const appliedPeriod = attendancePeriodForDate(attendancePolicy.attendancePeriods, fecha);
+    const policy = applyPeriodTardyPolicy({
+      arrivalStatus: appliedArrivalStatus,
+      tardiesPerAbsence: attendancePolicy.tardiesPerAbsence,
+      attendancePolicyScope: attendancePolicy.scope,
+      attendancePeriod: appliedPeriod,
+      date: fecha,
+      pendingAttendancePeriod: currentStudentData.pendingAttendancePeriod,
       pendingTardies: currentStudentData.pendingTardies,
     });
     transaction.create(attendanceRef, {
@@ -1714,24 +1803,28 @@ exports.recordAttendance = onCall(async (request) => {
       fecha,
       hora,
       status: policy.status,
-      arrivalStatus,
+      arrivalStatus: appliedArrivalStatus,
       absenceType: policy.convertedToAbsence ? "tardy_limit" : "",
-      tardySequence: arrivalStatus === "RETARDO" ? policy.pendingTardies || policy.tardyLimit : 0,
+      tardySequence: appliedArrivalStatus === "RETARDO" ? policy.pendingTardies || policy.tardyLimit : 0,
       tardyLimitApplied: policy.tardyLimit,
+      attendancePeriodApplied: appliedPeriod,
+      attendancePolicyScopeApplied: attendancePolicy.scope,
       scheduleLevel: studentLevel,
       scheduleGroup: studentGroup,
-      entryTimeApplied: entryTime,
+      entryTimeApplied: appliedEntryTime,
+      classDurationApplied: schedule.classDuration,
       subject: schedule.subject || "",
       scheduleId: schedule.scheduleId || "",
       scheduleDay: schedule.scheduleDay ?? null,
-      toleranceApplied: tolerance,
+      toleranceApplied: appliedTolerance,
       captureMethod,
       timestamp: FieldValue.serverTimestamp(),
     });
-    if (arrivalStatus === "RETARDO" && policy.tardyLimit > 0) {
+    { // Persist expiry even when the next attendance is on time.
       transaction.set(studentRef, {
         pendingTardies: policy.pendingTardies,
-        tardyAbsences: Number(currentStudentData.tardyAbsences || 0) + (policy.convertedToAbsence ? 1 : 0),
+        pendingAttendancePeriod: policy.pendingAttendancePeriod,
+        tardyAbsences: (currentStudentData.pendingAttendancePeriod === policy.pendingAttendancePeriod ? Number(currentStudentData.tardyAbsences || 0) : 0) + (policy.convertedToAbsence ? 1 : 0),
         tardyStatusUpdatedAt: FieldValue.serverTimestamp(),
         ...(policy.convertedToAbsence ? {lastTardyAbsenceAt: FieldValue.serverTimestamp()} : {}),
       }, {merge: true});
@@ -1787,13 +1880,15 @@ exports.correctAttendance = onCall(async (request) => {
       throw new HttpsError("failed-precondition", "La clase no corresponde al grupo o día seleccionado.");
     }
     const ref = existing?.ref || collection.doc(`${date}_${studentId}${scheduleId ? `_${scheduleId}` : ""}`);
+    const attendancePolicy = resolveAttendancePolicy(schoolSnapshot.data(), normalizeSchoolLevel(student.level || student.nivel));
     const fields = {
       ...(existing?.data || {}), alumnoId: existing?.data.alumnoId || studentId,
       nombre: normalizeText(student.nombres, 100), apellido: normalizeText(student.paterno, 80), materno: normalizeText(student.materno, 80),
       fecha: date, hora: status === "FALTA NORMAL" ? "" : time, status,
       arrivalStatus: status, absenceType: status === "FALTA NORMAL" ? "normal" : "", justified: false,
       justifiedAt: null, justifiedBy: "", tardySequence: 0,
-      tardyLimitApplied: existing?.data.tardyLimitApplied ?? tardyLimit(schoolSnapshot.get("tardiesPerAbsence")),
+      tardyLimitApplied: existing?.data.tardyLimitApplied ?? attendancePolicy.tardiesPerAbsence,
+      ...(existing ? (Object.hasOwn(existing.data, "attendancePeriodApplied") ? {attendancePeriodApplied: existing.data.attendancePeriodApplied} : {}) : {attendancePeriodApplied: attendancePeriodForDate(attendancePolicy.attendancePeriods, date), attendancePolicyScopeApplied: attendancePolicy.scope}),
       scheduleId, subject: classData?.subject || "", scheduleDay: classData?.day ?? null,
       scheduleLevel: normalizeSchoolLevel(student.level || student.nivel), scheduleGroup: normalizeGroupName(student.grupo),
       profesorId: existing?.data.profesorId || classData?.teacherId || token.teacherId || token.sub,
@@ -1809,7 +1904,7 @@ exports.correctAttendance = onCall(async (request) => {
     for (const update of recalculated.updates.filter((record) => record.id !== ref.id)) {
       transaction.set(update.ref, {...update.fields, correctedAt: FieldValue.serverTimestamp(), correctedBy: token.teacherId || token.sub, correctionReason: `Recálculo: ${reason}`}, {merge: true});
     }
-    transaction.set(studentRef, {pendingTardies: recalculated.pendingTardies, tardyAbsences: recalculated.tardyAbsences, tardyStatusUpdatedAt: FieldValue.serverTimestamp()}, {merge: true});
+    transaction.set(studentRef, {pendingTardies: recalculated.pendingTardies, pendingAttendancePeriod: recalculated.pendingAttendancePeriod, tardyAbsences: recalculated.tardyAbsences, tardyStatusUpdatedAt: FieldValue.serverTimestamp()}, {merge: true});
     transaction.create(auditLogsRef().doc(), {
       ...auditLogData(token, {action: "attendance_corrected", schoolKey, targetType: "attendance", targetId: ref.id, targetLabel: `${studentId} · ${date}`, summary: reason}),
       before: existing?.data || null, after: fields,
@@ -2021,6 +2116,7 @@ exports.moveStudent = onCall(async (request) => {
       status: "active",
       manualId: false,
       pendingTardies: Math.max(0, Math.trunc(Number(source.pendingTardies) || 0)),
+      pendingAttendancePeriod: source.pendingAttendancePeriod || "",
       tardyAbsences: Math.max(0, Math.trunc(Number(source.tardyAbsences) || 0)),
       previousStudentIds,
       movedFromStudentId: studentId,

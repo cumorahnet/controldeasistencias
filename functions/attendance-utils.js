@@ -1,4 +1,5 @@
 "use strict";
+const {validateWorkDays, validateLevelWorkDays} = require("./school-timetable");
 
 function clockMinutes(value) {
   const match = /^(\d{2}):(\d{2})/.exec(String(value || ""));
@@ -68,6 +69,84 @@ function applyTardyPolicy({arrivalStatus, tardiesPerAbsence, pendingTardies} = {
   };
 }
 
+// Institutional periods include both boundary dates.
+function validateAttendancePeriods(periods) {
+  if (!Array.isArray(periods) || periods.length > 40) throw new Error("Capture hasta 40 periodos.");
+  const validDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  const rows = periods.map((row) => {
+    if (!row || !validDate(row.start) || !validDate(row.end) || row.start > row.end || Date.parse(row.end) - Date.parse(row.start) > 366 * 86400000) {
+      throw new Error("Cada periodo requiere fechas inicial y final válidas, en orden.");
+    }
+    return {start: row.start, end: row.end};
+  }).sort((a, b) => a.start.localeCompare(b.start));
+  if (rows.some((row, i) => i > 0 && row.start <= rows[i - 1].end)) throw new Error("Los periodos no pueden superponerse; ambas fechas están incluidas.");
+  return rows;
+}
+
+function attendancePeriodForDate(periods, date) {
+  return (periods || []).find((period) => period.start <= date && date <= period.end) || null;
+}
+
+function validateLevelAttendancePolicies(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)
+    || Object.keys(input).some((level) => !["PRE", "PRI", "SEC", "BAC"].includes(level))) throw new Error("Las reglas de asistencia requieren niveles válidos.");
+  return Object.fromEntries(Object.entries(input).map(([level, policy]) => {
+    if (!policy || typeof policy !== "object" || Array.isArray(policy)
+      || !Number.isInteger(policy.tolerance) || policy.tolerance < 0 || policy.tolerance > 120
+      || !Number.isInteger(policy.tardiesPerAbsence) || policy.tardiesPerAbsence < 0 || policy.tardiesPerAbsence > 30) throw new Error(`Revise la tolerancia y el límite de retardos de ${level}.`);
+    const attendancePeriods = validateAttendancePeriods(policy.attendancePeriods);
+    if (policy.tardiesPerAbsence > 0 && !attendancePeriods.length) throw new Error(`Configure al menos un periodo para ${level}.`);
+    return [level, {tolerance: policy.tolerance, tardiesPerAbsence: policy.tardiesPerAbsence, attendancePeriods}];
+  }));
+}
+
+function resolveAttendancePolicy(school = {}, level = "") {
+  const key = normalizedGroupPart(level);
+  const byLevel = school.timetablePreferences?.journeyMode === "levels";
+  const policy = byLevel && school.levelAttendancePolicies?.[key];
+  const source = policy || school;
+  return {tolerance: Math.max(0, Math.min(120, Number(source.tolerance) || 0)),
+    tardiesPerAbsence: tardyLimit(source.tardiesPerAbsence), attendancePeriods: source.attendancePeriods || [],
+    scope: policy ? key : ""};
+}
+
+function validateLevelEntryTimes(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((level) => !["PRE", "PRI", "SEC", "BAC"].includes(level))) throw new Error("Seleccione niveles válidos para las horas de entrada.");
+  return Object.fromEntries(Object.entries(input).map(([level, time]) => {
+    if (typeof time !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("Configure una hora de entrada válida para " + level + ".");
+    return [level, time];
+  }));
+}
+
+function resolveSchoolEntryTime(school = {}, level = "") {
+  const key = normalizedGroupPart(level);
+  if (school.levelEntryTimes !== undefined) {
+    return school.timetablePreferences?.journeyMode === "levels"
+      ? school.levelEntryTimes[key] || school.timetable?.levelJourneys?.[key]?.entryTime || school.timetable?.journey?.entryTime || school.entryTime || ""
+      : school.entryTime || school.timetable?.journey?.entryTime || "";
+  }
+  return school.timetable?.levelJourneys?.[key]?.entryTime || school.timetable?.journey?.entryTime || school.entryTime || "";
+}
+
+function resolveSchoolWorkDays(school = {}, level = "") {
+  const preferences = school.timetablePreferences || {};
+  return (preferences.journeyMode === "levels" ? preferences.levelWorkDays?.[normalizedGroupPart(level)] : undefined)
+    || preferences.workDays || school.timetable?.levelWorkDays?.[normalizedGroupPart(level)] || school.timetable?.workDays || [1, 2, 3, 4, 5];
+}
+
+function applyPeriodTardyPolicy(input = {}) {
+  // Undefined is reserved for historical captures made before period configuration.
+  const period = input.attendancePeriod;
+  const periodKey = period ? `${period.start}/${period.end}` : (period === undefined ? "legacy" : "");
+  const key = input.attendancePolicyScope ? `${input.attendancePolicyScope}:${periodKey}` : periodKey;
+  const active = period === undefined || (period && period.start <= input.date && input.date <= period.end);
+  const limit = active ? input.tardiesPerAbsence : 0;
+  const pending = key === input.pendingAttendancePeriod ? input.pendingTardies : 0;
+  const policy = applyTardyPolicy({...input, tardiesPerAbsence: limit, pendingTardies: tardyLimit(limit) ? pending : 0});
+  return {...policy, pendingAttendancePeriod: key};
+}
+
 function normalizedGroupPart(value) {
   return String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
 }
@@ -105,11 +184,12 @@ function validateSubjectSchedules(rows) {
 }
 
 function resolveAttendanceSchedule({teacher = {}, school = {}, role = "", level = "", group = "", teacherId = "", now = new Date()} = {}) {
+  const policy = resolveAttendancePolicy(school, level);
   if (role === "docente") {
     const active = activeSchoolSchedule(school, teacherId, now);
     const matches = active && normalizedGroupPart(active.level) === normalizedGroupPart(level) && normalizedGroupPart(active.group) === normalizedGroupPart(group);
     return {entryTime: matches ? active.entryTime : "", classDuration: matches ? clockMinutes(active.endTime) - clockMinutes(active.entryTime) : 0,
-      tolerance: Math.max(0, Math.min(120, Number(school.tolerance) || 0)), configuredForGroup: Boolean(matches), requiresTeacherSetup: !matches,
+      tolerance: policy.tolerance, configuredForGroup: Boolean(matches), requiresTeacherSetup: !matches,
       subject: matches ? active.subject : "", scheduleId: matches ? active.id : "", scheduleDay: matches ? active.day : null};
   }
   const normalizedLevel = normalizedGroupPart(level);
@@ -118,8 +198,10 @@ function resolveAttendanceSchedule({teacher = {}, school = {}, role = "", level 
     normalizedGroupPart(item?.level) === normalizedLevel
       && normalizedGroupPart(item?.group) === normalizedGroup
   ));
-  const entryTime = String(groupSchedule?.entryTime || teacher.entryTime || school.entryTime || "").slice(0, 5);
-  const toleranceValue = role === "docente" ? school.tolerance : (groupSchedule?.tolerance ?? teacher.tolerance ?? school.tolerance);
+  const journey = school.timetable?.levelJourneys?.[normalizedLevel] || school.timetable?.journey;
+  const configuredEntry = school.levelEntryTimes !== undefined ? resolveSchoolEntryTime(school, normalizedLevel) : journey?.entryTime;
+  const entryTime = String(configuredEntry || groupSchedule?.entryTime || teacher.entryTime || school.entryTime || "").slice(0, 5);
+  const toleranceValue = school.levelAttendancePolicies ? policy.tolerance : (groupSchedule?.tolerance ?? teacher.tolerance ?? policy.tolerance);
   const tolerance = Math.max(0, Math.min(120, Number(toleranceValue ?? 0) || 0));
   const classDuration = normalizedClassDuration((role === "docente" ? school.classDuration : (groupSchedule?.classDuration ?? teacher.classDuration ?? school.classDuration)) ?? 50);
   const configuredForGroup = Boolean(groupSchedule && clockMinutes(groupSchedule.entryTime) !== null);
@@ -133,9 +215,17 @@ function resolveAttendanceSchedule({teacher = {}, school = {}, role = "", level 
 }
 
 module.exports = {
+  resolveSchoolEntryTime, validateLevelEntryTimes,
+  validateWorkDays, validateLevelWorkDays,
+  resolveSchoolWorkDays,
+  resolveAttendancePolicy,
+  validateLevelAttendancePolicies,
   activeSchoolSchedule,
   validateSubjectSchedules,
   applyTardyPolicy,
+  applyPeriodTardyPolicy,
+  attendancePeriodForDate,
+  validateAttendancePeriods,
   attendanceStatus,
   attendanceWindow,
   clockMinutes,

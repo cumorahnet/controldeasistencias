@@ -6,6 +6,7 @@ export function createAttendanceExportData({
   schoolName = "Control de asistencia",
   schoolKey = "",
   attendanceLabel = () => "ASISTENCIA",
+  calendarExceptions = [],
 } = {}) {
   if (!report || !Array.isArray(report.students) || !Array.isArray(report.dates) || !Array.isArray(report.rows)) {
     throw new TypeError("El reporte de asistencia no es válido.");
@@ -13,6 +14,7 @@ export function createAttendanceExportData({
 
   const dates = report.dates.filter(validDate);
   const attendanceByStudentAndDate = new Map();
+  const exceptionByDate = new Map(calendarExceptions.map((entry) => [entry.date, entry]));
   for (const attendance of report.rows) {
     const studentId = normalizeStudentId(attendance?.studentId);
     const date = String(attendance?.date || "");
@@ -35,7 +37,14 @@ export function createAttendanceExportData({
     const studentId = normalizeStudentId(student?.id);
     let total = 0;
     const attendanceCells = dates.map((date) => {
+      const exception = exceptionByDate.get(date);
+      if (exception) {
+        const typeLabel = exception.type === "festivo" ? "FESTIVO"
+          : exception.type === "consejo_tecnico" ? "CONSEJO TÉCNICO" : "SUSPENSIÓN DE CLASES";
+        return `${typeLabel}${exception.label ? `: ${exception.label}` : ""}`;
+      }
       const attendance = attendanceByStudentAndDate.get(`${studentId}|${date}`);
+      if (!attendance && report.levelWorkDays?.[student.level] && !report.levelWorkDays[student.level].includes(new Date(`${date}T12:00:00Z`).getUTCDay())) return "DÍA NO LABORABLE";
       if (!attendance) return "FALTA NORMAL";
       const label = attendanceLabel(attendance) || "ASISTENCIA";
       if (!/^FALTA\b/i.test(label)) total += 1;

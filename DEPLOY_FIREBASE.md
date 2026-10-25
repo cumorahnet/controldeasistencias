@@ -1,3 +1,28 @@
+## 30/09/2026 - Despliegue completo verificado
+
+- Publicados Hosting, funciones Node 22 y reglas de Firestore (sin cambios pendientes en reglas). Release de Hosting: d57f6be20f6d7f93, a las 13:09 de Ciudad de Mexico.
+- 134 pruebas aprobadas con Node 22. Verificacion HTTPS: los 30 archivos coinciden con dist, con cache y cabeceras correctas; tres funciones protegidas rechazan llamadas sin autenticacion.
+- Incluye periodos institucionales de faltas y retardos con fechas inicial y final. Configurar las fechas en Gestion > Escuela para activar la acumulacion dentro de los periodos.
+
+## 30/09/2026 - Periodos por fechas (pendiente de publicar)
+
+Esta implementacion sustituye la vigencia en dias. Publicar functions y hosting juntos; despues configurar los periodos en Escuela. Las nuevas capturas fuera de periodos no generan faltas por acumulacion. No se modifican las reglas de Firestore. Validacion local: 134 pruebas y build aprobados.
+
+## 30/09/2026 - Vigencia de retardos (pendiente de publicar)
+
+Publicar Hosting y funciones juntas para aplicar el campo de vigencia, las capturas, correcciones y traslado de alumnos. Ejecutar la suite completa y node scripts/build-hosting.cjs antes de firebase deploy --project controldeasistencias-8308c --only functions,hosting --non-interactive.
+
+## 36.76 - Publicada y verificada (29/09/2026)
+
+- Hosting publicado el 29/09/2026 a las 22:33 (Ciudad de Mexico); version e9d5b3e0d84b4f8a.
+- Las 45 funciones existentes se actualizaron correctamente en Node 22, incluida cleanupAuditLogs. No se cambiaron reglas de Firestore.
+- Verificacion HTTPS: 30 archivos coinciden byte por byte con dist, con cabeceras de seguridad y cache correctas. listTeachers, listAuditLogs y updateSchool rechazan llamadas sin autenticacion con HTTP 401 / UNAUTHENTICATED.
+- Validacion: 127 pruebas aprobadas, comprobacion con Node 22, instalacion limpia npm 10 y cero vulnerabilidades conocidas en npm audit.
+- El primer intento de despliegue fue rechazado por incompatibilidad del override anidado en el lockfile. Se corrigio con override uuid 11.1.1 global, npm 10 y npm ci; el segundo despliegue termino exitosamente.
+- Repetir la comprobacion remota con: node scripts/verify-deployment.cjs.
+- Para reproducir: usar Node 22, ejecutar npm ci en functions, la suite completa y el build. Publicar functions y hosting juntos para cambios compartidos.
+- App Check sigue sin exigirse hasta validar metricas reales; pruebas funcionales con cuentas y dispositivos en NEXT.md.
+
 ## 36.69 - Salida para cambiar de usuario o escuela
 
 Publicar únicamente Hosting:
@@ -149,3 +174,70 @@ Después publica `index.html` y `app.js` en el hosting habitual. Deben servirse 
 - Restringe la API key de Firebase exclusivamente a las APIs y dominios utilizados por este proyecto.
 - Prueba primero en un proyecto Firebase de staging o con Emulator Suite.
 - Conserva las reglas con política de denegación por defecto; no uses `allow read, write: if request.auth != null` como sustituto de roles.
+
+## 05/10/2026 - Selector de jornadas publicado
+
+- Hosting publicado a las 19:45 (Ciudad de Mexico), version 3f9dc2f8d1ad13b0.
+- Incluye selector de tipo de jornada habilitado y recuperacion de jornadas por nivel.
+- Verificacion HTTPS aprobada: 30 archivos coinciden con dist y tienen cache y cabeceras correctas; tres funciones protegidas rechazan solicitudes sin autenticacion.
+- Validacion previa: 38 pruebas de horarios aprobadas, sintaxis JavaScript y build correctos. Solo Hosting; no se desplegaron funciones ni reglas.
+
+## 05/10/2026 - Reglas por nivel (pendiente de publicar)
+
+Publicar Functions y Hosting juntos; no hay cambios de reglas de Firestore. El cambio comprende updateSchool, recordAttendance, correctAttendance y respuestas publicas del plantel. Validacion local: 145 pruebas aprobadas, sintaxis JavaScript y HTML verificados.
+
+```powershell
+firebase deploy --project controldeasistencias-8308c --only functions,hosting --non-interactive
+node scripts/verify-deployment.cjs
+```
+
+En Gestion > Escuela seleccionar primero el tipo de jornada. Para jornadas por niveles, configurar tolerancia, equivalencia de retardos y periodos para cada nivel; guardar ajustes antes de continuar a horarios. Verificar entradas distintas, conversion en falta al alcanzar el limite y ausencia de conversion fuera del periodo. El historial anterior conserva la regla aplicada en cada captura.
+
+## 05/10/2026 - Reglas por nivel publicadas y verificadas
+
+- Functions y Hosting publicados a las 20:35 de Ciudad de Mexico; version de Hosting 1bb03469f652fde3.
+- Actualizadas correctamente las 45 funciones en Node 22. No se desplegaron reglas de Firestore.
+- Verificacion HTTPS: los 30 archivos coinciden con dist, con cache y cabeceras correctas. listTeachers, listAuditLogs, updateSchool, recordAttendance y correctAttendance rechazan llamadas sin autenticacion.
+- Validacion previa: 145 pruebas aprobadas, HTML y sintaxis JavaScript verificados.
+- Queda pendiente la comprobacion visual con una cuenta real; el navegador del entorno no pudo iniciar. Este despliegue resuelve el pendiente de publicacion de reglas por nivel.
+
+## 05/10/2026 - Dias por nivel (pendiente de publicar)
+
+Publicar Functions y Hosting juntos. Validacion: 151 pruebas aprobadas, HTML, JavaScript y build correctos. No requiere reglas de Firestore.
+
+```powershell
+firebase deploy --project controldeasistencias-8308c --only functions,hosting --non-interactive
+node scripts/verify-deployment.cjs
+```
+
+En Gestion > Escuela elegir jornada, despues niveles y luego dias laborables y reglas. Probar dos niveles con dias distintos, reapertura y cambio a jornada institucional. La tabla de horarios debe mostrar los dias del nivel seleccionado. No se puede quitar un dia con clases asignadas. Reportes combinados e XLS no deben mostrar faltas por dias no laborables del otro nivel.
+
+## 05/10/2026 - Dias por nivel publicados y verificados
+
+- Functions y Hosting publicados a las 21:25 de Ciudad de Mexico; version de Hosting 762b8c3faa6c0033.
+- Las 45 funciones se actualizaron correctamente en Node 22. No se desplegaron reglas de Firestore.
+- Verificacion HTTPS: los 30 archivos coinciden con dist, con cache y cabeceras correctas. listTeachers, listAuditLogs, updateSchool, recordAttendance y updateSchoolSchedules rechazan solicitudes sin autenticacion.
+- Validacion previa: 151 pruebas aprobadas, HTML, JavaScript y build correctos. Pendiente comprobacion visual con una cuenta real.
+
+## 05/10/2026 - Entrada y modulos (pendiente de publicar)
+
+- Requiere Functions y Hosting juntos; no modifica reglas de Firestore. 156 pruebas aprobadas, HTML, JavaScript y build correctos.
+- Ejecutar firebase deploy --project controldeasistencias-8308c --only functions,hosting --non-interactive y luego node scripts/verify-deployment.cjs.
+- Verificar Hora de entrada al plantel institucional y por nivel. En asistencia por grupo, comprobar inicio de clase asignada, limite de tolerancia y transicion a un modulo de distinta duracion; fuera de clase debe rechazar la captura.
+
+## 05/10/2026 - Entrada y modulos publicados y verificados
+
+- Functions y Hosting publicados a las 21:57 de Ciudad de Mexico. Version 25b638e241037931; 45 funciones actualizadas, sin cambios de reglas de Firestore.
+- node scripts/verify-deployment.cjs aprobado: 30 archivos exactos, cache y cabeceras correctas; tres funciones protegidas rechazan solicitudes sin autenticacion.
+- Validacion previa: 156 pruebas aprobadas, HTML, JavaScript y build correctos. Sigue pendiente comprobacion visual con una cuenta real.
+
+## 24/10/2026 - Recuperacion de acceso publicada
+
+- Hosting publicado a las 21:35 (Ciudad de Mexico), version 521f0c2e5d21e54f.
+- Verificacion HTTPS aprobada: 30 archivos exactos, cache y cabeceras correctas; tres funciones protegidas rechazan solicitudes sin autenticacion.
+- Validacion previa: 160 pruebas aprobadas. Pendiente comprobar el acceso con una cuenta real en la computadora afectada.
+
+## 24/10/2026 - Sincronizacion con GitHub Pages
+
+- GitHub Pages publica la raiz de main en https://cumorahnet.github.io/controldeasistencias/. El remoto estaba en 13558b1 y no incluia los cambios locales publicados en Firebase.
+- Se sincroniza el codigo, dependencias publicas y pruebas de recuperacion de acceso. No se incluyen archivos locales de herramientas ni registros de despliegue.

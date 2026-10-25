@@ -47,6 +47,17 @@
   function journeyForLevel(input, level) {
     return input.levelJourneys?.[level] || input.journey;
   }
+  function validateWorkDays(days) {
+    if (!Array.isArray(days) || !days.length || days.length > 7 || new Set(days).size !== days.length || days.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) throw new Error("Seleccione al menos un día laborable válido, sin duplicados.");
+    return [...days];
+  }
+  function validateLevelWorkDays(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((level) => !["PRE", "PRI", "SEC", "BAC"].includes(level))) throw new Error("Seleccione niveles válidos para los días laborables.");
+    return Object.fromEntries(Object.entries(input).map(([level, days]) => [level, validateWorkDays(days)]));
+  }
+  function workDaysForLevel(input, level) {
+    return input.levelWorkDays?.[level] || input.workDays;
+  }
   function applyJourney(input, rows, source, levels) {
     const journey = normalizeJourney(source);
     if (levels !== undefined && (!Array.isArray(levels) || !levels.length || new Set(levels).size !== levels.length || levels.some((level) => !["PRE", "PRI", "SEC", "BAC"].includes(level)))) throw new Error("Seleccione los niveles a los que se aplica la jornada.");
@@ -66,7 +77,9 @@
     return {timetable: validateTimetable({...input, ...settings, groups}, schedules), schedules};
   }
   function validateTimetable(input, rows) {
-    if (!input || !Array.isArray(input.workDays) || !input.workDays.length || input.workDays.length > 7 || new Set(input.workDays).size !== input.workDays.length || input.workDays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw new Error("Seleccione los días laborables de la escuela.");
+    if (!input) throw new Error("Configure los días laborables de la escuela.");
+    validateWorkDays(input.workDays);
+    const levelWorkDays = input.levelWorkDays === undefined ? undefined : validateLevelWorkDays(input.levelWorkDays);
     if (!Array.isArray(input.groups) || input.groups.length > 100) throw new Error("Configure hasta 100 grupos.");
     const journey = input.journey === undefined ? undefined : normalizeJourney(input.journey);
     let levelJourneys;
@@ -86,12 +99,12 @@
       keys.add(key);
       const modules = generateModules(group).filter((slot) => slot.type === "module");
       for (const row of rows.filter((r) => r.level === group.level && r.group === group.group)) {
-        if (!input.workDays.includes(row.day) || !modules.some((m) => m.entryTime === row.entryTime && m.endTime === row.endTime)) throw new Error(`Revise las materias de ${key}: deben coincidir con los módulos y días laborables configurados.`);
+        if (!workDaysForLevel(input, group.level).includes(row.day) || !modules.some((m) => m.entryTime === row.entryTime && m.endTime === row.endTime)) throw new Error(`Revise las materias de ${key}: deben coincidir con los módulos y días laborables configurados.`);
       }
       return group;
     });
     // Unconfigured legacy groups remain editable until the administrator converts them.
-    if (rows.some((row) => !input.workDays.includes(row.day))) throw new Error("Hay clases en días no laborables. Reubíquelas antes de guardar.");
+    if (rows.some((row) => !workDaysForLevel(input, row.level).includes(row.day))) throw new Error("Hay clases en días no laborables de su nivel. Reubíquelas antes de guardar.");
     let subjects;
     if (input.subjects !== undefined) {
       if (!Array.isArray(input.subjects) || input.subjects.length > 200) throw new Error("El catálogo admite hasta 200 materias.");
@@ -107,9 +120,9 @@
         return {name, ...(subject.level ? {level: subject.level} : {})};
       });
     }
-    return {workDays: [...input.workDays], groups, ...(journey ? {journey} : {}), ...(levelJourneys ? {levelJourneys} : {}), ...(subjects ? {subjects} : {})};
+    return {workDays: [...input.workDays], ...(levelWorkDays ? {levelWorkDays} : {}), groups, ...(journey ? {journey} : {}), ...(levelJourneys ? {levelJourneys} : {}), ...(subjects ? {subjects} : {})};
   }
-  const api = {generateModules, validateTimetable, applyJourney, journeyForLevel};
+  const api = {generateModules, validateTimetable, applyJourney, journeyForLevel, validateWorkDays, validateLevelWorkDays, workDaysForLevel};
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SchoolTimetable = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

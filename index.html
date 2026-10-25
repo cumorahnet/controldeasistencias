@@ -8,18 +8,18 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Asistencia">
-    <title>Control de Asistencia — VERSION 36.69</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=36.46.0">
+    <title>Control de Asistencia — VERSION 36.76</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=36.76.0">
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/app-icon-192.png?v=36.46.0">
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png?v=36.46.0">
     <script src="./app-check-config.js"></script>
-    <script src="./app-startup.js?v=36.69.0"></script>
+    <script src="./app-startup.js?v=36.76.0"></script>
     <script src="./pwa-install.js?v=36.46.0"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="./vendor/xlsx.full.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root { --primary-color: #1e293b; --accent-color: #3b82f6; }
@@ -320,13 +320,13 @@
             <div id="school-timetable-editor" class="space-y-4">
                 <form id="timetable-form" onsubmit="window.applyInstitutionalJourney(event)" class="border rounded-xl p-3 space-y-3">
                     <h3 class="font-bold">1. Jornada</h3>
-                    <label class="block">Tipo de jornada<select id="timetable-journey-mode" onchange="window.updateTimetableJourneyMode()" class="block border rounded-lg p-2" disabled><option value="institutional">Institucional (todos los niveles)</option><option value="levels">Por niveles</option></select></label>
-                    <p class="text-sm text-slate-600">La jornada se conserva al cambiar de grupo. Seleccione los niveles que compartirán estos parámetros. Para una jornada diferente, seleccione los niveles correspondientes y aplique los nuevos valores. Los días laborables son comunes al plantel.</p>
+                    <label class="block">Tipo de jornada<select id="timetable-journey-mode" onchange="window.updateTimetableJourneyMode()" class="block border rounded-lg p-2"><option value="institutional">Institucional (todos los niveles)</option><option value="levels">Por niveles</option></select></label>
+                    <p class="text-sm text-slate-600">La jornada se conserva al cambiar de grupo. El tipo elegido debe coincidir con el de los ajustes de Escuela. Seleccione los niveles que compartirán estos parámetros. Para una jornada diferente, seleccione los niveles correspondientes y aplique los nuevos valores. Los días laborables se configuran en Escuela para cada nivel o para toda la institución.</p>
                     <div id="timetable-level-options" hidden>
                       <label class="block">Consultar o editar una jornada<select id="timetable-load-level" onchange="window.loadLevelJourney()" class="block border rounded-lg p-2"></select></label>
                       <fieldset><legend class="font-bold">Aplicar jornada a estos niveles</legend><div id="timetable-journey-levels" class="flex flex-wrap gap-4"></div></fieldset>
                     </div>
-                    <fieldset><legend class="font-bold">Días laborables</legend><div id="timetable-days" class="flex flex-wrap gap-4"></div></fieldset>
+                    <fieldset><legend class="font-bold">Días laborables del nivel seleccionado en el paso 3</legend><div id="timetable-days" class="flex flex-wrap gap-4"></div></fieldset>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <label>Entrada<input id="timetable-entry" required type="time" value="08:00" class="block border rounded-lg p-2 w-full"></label>
                         <label>Salida<input id="timetable-end" required type="time" value="14:00" class="block border rounded-lg p-2 w-full"></label>
@@ -495,7 +495,7 @@
                 </div>
                 <p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-2xl p-3">El plantel quedará activo pero sin verificar hasta que se revise su titularidad y/o se pague la versión Plus.</p>
                 <button id="btn-request-school" type="button" onclick="window.requestSchoolRegistration()" class="w-full theme-accent text-white font-black py-4 rounded-3xl shadow-xl disabled:opacity-50">Crear plantel y continuar</button>
-                <button type="button" onclick="window.resetGateway()" class="text-slate-600 font-bold uppercase text-xs underline">Corregir CCT</button>
+                <button type="button" onclick="window.resetGateway()" class="text-slate-600 font-bold uppercase text-xs underline">Cancelar y cambiar CCT</button>
             </div>
 
             <div id="step-super-login" class="setup-step space-y-6" aria-hidden="true">
@@ -862,8 +862,9 @@
                     <div class="rounded-[3rem] border border-slate-200 bg-white p-8 shadow-xl">
                         <div class="flex flex-col gap-4 border-b pb-5 md:flex-row md:flex-wrap md:items-end">
                             <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Clase<select id="report-class" class="mt-1 w-full rounded-2xl border px-4 py-3"><option value="">Entrada general (portería)</option></select></label>
-                            <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Desde<input id="report-date-from" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
-                            <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Hasta<input id="report-date-to" type="date" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
+                            <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Periodo<select id="report-period" onchange="window.selectReportPeriod()" class="mt-1 w-full rounded-2xl border px-4 py-3"><option value="">Rango personalizado</option></select></label>
+                            <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Desde<input id="report-date-from" type="date" onchange="document.getElementById('report-period').value = ''" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
+                            <label class="flex-1 text-[9px] font-black uppercase text-slate-600">Hasta<input id="report-date-to" type="date" onchange="document.getElementById('report-period').value = ''" class="mt-1 w-full rounded-2xl border px-4 py-3"></label>
                             <button id="btn-load-attendance" type="button" onclick="window.loadAttendanceReport()" class="rounded-2xl theme-accent px-7 py-3 font-black uppercase text-white disabled:opacity-50">Consultar</button>
                             <button id="btn-print-attendance" type="button" onclick="window.printAttendanceReport()" class="hidden rounded-2xl bg-slate-800 px-7 py-3 font-black uppercase text-white"><i class="fas fa-print mr-2"></i>Imprimir</button>
                             <button id="btn-export-attendance-xls" type="button" onclick="window.exportAttendanceReportXls()" class="hidden rounded-2xl bg-emerald-700 px-7 py-3 font-black uppercase text-white"><i class="fas fa-file-excel mr-2"></i>Exportar XLS</button>
@@ -889,6 +890,64 @@
                             <h3 class="font-black theme-text uppercase text-xl text-center">Ajustes Institucionales</h3>
                             <span id="premium-badge-local" class="hidden px-4 py-1.5 bg-amber-100 text-amber-700 rounded-full font-black text-[9px] uppercase italic border border-amber-200 text-center text-center">VERSIÓN PRO</span>
                         </div>
+                        <fieldset class="mt-6 border rounded-2xl p-4 text-left">
+                            <legend class="font-bold">1. Tipo de jornada</legend>
+                            <p class="text-sm text-slate-600 mb-3">Defina los días en que trabaja la escuela y si todos los niveles comparten la misma jornada o cada nivel tiene una diferente.</p>
+                            <label class="block mb-3">Tipo de jornada
+                                <select id="edit-journey-mode" onchange="window.changeAttendancePolicyMode()" class="block border rounded-lg p-2 w-full max-w-sm">
+                                    <option value="institutional">Una jornada para todos los niveles</option>
+                                    <option value="levels">Una jornada diferente por nivel</option>
+                                </select>
+                            </label>
+
+                        </fieldset>
+                        <fieldset class="mt-6 border rounded-2xl p-4 text-left">
+                            <legend class="font-bold">Niveles de la institución</legend>
+                            <p class="text-sm text-slate-600 mb-3">Seleccione los niveles que ofrece la escuela. Solo estos aparecerán en los selectores. Guarde los ajustes antes de configurar los horarios.</p>
+                            <div class="flex flex-wrap gap-4">
+                                <label><input id="edit-level-PRE" onchange="window.refreshAttendancePolicyLevels()" type="checkbox"> Preescolar</label>
+                                <label><input id="edit-level-PRI" onchange="window.refreshAttendancePolicyLevels()" type="checkbox"> Primaria</label>
+                                <label><input id="edit-level-SEC" onchange="window.refreshAttendancePolicyLevels()" type="checkbox"> Secundaria</label>
+                                <label><input id="edit-level-BAC" onchange="window.refreshAttendancePolicyLevels()" type="checkbox"> Bachillerato</label>
+                            </div>
+                        </fieldset>
+                        <fieldset id="school-attendance-configuration" class="mt-6 border rounded-2xl p-4 text-left">
+                            <legend class="font-bold">2. Días laborables y reglas de asistencia</legend>
+                            <label id="attendance-policy-level-field" class="block mb-3" hidden>Nivel educativo<select id="attendance-policy-level" onchange="window.selectAttendancePolicyLevel()" class="block border rounded-lg p-2 w-full max-w-sm"></select></label>
+                            <p id="attendance-policy-scope" class="mb-3 font-bold text-blue-900"></p>
+                            <fieldset>
+                                <legend class="font-bold">Días laborables</legend>
+                                <div class="flex flex-wrap gap-4">
+                                    <label><input id="edit-work-day-1" type="checkbox"> Lunes</label>
+                                    <label><input id="edit-work-day-2" type="checkbox"> Martes</label>
+                                    <label><input id="edit-work-day-3" type="checkbox"> Miércoles</label>
+                                    <label><input id="edit-work-day-4" type="checkbox"> Jueves</label>
+                                    <label><input id="edit-work-day-5" type="checkbox"> Viernes</label>
+                                    <label><input id="edit-work-day-6" type="checkbox"> Sábado</label>
+                                    <label><input id="edit-work-day-0" type="checkbox"> Domingo</label>
+                                </div>
+                            </fieldset>
+                            <p class="my-3 text-sm text-slate-600">Los días elegidos se aplican al nivel seleccionado o a toda la institución, según el tipo de jornada.</p>
+                            <p class="mb-3 text-sm text-slate-600">Configure la tolerancia, los retardos que generan una falta y sus periodos. Al cambiar de nivel se conservan los valores capturados. Guarde los ajustes para aplicarlos.</p>
+                                <div class="grid grid-cols-2 gap-4 text-center text-center">
+                                    <div class="text-center"><label for="edit-entry-time" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Hora de entrada al plantel</label><input id="edit-entry-time" type="time" required class="w-full px-2 py-2 border rounded-xl text-center"></div>
+                                    <div class="text-center"><label for="edit-tolerance" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Tolerancia (m)</label><input id="edit-tolerance" type="number" min="0" max="120" placeholder="10" class="w-full px-2 py-2 border rounded-xl text-center"></div>
+                                </div>
+                                <p class="mb-3 text-sm text-slate-600">La entrada al plantel se aplica a la asistencia general. En el pase de lista por grupo se usa el inicio de la clase asignada al docente, la tolerancia configurada y la duración de cada módulo. La hora de entrada al plantel no cambia los horarios de las clases.</p>
+                                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
+                                    <label for="edit-tardies-per-absence" class="text-[9px] font-black text-amber-900 block mb-2 uppercase">Número de retardos igual a una falta</label>
+                                    <input id="edit-tardies-per-absence" type="number" min="0" max="30" step="1" value="0" aria-describedby="tardies-per-absence-help" class="w-full px-3 py-3 border border-amber-200 rounded-xl text-center font-black">
+                                    <p class="mt-4 font-black text-amber-900">Periodos de faltas y retardos</p>
+                                    <div id="attendance-periods-list" class="my-3 space-y-2"></div>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <label class="text-xs font-bold">Fecha inicial<input id="attendance-period-start" type="date" class="block w-full border rounded-xl p-2"></label>
+                                        <label class="text-xs font-bold">Fecha final<input id="attendance-period-end" type="date" class="block w-full border rounded-xl p-2"></label>
+                                    </div>
+                                    <button type="button" onclick="window.addAttendancePeriod()" class="mt-3 border rounded-xl bg-white px-4 py-2 font-bold">Agregar periodo</button>
+                                    <p class="mt-2 text-xs text-amber-800">Ambas fechas se incluyen. Las faltas y los retardos se consultan por periodo; el conteo de retardos empieza en cero en cada uno. Fuera de estos periodos no se acumulan retardos para generar faltas. Guarde los ajustes para aplicar los periodos.</p>
+                                    <p id="tardies-per-absence-help" class="mt-2 text-[9px] font-bold leading-relaxed text-amber-800">Al completar este número, el último retardo se aplicará como falta por retardos. Use 0 para desactivar.</p>
+                                </div>
+                        </fieldset>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-8 text-center text-center">
                             <div class="space-y-4 border-r pr-4 text-center text-center">
                                 <div class="space-y-1 text-center">
@@ -903,15 +962,7 @@
                                     <label for="edit-school-contact-email" class="text-[9px] font-black text-slate-500 uppercase block text-center">Correo de contacto</label>
                                     <input id="edit-school-contact-email" type="email" maxlength="160" autocomplete="email" class="w-full px-5 py-3 border-2 border-slate-50 rounded-3xl font-bold shadow-sm text-center">
                                 </div>
-                                <p class="text-xs text-slate-600">La jornada institucional y las materias se establecen en Configurar horarios. Todos los grupos heredan sus parámetros.</p>
-                                <div class="grid grid-cols-2 gap-4 text-center text-center">
-                                    <div class="text-center"><label for="edit-tolerance" class="text-[8px] font-black text-slate-500 block mb-1 uppercase">Tolerancia (m)</label><input id="edit-tolerance" type="number" min="0" max="120" placeholder="10" class="w-full px-2 py-2 border rounded-xl text-center"></div>
-                                </div>
-                                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
-                                    <label for="edit-tardies-per-absence" class="text-[9px] font-black text-amber-900 block mb-2 uppercase">Número de retardos igual a una falta</label>
-                                    <input id="edit-tardies-per-absence" type="number" min="0" max="30" step="1" value="0" aria-describedby="tardies-per-absence-help" class="w-full px-3 py-3 border border-amber-200 rounded-xl text-center font-black">
-                                    <p id="tardies-per-absence-help" class="mt-2 text-[9px] font-bold leading-relaxed text-amber-800">Al completar este número, el último retardo se aplicará como falta por retardos. Use 0 para desactivar.</p>
-                                </div>
+
                             </div>
                             <div class="flex flex-col justify-center text-center">
                                 <div id="invite-branding-panel" class="bg-orange-50 border border-orange-100 p-6 rounded-[2rem] text-center text-center text-center">
@@ -941,36 +992,15 @@
                             </div>
                         </div>
                         <fieldset class="mt-6 border rounded-2xl p-4 text-left">
-                            <legend class="font-bold">Niveles de la institución</legend>
-                            <p class="text-sm text-slate-600 mb-3">Seleccione los niveles que ofrece la escuela. Solo estos aparecerán en los selectores. Guarde los ajustes antes de configurar los horarios.</p>
-                            <div class="flex flex-wrap gap-4">
-                                <label><input id="edit-level-PRE" type="checkbox"> Preescolar</label>
-                                <label><input id="edit-level-PRI" type="checkbox"> Primaria</label>
-                                <label><input id="edit-level-SEC" type="checkbox"> Secundaria</label>
-                                <label><input id="edit-level-BAC" type="checkbox"> Bachillerato</label>
+                            <legend class="font-bold">Festivos y suspensiones de clases</legend>
+                            <p class="text-sm text-slate-600 mb-3">Agregue fechas sin clases. Se mostrarán en los reportes como F (festivo) o S (suspensión) y no contarán como faltas.</p>
+                            <div class="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_2fr_auto]">
+                                <label class="text-xs font-bold">Fecha<input id="calendar-exception-date" type="date" class="mt-1 w-full rounded-lg border p-2"></label>
+                                <label class="text-xs font-bold">Tipo<select id="calendar-exception-type" class="mt-1 w-full rounded-lg border p-2"><option value="festivo">Festivo</option><option value="suspension">Suspensión de clases</option><option value="consejo_tecnico">Consejo Técnico</option></select></label>
+                                <label class="text-xs font-bold">Descripción (opcional)<input id="calendar-exception-label" type="text" maxlength="80" placeholder="Ej. Día de la Independencia" class="mt-1 w-full rounded-lg border p-2"></label>
+                                <button type="button" onclick="window.addCalendarException()" class="self-end rounded-lg bg-blue-700 px-4 py-2 font-bold text-white">Agregar</button>
                             </div>
-                        </fieldset>
-                        <fieldset class="mt-6 border rounded-2xl p-4 text-left">
-                            <legend class="font-bold">Jornada institucional</legend>
-                            <p class="text-sm text-slate-600 mb-3">Defina los días en que trabaja la escuela y si todos los niveles comparten la misma jornada o cada nivel tiene una diferente.</p>
-                            <label class="block mb-3">Tipo de jornada
-                                <select id="edit-journey-mode" class="block border rounded-lg p-2 w-full max-w-sm">
-                                    <option value="institutional">Una jornada para todos los niveles</option>
-                                    <option value="levels">Una jornada diferente por nivel</option>
-                                </select>
-                            </label>
-                            <fieldset>
-                                <legend class="font-bold">Días laborables</legend>
-                                <div class="flex flex-wrap gap-4">
-                                    <label><input id="edit-work-day-1" type="checkbox"> Lunes</label>
-                                    <label><input id="edit-work-day-2" type="checkbox"> Martes</label>
-                                    <label><input id="edit-work-day-3" type="checkbox"> Miércoles</label>
-                                    <label><input id="edit-work-day-4" type="checkbox"> Jueves</label>
-                                    <label><input id="edit-work-day-5" type="checkbox"> Viernes</label>
-                                    <label><input id="edit-work-day-6" type="checkbox"> Sábado</label>
-                                    <label><input id="edit-work-day-0" type="checkbox"> Domingo</label>
-                                </div>
-                            </fieldset>
+                            <ul id="calendar-exceptions-list" class="mt-3 space-y-2 text-sm"></ul>
                         </fieldset>
                         <button onclick="window.updateSchoolGlobalData()" class="w-full theme-primary text-white font-black py-4 rounded-3xl uppercase mt-8 shadow-xl text-center text-center text-center">Guardar Ajustes</button>
                         <div class="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-5 text-left">
@@ -1018,7 +1048,10 @@
                         <div><label for="school-create-password" class="block text-xs font-black uppercase text-slate-600 mb-1">Contraseña del administrador</label><div class="pass-container"><input id="school-create-password" type="password" minlength="8" maxlength="72" autocomplete="new-password" class="w-full px-4 py-3 border rounded-2xl font-black text-center"><button type="button" class="toggle-eye" aria-label="Mostrar contraseña del administrador" aria-pressed="false" onclick="window.togglePass('school-create-password', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div></div>
                         <div><label for="school-create-password-confirm" class="block text-xs font-black uppercase text-slate-600 mb-1">Confirmar contraseña</label><div class="pass-container"><input id="school-create-password-confirm" type="password" minlength="8" maxlength="72" autocomplete="new-password" class="w-full px-4 py-3 border rounded-2xl font-black text-center"><button type="button" class="toggle-eye" aria-label="Mostrar confirmación de contraseña" aria-pressed="false" onclick="window.togglePass('school-create-password-confirm', this)"><i aria-hidden="true" class="fas fa-eye"></i></button></div></div>
                     </div>
-                    <button id="btn-create-school" type="button" onclick="window.createSchool()" class="w-full bg-red-700 text-white font-black py-4 rounded-2xl uppercase shadow-lg disabled:opacity-50">Crear plantel y administrador</button>
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <button id="btn-create-school" type="button" onclick="window.createSchool()" class="w-full bg-red-700 text-white font-black py-4 rounded-2xl uppercase shadow-lg disabled:opacity-50">Crear plantel y administrador</button>
+                        <button id="btn-cancel-create-school" type="button" onclick="window.cancelSchoolCreation()" class="w-full rounded-2xl border border-slate-300 bg-white py-4 font-black uppercase text-slate-600 hover:bg-slate-100">Cancelar alta</button>
+                    </div>
                 </div>
                 <div class="overflow-x-auto"><table class="w-full border-collapse text-center"><caption class="sr-only">Directorio maestro de escuelas</caption><thead class="bg-slate-50 text-[9px] uppercase border-b"><tr><th scope="col" class="p-4">CCT</th><th scope="col">Escuela</th><th scope="col">Verificación</th><th scope="col">Ads OFF</th><th scope="col">Identidad</th><th scope="col">Acciones</th></tr></thead><tbody id="global-schools-body" class="divide-y divide-slate-100 text-[11px] font-bold uppercase"></tbody></table></div>
                 <div class="mt-10 border-t border-slate-200 pt-8 text-left">
@@ -1292,7 +1325,7 @@
 
 
     </script>
-    <script src="./school-timetable.js?v=36.69.0"></script>
-    <script id="app-runtime" type="module" src="./app.js?v=36.69.0"></script>
+    <script src="./school-timetable.js?v=36.76.0"></script>
+    <script id="app-runtime" type="module" src="./app.js?v=36.76.0"></script>
 </body>
 </html>

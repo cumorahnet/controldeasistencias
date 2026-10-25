@@ -1,3 +1,24 @@
+## 30/09/2026 - Periodos institucionales por fechas (sustituye vigencia en dias)
+
+- attendancePeriods guarda hasta 40 rangos start/end inclusivos, ordenados y sin cruces. Cada rango admite hasta 366 dias de diferencia, como los reportes. El administrador configura las fechas; no dependen del primer retardo de cada alumno.
+- El contador se separa por las fechas del periodo y vuelve a cero al cambiar de periodo; completar el limite reinicia solo los retardos pendientes dentro del mismo periodo. Fuera de un periodo se registra el retardo sin convertirlo en falta.
+- attendancePeriodApplied conserva el periodo aplicado a cada captura para recalculos historicos. La configuracion se aplica a nuevas capturas; editar periodos no reescribe asistencias previas. Los registros antiguos sin este campo conservan la regla historica.
+- Las faltas y retardos se consultan por periodo con el selector de Reportes, conservando el historial. Las fechas futuras se excluyen del reporte. No se borran faltas historicas al cerrar un periodo.
+
+## 30/09/2026 - Vigencia del conteo de retardos
+
+- tardyPeriodDays configura de 1 a 366 dias naturales desde el primer retardo pendiente de cada alumno. El limite y el vencimiento reinician el conteo; el siguiente retardo abre otro periodo.
+- El servidor comprueba el vencimiento antes de cada captura, sin tarea programada ni borrado de asistencias. Al adoptar una vigencia o cambiar su duracion, comienza un conteo nuevo.
+- Cada captura conserva tardyPeriodDaysApplied; las correcciones reproducen la regla historica y los cambios de grupo conservan el inicio del periodo. Registros antiguos mantienen su regla sin vencimiento. Clientes anteriores que omiten el campo conservan su valor institucional.
+
+## 29/09/2026 - Seguridad de publicacion y dependencias
+
+- El build publica solo scripts enumerados, conserva las URLs originales y elimina residuos de dist. Su hash incluye sw.js.
+- La cache PWA se limita al app shell y no intercepta endpoints privados ni peticiones autenticadas.
+- Firebase Admin 14.5.0 / Functions 7.4.0 mantienen Node 22. uuid 11.1.1 se fija mediante override global compatible con npm 10; gaxios 6.7.1 es su consumidor y usa v4(). Validado mediante npm ci.
+- SheetJS 0.20.3 se distribuye localmente con licencia.
+- Se conserva el cambio local previo de instalacion PWA manual, sin reintroducir avisos automaticos.
+
 ## 36.68 - Publicacion y App Check
 
 - node scripts/build-hosting.cjs genera dist y se ejecuta en predeploy de Hosting. No editar dist. Se conservan archivos originales con revalidacion para clientes anteriores. Los nombres por hash se calculan despues de resolver dependencias; la PWA precarga los mismos archivos y su cache cambia con el contenido.
@@ -82,3 +103,35 @@
 ## 24/08/2026, 10:58 p.m. — session-20260824163402-410a01
 
 - se eliminó el registro por cuenta de google
+
+## 05/10/2026 - Modo del editor de jornadas
+
+- El tipo de jornada es editable dentro de Configurar horarios. La configuracion guardada en timetable (levelJourneys o journey) prevalece sobre la preferencia inicial institucional al reabrir.
+- Seleccionar un nivel aun sin jornada marca solo ese nivel, conservando los parametros para configurarlo sin afectar los demas.
+
+## 05/10/2026 - Tolerancia y acumulacion por nivel
+
+- timetablePreferences.journeyMode determina el alcance de las reglas de asistencia. Los campos tolerance, tardiesPerAbsence y attendancePeriods conservan la regla institucional; levelAttendancePolicies guarda esos tres campos por PRE, PRI, SEC o BAC.
+- En modo por niveles, los ajustes nuevos requieren una regla para cada nivel habilitado. Los planteles anteriores sin reglas por nivel conservan la regla global. Clientes anteriores que omiten levelAttendancePolicies no borran las reglas guardadas.
+- El formulario conserva los borradores institucionales y por nivel al alternar. La regla aplica a capturas nuevas y a correcciones de omisiones; las capturas existentes mantienen limite, periodo y attendancePolicyScopeApplied historicos.
+- El contador pendiente incluye el alcance en su clave de periodo, evitando trasladar acumulaciones entre niveles. Las fechas inclusivas y los reinicios por periodo y limite conservan su comportamiento.
+- Porteria hereda la entrada de timetable.levelJourneys o timetable.journey cuando existe; si no, conserva la resolucion anterior. Las clases docentes mantienen sus horas administrativas.
+
+## 05/10/2026 - Dias laborables independientes (sustituye dias comunes por plantel)
+
+- timetablePreferences.workDays conserva la semana institucional; levelWorkDays guarda listas de dias por nivel. journeyMode selecciona el alcance. Cada nivel habilitado requiere al menos un dia al usar la configuracion nueva por niveles.
+- Los borradores comparten el selector de nivel con tolerancia y retardos, pero los dias se guardan en preferencias de jornada, separados de las reglas de acumulacion.
+- El motor timetable admite levelWorkDays y valida clases frente a los dias de su propio nivel. La copia publica y la de functions permanecen identicas.
+- Escuela es la fuente de dias; el editor de horarios muestra los del grupo seleccionado. El servidor conserva preferencias por nivel omitidas por clientes anteriores y rechaza clases en dias no laborables.
+- Cambiar los dias no elimina clases ni asistencias: se rechaza desactivar dias con materias asignadas. En reportes combinados, una celda sin captura en dia no laborable se muestra sin falta; exportacion usa DIA NO LABORABLE. Las capturas existentes se conservan.
+
+## 05/10/2026 - Separar entrada general y clase docente
+
+- La entrada general se configura en Escuela mediante entryTime institucional y levelEntryTimes por nivel. Sustituye la dependencia exclusiva de las jornadas del editor de horarios para el acceso al plantel; datos antiguos siguen resolviendo sus horas desde timetable.
+- La entrada general no desplaza subjectSchedules. Para asistencia por grupo prevalece la clase asignada vigente: inicio, fin y duracion calculada, junto con la tolerancia institucional o del nivel correspondiente.
+- El navegador y servidor usan la clase activa; el servidor rechaza capturas fuera de su ventana y registra entryTimeApplied, toleranceApplied y classDurationApplied para conservar los parametros de la captura.
+- Clientes que omiten levelEntryTimes conservan los datos existentes. La configuracion nueva por niveles exige una hora valida para cada nivel ofrecido.
+
+## 24/10/2026 - Separar autenticacion y preparacion de interfaz
+
+- Un error en enterApp no invalida las credenciales. La perdida o rechazo de sesion debe ocultar la interfaz privada y restaurar el acceso. Cada callback de Auth descarta resultados de callbacks anteriores.

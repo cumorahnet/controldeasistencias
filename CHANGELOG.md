@@ -1,3 +1,28 @@
+## 30/09/2026 - Despliegue completo verificado
+
+- Publicados Hosting, funciones Node 22 y reglas de Firestore (sin cambios pendientes en reglas). Release de Hosting: d57f6be20f6d7f93, a las 13:09 de Ciudad de Mexico.
+- 134 pruebas aprobadas con Node 22. Verificacion HTTPS: los 30 archivos coinciden con dist, con cache y cabeceras correctas; tres funciones protegidas rechazan llamadas sin autenticacion.
+- Incluye periodos institucionales de faltas y retardos con fechas inicial y final. Configurar las fechas en Gestion > Escuela para activar la acumulacion dentro de los periodos.
+
+## 30/09/2026 - Periodos con fecha inicial y final
+
+- Sustituye la duracion en dias por multiples periodos institucionales con fechas inclusivas y sin superposiciones.
+- Conteo de retardos independiente por periodo y reinicio al completar el limite. Selector de periodo para reportes de faltas y retardos; excluye fechas futuras.
+- 134 pruebas aprobadas y build validado. Pendiente publicar Hosting y funciones.
+
+## 30/09/2026 - Periodo de acumulacion de retardos
+
+- Gestion de escuela permite establecer la vigencia en dias naturales, obligatoria al guardar una regla activa desde la interfaz nueva.
+- Reinicio por vencimiento o por limite, aplicado en capturas y recalculo de correcciones. Se conserva el estado al cambiar de grupo.
+- Pendiente publicar Hosting y funciones; no modifica reglas de seguridad.
+
+## 36.76 - Revision de seguridad y consistencia
+
+- Dependencias Firebase y SheetJS corregidas; cache limitada a recursos publicos; build con lista explicita y limpieza.
+- Cabeceras de seguridad, rechazo de estados docentes desconocidos y validacion robusta de fechas.
+- Totales de reportes coherentes con dias visibles y excepciones; pruebas de regresion y PWA manual actualizadas.
+- Detalles y limites en SECURITY_REVIEW.md.
+
 ## 36.68 - Errores, cache y preparacion de App Check
 
 - Mensajes de permisos, verificacion de acceso, limites y tiempo agotado; el fallo del listener de plantel ahora se informa.
@@ -29,6 +54,201 @@
 - Validación: 49 pruebas de asistencia, correcciones, arranque y PWA aprobadas. La suite general detectó ocho fallos existentes en horarios; se actualizó la expectativa de caché para esta versión. Revisión visual y despliegue pendientes.
 
 # CHANGELOG
+
+<!-- cdc-session:session-20261006012948-b095c4 -->
+## Sesión 05/10/2026, 10:22 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 26 cambio(s): 6 creado(s), 20 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting.ZGlzdA.cache
+- CHANGELOG.md
+- DECISIONS.md
+- DEPLOY_FIREBASE.md
+- NEXT.md
+- app.js
+- attendance-report-export.js
+- deploy-days-by-level.log
+- deploy-entry-config.log
+- deploy-rules-by-level.log
+- entry-config-test-results.txt
+- firebase-debug.log
+- functions/attendance-corrections.js
+- functions/attendance-utils.js
+- functions/index.js
+- functions/school-timetable.js
+- index.html
+- level-days-test-results.txt
+- school-timetable.js
+- tests/admin-features.test.cjs
+- tests/attendance-corrections.test.cjs
+- tests/attendance-policy-levels.test.cjs
+- tests/level-journeys.test.cjs
+- tests/school-levels.test.cjs
+- tests/school-schedules.test.cjs
+- tests/timetable.test.cjs
+
+### Riesgos
+
+- La sesión contiene 26 cambios. Considera dividir la revisión o el commit para reducir el riesgo de integración.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+- Cambió la definición de dependencias; valida instalación y seguridad.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20261002030149-075fb9 -->
+## Sesión 01/10/2026, 09:01 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 0 cambio(s): 0 creado(s), 0 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- No se detectaron archivos modificados.
+
+### Riesgos
+
+- No se detectaron archivos modificados. Confirma que el trabajo se haya guardado dentro del proyecto y fuera de carpetas ignoradas.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+- Cambió la definición de dependencias; valida instalación y seguridad.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Definir el siguiente objetivo de trabajo del proyecto.
+
+<!-- cdc-session:session-20260930190611-c159da -->
+## Sesión 30/09/2026, 01:10 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 4 cambio(s): 0 creado(s), 4 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting.ZGlzdA.cache
+- CHANGELOG.md
+- DEPLOY_FIREBASE.md
+- firebase-debug.log
+
+### Riesgos
+
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+- Cambió la definición de dependencias; valida instalación y seguridad.
+
+### Próximo paso
+
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20260930012057-c12b3a -->
+## Sesión 29/09/2026, 10:36 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 25 cambio(s): 5 creado(s), 20 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting.ZGlzdA.cache
+- CHANGELOG.md
+- DECISIONS.md
+- DEPLOY_FIREBASE.md
+- NEXT.md
+- SECURITY_REVIEW.md
+- app.js
+- attendance-report-export.js
+- audit-test-results.txt
+- deploy-review.local
+- firebase-debug.log
+- firebase.json
+- functions-deploy-inventory.local
+- functions/index.js
+- functions/package-lock.json
+- functions/package.json
+- index.html
+- pwa-install.js
+- scripts/build-hosting.cjs
+- scripts/verify-deployment.cjs
+- sw.js
+- tests/hosting-errors.test.cjs
+- tests/pwa-install.test.cjs
+- tests/security-audit.test.cjs
+- version.json
+
+### Riesgos
+
+- Se modificaron archivos de configuración o infraestructura (functions/package-lock.json, functions/package.json). Valida compatibilidad y despliegue.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+- Cambió la definición de dependencias; valida instalación y seguridad.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
+<!-- cdc-session:session-20260929203628-6678ae -->
+## Sesión 29/09/2026, 02:40 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 7 cambio(s): 0 creado(s), 7 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- .firebase/hosting.ZGlzdA.cache
+- CHANGELOG.md
+- DEPLOY_FIREBASE.md
+- firebase-debug.log
+- index.html
+- sw.js
+- version.json
+
+### Riesgos
+
+- Se modificó código fuente sin cambios detectados en archivos de prueba. Verifica la cobertura antes de cerrar el trabajo.
+- El análisis incluye archivos que ya tenían cambios al iniciar la sesión.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Ejecutar las pruebas automatizadas y validar el comportamiento afectado.
+- Revisar el diff y preparar un commit descriptivo.
+
+## 36.69 - Salida de sesión
+
+- Se muestra el botón **Salir** en la barra superior durante toda la sesión para cambiar de usuario o escuela.
+- Al cerrar sesión, se vuelve a mostrar el acceso a escuela y usuario.
+- Solo requiere publicar Hosting; no cambia backend ni reglas.
+
+
+<!-- cdc-session:session-20260929034519-e6f865 -->
+## Sesión 28/09/2026, 09:45 p.m.
+
+### Resumen
+
+Se cerró una sesión de trabajo del proyecto Listas de Asistencia. Se detectaron 0 cambio(s): 0 creado(s), 0 modificado(s) y 0 eliminado(s).
+
+### Cambios
+
+- No se detectaron archivos modificados.
+
+### Riesgos
+
+- No se detectaron archivos modificados. Confirma que el trabajo se haya guardado dentro del proyecto y fuera de carpetas ignoradas.
+
+### Próximo paso
+
+- Revisar y resolver los riesgos detectados en este cierre.
+- Definir el siguiente objetivo de trabajo del proyecto.
 
 <!-- cdc-session:session-20260916030834-9fa419 -->
 ## Sesión 15/09/2026, 10:38 p.m.
@@ -860,3 +1080,77 @@ logrado
 ### Próximo paso
 
 Sin próximo paso registrado.
+
+- Cierre de revision 36.76: Hosting y 45 funciones publicados; 30 archivos HTTPS verificados; 127 pruebas aprobadas y npm audit sin avisos. Ver DEPLOY_FIREBASE.md.
+
+## 05/10/2026 - Selector de jornada por niveles
+
+- Corregido el selector deshabilitado de tipo de jornada en el editor de horarios. Permite configurar entradas diferentes por nivel.
+- Al reabrir, el modo se obtiene primero de las jornadas guardadas; seleccionar un nivel sin jornada aplica los parametros solo a ese nivel.
+- Requiere publicar Hosting explicitamente; no cambia backend ni reglas.
+
+## 05/10/2026 - Despliegue del selector de jornadas
+
+- Correccion publicada en Firebase Hosting, version 3f9dc2f8d1ad13b0, a las 19:45 de Ciudad de Mexico.
+- Los 30 archivos publicados coinciden con la compilacion local; verificacion de cache y cabeceras aprobada.
+
+## 05/10/2026 - Reglas de asistencia por tipo de jornada
+
+- Gestion > Escuela elige primero el tipo de jornada y despues las reglas de asistencia. La jornada institucional usa una tolerancia, un limite de retardos y sus periodos; por niveles ofrece un selector y valores independientes para cada nivel habilitado.
+- Los borradores conservan valores y periodos al alternar niveles o tipo de jornada. Los niveles nuevos heredan los ajustes institucionales hasta configurarlos.
+- El servidor valida y guarda levelAttendancePolicies; captura y correccion de omisiones usan la regla del nivel. Las entradas generales heredan la jornada guardada. Los reportes incluyen periodos identificados por nivel.
+- Cada captura conserva el alcance aplicado para recalcular el historial sin mezclar niveles; cambiar de alcance reinicia el contador pendiente.
+- Validacion: 145 pruebas aprobadas, sintaxis JavaScript y HTML completo con etiquetas balanceadas e IDs unicos. Revision visual pendiente por fallo de inicio del navegador del entorno.
+- Pendiente desplegar Functions y Hosting juntos; no requiere cambios de reglas de Firestore.
+
+## 05/10/2026 - Despliegue de reglas por nivel
+
+- Publicadas Functions y Hosting a las 20:35 de Ciudad de Mexico, version 1bb03469f652fde3.
+- 45 funciones actualizadas; 30 archivos HTTPS verificados y cinco funciones protegidas rechazan solicitudes sin autenticacion.
+- Disponible el nuevo orden de Escuela: tipo de jornada primero, seguido de tolerancia, equivalencia de retardos y periodos institucionales o por nivel.
+
+## 05/10/2026 - Dias laborables por nivel
+
+- Dias laborables aparece despues de los niveles ofrecidos, junto a las reglas de asistencia; espera al menos un nivel seleccionado.
+- Jornada por niveles permite dias independientes para cada nivel y conserva los borradores al cambiar de seleccion. Jornada institucional mantiene una sola semana para todos.
+- Horarios, validaciones del servidor, capturas generales y reportes respetan los dias del nivel. Dias sin clases se distinguen de faltas; registros historicos existentes siguen visibles en las fechas consultadas.
+- No se permite quitar un dia que tiene clases asignadas en ese nivel. Las preferencias de Escuela prevalecen sobre cambios enviados desde el editor de horarios.
+- Validacion: 151 pruebas aprobadas, HTML completo y JavaScript validos, motor publico y copia backend identicos, build correcto.
+- Pendiente desplegar Functions y Hosting; no modifica reglas de Firestore.
+
+## 05/10/2026 - Despliegue de dias laborables por nivel
+
+- Publicados Functions y Hosting a las 21:25 de Ciudad de Mexico, version 762b8c3faa6c0033.
+- 45 funciones actualizadas; 30 archivos HTTPS verificados y cinco funciones protegidas rechazan solicitudes sin autenticacion.
+- Disponible Dias laborables despues de los niveles, con semanas independientes por nivel y configuracion comun para jornada institucional.
+
+## 05/10/2026 - Entrada general y asistencia por modulo
+
+- Restaurada Hora de entrada al plantel en Gestion > Escuela, con valor institucional o independiente por nivel segun la jornada. Se recuperan las horas anteriores guardadas en las jornadas y se conservan los borradores al alternar niveles.
+- levelEntryTimes guarda las entradas por nivel; entryTime conserva la institucional. Cambiar la entrada general no modifica las clases asignadas.
+- El pase por grupo usa la clase administrativa vigente del docente, su inicio y su duracion real, con la tolerancia del nivel. Rechaza capturas fuera del modulo y conserva classDurationApplied en el registro.
+- Validacion: 156 pruebas aprobadas, HTML balanceado con IDs unicos, JavaScript y build correctos. Incluye limites exactos de tolerancia y cambio entre modulos de diferente duracion.
+- Pendiente publicar Functions y Hosting; comprobacion visual pendiente por fallo de inicio del navegador del entorno.
+
+## 05/10/2026 - Entrada y modulos publicados
+
+- Publicados Functions y Hosting a las 21:57 de Ciudad de Mexico, version 25b638e241037931. Las 45 funciones se actualizaron correctamente.
+- Verificados 30 archivos publicos por HTTPS: contenido exacto, cache y cabeceras de seguridad. Las tres funciones protegidas de la verificacion rechazan solicitudes sin autenticacion.
+- Disponible la hora de entrada institucional o por nivel en Escuela; asistencia por grupo respeta inicio, tolerancia y duracion de la clase asignada. Validacion previa: 156 pruebas aprobadas.
+
+## 24/10/2026 - Recuperacion de sesion y errores de carga
+
+- Los errores al preparar la interfaz ya no cierran una sesion autenticada; se muestra el motivo del fallo.
+- Al perder la sesion se ocultan los datos privados y se restaura la portada de acceso. Se descartan comprobaciones de autenticacion atrasadas.
+- Pruebas de regresion para errores de interfaz, token invalido, cierre de sesion y respuestas atrasadas. Requiere publicar Hosting; pendiente comprobar el acceso con una cuenta real.
+
+## 24/10/2026 - Recuperacion de acceso publicada
+
+- Hosting publicado a las 21:35 (Ciudad de Mexico), version 521f0c2e5d21e54f.
+- Verificacion HTTPS aprobada: 30 archivos exactos, cache y cabeceras correctas; tres funciones protegidas rechazan solicitudes sin autenticacion.
+- Validacion previa: 160 pruebas aprobadas. Pendiente comprobar el acceso con una cuenta real en la computadora afectada.
+
+## 24/10/2026 - Sincronizacion con GitHub Pages
+
+- GitHub Pages publica la raiz de main en https://cumorahnet.github.io/controldeasistencias/. El remoto estaba en 13558b1 y no incluia los cambios locales publicados en Firebase.
+- Se sincroniza el codigo, dependencias publicas y pruebas de recuperacion de acceso. No se incluyen archivos locales de herramientas ni registros de despliegue.

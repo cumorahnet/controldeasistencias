@@ -7,8 +7,11 @@ const {execFileSync} = require('node:child_process');
 const {createHash} = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 test('Hosting usa contenido inmutable y la PWA precarga las mismas URLs', () => {
+  fs.mkdirSync(path.join(root, 'dist'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'dist', 'obsolete-private-file.txt'), 'must not be published');
   execFileSync(process.execPath, ['scripts/build-hosting.cjs'], {cwd:root});
   const dir = path.join(root,'dist');
+  assert.ok(!fs.existsSync(path.join(dir, 'obsolete-private-file.txt')));
   const html = fs.readFileSync(path.join(dir,'index.html'),'utf8');
   const sw = fs.readFileSync(path.join(dir,'sw.js'),'utf8');
   const scripts = [...html.matchAll(/src="\.\/([^"?]+\.js)"/g)].map(m=>m[1]);

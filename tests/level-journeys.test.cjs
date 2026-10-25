@@ -68,3 +68,29 @@ test('editor conserva jornada al cambiar grupo y permite otra por nivel', () => 
  assert.equal(byId('timetable-entry').value,'07:00');
  assert.equal(byId('timetable-journey-levels').children[0].children[0].checked,false);
 });
+
+test('permite cambiar de jornada institucional a niveles y recupera el modo guardado', () => {
+ const html = fs.readFileSync('index.html', 'utf8');
+ assert.doesNotMatch(html.match(/<select\b[^>]*id="timetable-journey-mode"[^>]*>/)[0], /\bdisabled\b/);
+ const {context, byId, run} = editor();
+ context.currentSchool = {timetablePreferences: {journeyMode: 'institutional'}};
+ run('initializeTimetableEditor()');
+ assert.equal(byId('timetable-level-options').hidden, true);
+ byId('timetable-journey-mode').value = 'levels';
+ context.window.updateTimetableJourneyMode();
+ assert.equal(byId('timetable-level-options').hidden, false);
+ byId('timetable-load-level').value = 'SEC';
+ context.window.loadLevelJourney();
+ assert.equal(byId('timetable-journey-levels').children[0].children[0].checked, false);
+ context.window.applyInstitutionalJourney({preventDefault(){}});
+ assert.equal(run('schoolTimetableDraft.levelJourneys.SEC.entryTime'), '08:00');
+ assert.equal(run('schoolTimetableDraft.levelJourneys.PRI'), undefined);
+ run('initializeTimetableEditor()');
+ assert.equal(byId('timetable-journey-mode').value, 'levels');
+ assert.equal(byId('timetable-level-options').hidden, false);
+ byId('timetable-journey-mode').value = 'institutional';
+ context.window.updateTimetableJourneyMode();
+ context.window.applyInstitutionalJourney({preventDefault(){}});
+ run('initializeTimetableEditor()');
+ assert.equal(byId('timetable-journey-mode').value, 'institutional');
+});

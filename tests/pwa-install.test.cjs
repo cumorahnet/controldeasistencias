@@ -85,6 +85,7 @@ function createHarness({
   let serviceWorkerUpdateCalls = 0;
   let nextTimerId = 1;
   const document = {
+    title: "Control de Asistencia VERSION 99.1.0",
     activeElement: null,
     readyState: "complete",
     addEventListener() {},
@@ -166,6 +167,8 @@ test("iOS muestra una guía visual de Safari y nunca simula un botón nativo", (
     userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
   });
 
+  assert.equal(harness.elements["install-app-modal"].classList.contains("hidden"), true);
+  harness.elements["btn-install-pwa"].trigger("click");
   assert.equal(harness.elements["install-app-modal"].classList.contains("hidden"), false);
   assert.equal(harness.elements["install-app-platform"].textContent, "iPhone / iPad · Safari");
   assert.equal(harness.elements["install-app-title"].textContent, "Añádela a tu pantalla de inicio");
@@ -173,7 +176,7 @@ test("iOS muestra una guía visual de Safari y nunca simula un botón nativo", (
   assert.equal(harness.elements["btn-install-app"].textContent, "Entendido");
   assert.match(harness.elements["install-step-1"].textContent, /Compartir/);
   assert.match(harness.elements["install-step-2"].textContent, /Agregar a pantalla de inicio/);
-  assert.equal(harness.storage.get(SEEN_KEY), "seen");
+  assert.equal(harness.storage.has(SEEN_KEY), false);
 });
 
 test("un navegador interno de iOS pide abrir Safari antes de mostrar pasos de instalación", () => {
@@ -181,24 +184,18 @@ test("un navegador interno de iOS pide abrir Safari antes de mostrar pasos de in
     userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Instagram 350.0",
   });
 
+  harness.elements["btn-install-pwa"].trigger("click");
   assert.equal(harness.elements["install-app-platform"].textContent, "Navegador interno");
   assert.equal(harness.elements["install-app-title"].textContent, "Continúa en tu navegador");
   assert.equal(harness.elements["btn-install-pwa"].installLabel.textContent, "Abrir en navegador");
   assert.match(harness.elements["install-step-2"].textContent, /Chrome|Safari/);
 });
 
-test("la primera visita Android presenta beneficios antes de cualquier guía manual", () => {
+test("la primera visita Android no abre avisos automaticamente", () => {
   const harness = createHarness();
   harness.runTimers();
-
-  assert.equal(harness.elements["install-app-title"].textContent, "Tus listas, a un toque");
-  assert.equal(harness.elements["btn-install-app"].dataset.action, "show-manual-options");
-  assert.equal(harness.elements["install-app-benefits"].classList.contains("hidden"), false);
-  assert.equal(harness.elements["install-app-steps"].classList.contains("hidden"), true);
-
-  harness.elements["btn-install-app"].trigger("click");
-  assert.equal(harness.elements["install-app-title"].textContent, "Añádela desde Chrome");
-  assert.equal(harness.elements["install-app-steps"].classList.contains("hidden"), false);
+  assert.equal(harness.elements["install-app-modal"].classList.contains("hidden"), true);
+  assert.equal(harness.elements["btn-install-pwa"].classList.contains("hidden"), true);
 });
 
 test("una visita posterior no repite el aviso ni deja una acción falsa en Android", () => {
@@ -234,7 +231,7 @@ test("escritorio no recibe aviso automático y muestra acción solo al ser elegi
   assert.equal(harness.elements["btn-install-pwa"].installLabel.textContent, "Instalar app");
 });
 
-test("beforeinstallprompt convierte la primera experiencia móvil en oferta nativa", () => {
+test("beforeinstallprompt permite abrir la oferta nativa manualmente", () => {
   const harness = createHarness();
   harness.dispatch("beforeinstallprompt", {
     preventDefault() {},
@@ -242,25 +239,12 @@ test("beforeinstallprompt convierte la primera experiencia móvil en oferta nati
     userChoice: Promise.resolve({outcome: "dismissed"}),
   });
 
+  assert.equal(harness.elements["install-app-modal"].classList.contains("hidden"), true);
+  harness.elements["btn-install-pwa"].trigger("click");
   assert.equal(harness.elements["install-app-title"].textContent, "Instala la app en este dispositivo");
   assert.equal(harness.elements["btn-install-app"].dataset.action, "native-install");
   assert.equal(harness.elements["btn-install-app"].textContent, "Instalar app");
-  assert.equal(harness.storage.get(SEEN_KEY), "seen");
-});
-
-test("un evento tardío actualiza el aviso abierto en vez de mostrar instrucciones antiguas", () => {
-  const harness = createHarness();
-  harness.runTimers();
-  assert.equal(harness.elements["btn-install-app"].dataset.action, "show-manual-options");
-
-  harness.dispatch("beforeinstallprompt", {
-    preventDefault() {},
-    prompt: async () => {},
-    userChoice: Promise.resolve({outcome: "dismissed"}),
-  });
-
-  assert.equal(harness.elements["btn-install-app"].dataset.action, "native-install");
-  assert.equal(harness.elements["install-app-title"].textContent, "Instala la app en este dispositivo");
+  assert.equal(harness.storage.has(SEEN_KEY), false);
 });
 
 test("un evento tardío tras descartar no repite el aviso y conserva la acción elegible", () => {
@@ -291,6 +275,7 @@ test("el diálogo nativo solo se invoca después de tocar Instalar app", async (
   });
 
   assert.equal(promptCalls, 0);
+  harness.elements["btn-install-pwa"].trigger("click");
   harness.elements["btn-install-app"].trigger("click");
   await flushPromises();
 
@@ -307,6 +292,7 @@ test("aceptar la solicitud no se confunde con appinstalled", async () => {
     prompt: async () => {},
     userChoice: Promise.resolve({outcome: "accepted"}),
   });
+  harness.elements["btn-install-pwa"].trigger("click");
   harness.elements["btn-install-app"].trigger("click");
   await flushPromises();
 
@@ -343,7 +329,7 @@ test("registra el service worker sin caché y prepara la recarga al actualizar",
   harness.dispatch("load");
 
   assert.equal(harness.serviceWorkerRegistrations.length, 1);
-  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=36.46.0");
+  assert.equal(harness.serviceWorkerRegistrations[0].scriptUrl, "./sw.js?v=99.1.0");
   assert.equal(harness.serviceWorkerRegistrations[0].options.scope, "./");
   assert.equal(harness.serviceWorkerRegistrations[0].options.updateViaCache, "none");
   assert.equal(typeof harness.serviceWorkerListeners.get("controllerchange"), "function");
@@ -380,8 +366,22 @@ test("manifiesto, iconos y app shell cumplen los requisitos PWA", () => {
     assert.equal(png.readUInt32BE(20), requiredSize);
   }
 
-  assert.match(serviceWorker, /control-asistencia-36\.68\.0-pwa-v34/);
+  const version = JSON.parse(fs.readFileSync(path.join(projectRoot, "version.json"), "utf8"));
+  assert.ok(serviceWorker.includes(`control-asistencia-${version.mayor}.${version.menor}.0-pwa-`));
   assert.match(serviceWorker, /"camera-data-scanner\.js"/);
   assert.match(serviceWorker, /"manifest\.webmanifest"/);
   assert.match(serviceWorker, /"pwa-install\.js"/);
+});
+
+test("un evento tardio habilita la accion sin abrir el aviso", () => {
+  const harness = createHarness();
+  harness.runTimers();
+  harness.dispatch("beforeinstallprompt", {
+    preventDefault() {}, prompt: async () => {},
+    userChoice: Promise.resolve({outcome: "dismissed"}),
+  });
+  assert.equal(harness.elements["install-app-modal"].classList.contains("hidden"), true);
+  assert.equal(harness.elements["btn-install-pwa"].classList.contains("hidden"), false);
+  harness.elements["btn-install-pwa"].trigger("click");
+  assert.equal(harness.elements["btn-install-app"].dataset.action, "native-install");
 });
